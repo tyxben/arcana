@@ -1,0 +1,281 @@
+"""StepExecutor - executes individual steps."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
+from arcana.contracts.runtime import PolicyDecision, StepResult, StepType
+from arcana.runtime.exceptions import StepExecutionError
+
+if TYPE_CHECKING:
+    from arcana.contracts.state import AgentState
+    from arcana.contracts.trace import TraceContext
+    from arcana.gateway.budget import BudgetTracker
+    from arcana.gateway.registry import ModelGatewayRegistry
+    from arcana.trace.writer import TraceWriter
+
+
+class StepExecutor:
+    """
+    Executes individual agent steps.
+
+    Handles:
+    - LLM calls for reasoning
+    - Tool execution (via future ToolGateway)
+    - Result processing and observation
+    """
+
+    def __init__(
+        self,
+        *,
+        gateway: ModelGatewayRegistry,
+        trace_writer: TraceWriter | None = None,
+        budget_tracker: BudgetTracker | None = None,
+        model_config: ModelConfig | None = None,
+    ) -> None:
+        """
+        Initialize the step executor.
+
+        Args:
+            gateway: Model gateway for LLM calls
+            trace_writer: Optional trace writer
+            budget_tracker: Optional budget tracker
+            model_config: Default model configuration
+        """
+        self.gateway = gateway
+        self.trace_writer = trace_writer
+        self.budget_tracker = budget_tracker
+        self.model_config = model_config or ModelConfig(
+            provider="deepseek",
+            model_id="deepseek-chat",
+            temperature=0.0,
+        )
+
+    async def execute(
+        self,
+        *,
+        state: AgentState,
+        decision: PolicyDecision,
+        trace_ctx: TraceContext,
+    ) -> StepResult:
+        """
+        Execute a step based on policy decision.
+
+        Args:
+            state: Current agent state
+            decision: Policy decision about what to do
+            trace_ctx: Trace context for logging
+
+        Returns:
+            StepResult with execution outcome
+        """
+        step_id = trace_ctx.new_step_id()
+
+        try:
+            if decision.action_type == "llm_call":
+                return await self._execute_llm_call(
+                    state, decision, step_id, trace_ctx
+                )
+            elif decision.action_type == "tool_call":
+                return await self._execute_tool_calls(
+                    state, decision, step_id, trace_ctx
+                )
+            elif decision.action_type == "complete":
+                return StepResult(
+                    step_type=StepType.VERIFY,
+                    step_id=step_id,
+                    success=True,
+                    thought="Goal achieved",
+                    state_updates={"goal_reached": True},
+                )
+            elif decision.action_type == "fail":
+                return StepResult(
+                    step_type=StepType.VERIFY,
+                    step_id=step_id,
+                    success=False,
+                    error=decision.stop_reason or "Policy decided to fail",
+                    is_recoverable=False,
+                )
+            else:
+                return StepResult(
+                    step_type=StepType.THINK,
+                    step_id=step_id,
+                    success=False,
+                    error=f"Unknown action type: {decision.action_type}",
+                )
+
+        except Exception as e:
+            return StepResult(
+                step_type=StepType.THINK,
+                step_id=step_id,
+                success=False,
+                error=str(e),
+                is_recoverable=self._is_recoverable_error(e),
+            )
+
+    async def _execute_llm_call(
+        self,
+        state: AgentState,
+        decision: PolicyDecision,
+        step_id: str,
+        trace_ctx: TraceContext,
+    ) -> StepResult:
+        """Execute an LLM call step."""
+        # Build request
+        messages = []
+        for m in decision.messages:
+            role = m.get("role", "user")
+            if isinstance(role, str):
+                role = MessageRole(role)
+            messages.append(
+                Message(
+                    role=role,
+                    content=m.get("content"),
+                    name=m.get("name"),
+                    tool_call_id=m.get("tool_call_id"),
+                )
+            )
+
+        request = LLMRequest(messages=messages)
+
+        # Check budget before call
+        if self.budget_tracker:
+            self.budget_tracker.check_budget()
+
+        # Make LLM call
+        try:
+            response = await self.gateway.generate(
+                request=request,
+                config=self.model_config,
+                trace_ctx=trace_ctx,
+            )
+        except Exception as e:
+            raise StepExecutionError(
+                f"LLM call failed: {e}",
+                step_id=step_id,
+                recoverable=self._is_recoverable_error(e),
+            ) from e
+
+        # Update budget tracker
+        if self.budget_tracker and response.usage:
+            self.budget_tracker.add_usage(response.usage)
+
+        # Parse response for thought/action
+        thought, action = self._parse_llm_response(response.content or "")
+
+        # Check if action indicates completion
+        if action and action.upper() == "FINISH":
+            return StepResult(
+                step_type=StepType.VERIFY,
+                step_id=step_id,
+                success=True,
+                thought=thought,
+                action=action,
+                llm_response=response,
+                state_updates={
+                    "tokens_used": state.tokens_used + response.usage.total_tokens,
+                },
+            )
+
+        return StepResult(
+            step_type=StepType.THINK,
+            step_id=step_id,
+            success=True,
+            thought=thought,
+            action=action,
+            llm_response=response,
+            state_updates={
+                "tokens_used": state.tokens_used + response.usage.total_tokens,
+            },
+        )
+
+    async def _execute_tool_calls(
+        self,
+        state: AgentState,
+        decision: PolicyDecision,
+        step_id: str,
+        trace_ctx: TraceContext,
+    ) -> StepResult:
+        """Execute tool calls."""
+        # TODO: Integrate with ToolGateway when implemented
+        # For now, return placeholder
+        return StepResult(
+            step_type=StepType.ACT,
+            step_id=step_id,
+            success=False,
+            error="ToolGateway not yet implemented",
+            is_recoverable=False,
+        )
+
+    def _parse_llm_response(
+        self,
+        content: str,
+    ) -> tuple[str | None, str | None]:
+        """
+        Parse LLM response for thought and action.
+
+        Expected format:
+        Thought: <reasoning>
+        Action: <action to take>
+        """
+        thought = None
+        action = None
+
+        lines = content.split("\n")
+        current_section = None
+        current_content: list[str] = []
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.lower().startswith("thought:"):
+                # Save previous section if any
+                if current_section == "thought" and current_content:
+                    thought = " ".join(current_content)
+                elif current_section == "action" and current_content:
+                    action = " ".join(current_content)
+
+                current_section = "thought"
+                # Get content after "Thought:"
+                remaining = stripped[8:].strip()
+                current_content = [remaining] if remaining else []
+
+            elif stripped.lower().startswith("action:"):
+                # Save previous section
+                if current_section == "thought" and current_content:
+                    thought = " ".join(current_content)
+                elif current_section == "action" and current_content:
+                    action = " ".join(current_content)
+
+                current_section = "action"
+                remaining = stripped[7:].strip()
+                current_content = [remaining] if remaining else []
+
+            elif current_section and stripped:
+                current_content.append(stripped)
+
+        # Save last section
+        if current_section == "thought" and current_content:
+            thought = " ".join(current_content)
+        elif current_section == "action" and current_content:
+            action = " ".join(current_content)
+
+        # If no structured format, treat entire content as thought
+        if thought is None and action is None:
+            thought = content.strip() if content.strip() else None
+
+        return thought, action
+
+    def _is_recoverable_error(self, error: Exception) -> bool:
+        """Determine if an error is recoverable."""
+        error_str = str(error).lower()
+
+        # Rate limits and timeouts are recoverable
+        if any(x in error_str for x in ["rate limit", "timeout", "503", "429"]):
+            return True
+
+        # Budget exceeded is not recoverable
+        if "budget" in error_str:
+            return False
+
+        return True
