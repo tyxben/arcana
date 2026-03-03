@@ -6,8 +6,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from uuid import uuid4
+
 from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
 from arcana.contracts.runtime import PolicyDecision, StepResult, StepType
+from arcana.contracts.tool import ToolCall
 from arcana.runtime.exceptions import StepExecutionError
 from arcana.runtime.validator import OutputValidator
 
@@ -16,6 +19,7 @@ if TYPE_CHECKING:
     from arcana.contracts.trace import TraceContext
     from arcana.gateway.budget import BudgetTracker
     from arcana.gateway.registry import ModelGatewayRegistry
+    from arcana.tool_gateway.gateway import ToolGateway
     from arcana.trace.writer import TraceWriter
 
 
@@ -33,6 +37,7 @@ class StepExecutor:
         self,
         *,
         gateway: ModelGatewayRegistry,
+        tool_gateway: ToolGateway | None = None,
         trace_writer: TraceWriter | None = None,
         budget_tracker: BudgetTracker | None = None,
         model_config: ModelConfig | None = None,
@@ -43,12 +48,14 @@ class StepExecutor:
 
         Args:
             gateway: Model gateway for LLM calls
+            tool_gateway: Optional tool gateway for tool execution
             trace_writer: Optional trace writer
             budget_tracker: Optional budget tracker
             model_config: Default model configuration
             max_validation_retries: Max retries for validation failures
         """
         self.gateway = gateway
+        self.tool_gateway = tool_gateway
         self.trace_writer = trace_writer
         self.budget_tracker = budget_tracker
         self.model_config = model_config or ModelConfig(
@@ -264,15 +271,46 @@ class StepExecutor:
         step_id: str,
         trace_ctx: TraceContext,
     ) -> StepResult:
-        """Execute tool calls."""
-        # TODO: Integrate with ToolGateway when implemented
-        # For now, return placeholder
+        """Execute tool calls via the ToolGateway."""
+        if self.tool_gateway is None:
+            return StepResult(
+                step_type=StepType.ACT,
+                step_id=step_id,
+                success=False,
+                error="ToolGateway not configured",
+                is_recoverable=False,
+            )
+
+        tool_calls = []
+        for tc_dict in decision.tool_calls:
+            tool_calls.append(
+                ToolCall(
+                    id=tc_dict.get("id", str(uuid4())),
+                    name=tc_dict["name"],
+                    arguments=tc_dict.get("arguments", {}),
+                    idempotency_key=tc_dict.get("idempotency_key"),
+                    run_id=state.run_id,
+                    step_id=step_id,
+                )
+            )
+
+        results = await self.tool_gateway.call_many(tool_calls, trace_ctx=trace_ctx)
+
+        all_success = all(r.success for r in results)
+        observation = "\n".join(r.output_str for r in results)
+
         return StepResult(
             step_type=StepType.ACT,
             step_id=step_id,
-            success=False,
-            error="ToolGateway not yet implemented",
-            is_recoverable=False,
+            success=all_success,
+            tool_results=results,
+            observation=observation,
+            error=None if all_success else "One or more tool calls failed",
+            is_recoverable=any(
+                r.error and r.error.is_retryable
+                for r in results
+                if not r.success
+            ),
         )
 
     def _parse_llm_response(

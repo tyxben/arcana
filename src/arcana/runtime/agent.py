@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from arcana.runtime.reducers.base import BaseReducer
     from arcana.runtime.state_manager import StateManager
     from arcana.runtime.step import StepExecutor
+    from arcana.tool_gateway.gateway import ToolGateway
     from arcana.trace.writer import TraceWriter
 
 
@@ -47,6 +48,7 @@ class Agent:
         config: RuntimeConfig | None = None,
         trace_writer: TraceWriter | None = None,
         budget_tracker: BudgetTracker | None = None,
+        tool_gateway: ToolGateway | None = None,
         hooks: list[RuntimeHook] | None = None,
     ) -> None:
         """
@@ -59,6 +61,7 @@ class Agent:
             config: Runtime configuration
             trace_writer: Optional trace writer for event logging
             budget_tracker: Optional budget tracker for resource enforcement
+            tool_gateway: Optional tool gateway for tool execution
             hooks: Optional list of runtime hooks
         """
         self.policy = policy
@@ -67,6 +70,7 @@ class Agent:
         self.config = config or RuntimeConfig()
         self.trace_writer = trace_writer
         self.budget_tracker = budget_tracker
+        self.tool_gateway = tool_gateway
         self.hooks = hooks or []
 
         # Internal components (lazy initialized)
@@ -85,6 +89,7 @@ class Agent:
 
             self._step_executor = StepExecutor(
                 gateway=self.gateway,
+                tool_gateway=self.tool_gateway,
                 trace_writer=self.trace_writer,
                 budget_tracker=self.budget_tracker,
             )
