@@ -15,6 +15,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+langchain = [
+    "langchain-core>=0.3",
+    "langchain-openai>=0.3",
+    "langgraph>=0.2",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

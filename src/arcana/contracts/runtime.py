@@ -65,6 +65,7 @@ class PolicyDecision(BaseModel):
 
     # Metadata
     reasoning: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RuntimeConfig(BaseModel):

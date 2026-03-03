@@ -26,6 +26,7 @@ class ModelGatewayRegistry:
         """Initialize the registry."""
         self._providers: dict[str, ModelGateway] = {}
         self._fallback_chains: dict[str, list[str]] = {}
+        self._default_provider: str | None = None
 
     def register(self, name: str, provider: ModelGateway) -> None:
         """
@@ -51,6 +52,22 @@ class ModelGatewayRegistry:
             del self._providers[name]
             return True
         return False
+
+    def set_default(self, name: str) -> None:
+        """
+        Set the default provider.
+
+        Args:
+            name: Provider name to use as default
+        """
+        if name not in self._providers:
+            raise KeyError(f"Provider '{name}' is not registered")
+        self._default_provider = name
+
+    @property
+    def default_provider(self) -> str | None:
+        """Get the default provider name."""
+        return self._default_provider
 
     def get(self, name: str) -> ModelGateway | None:
         """
@@ -104,8 +121,13 @@ class ModelGatewayRegistry:
         provider_name = config.provider
         provider = self._providers.get(provider_name)
 
+        # Fall back to default provider if specified provider not found
+        if provider is None and self._default_provider:
+            provider_name = self._default_provider
+            provider = self._providers.get(provider_name)
+
         if provider is None:
-            raise KeyError(f"Provider '{provider_name}' is not registered")
+            raise KeyError(f"Provider '{config.provider}' is not registered")
 
         # Try primary provider
         try:

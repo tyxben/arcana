@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel
+
 from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
 from arcana.contracts.runtime import PolicyDecision, StepResult, StepType
 from arcana.runtime.exceptions import StepExecutionError
+from arcana.runtime.validator import OutputValidator
 
 if TYPE_CHECKING:
     from arcana.contracts.state import AgentState
@@ -33,6 +36,7 @@ class StepExecutor:
         trace_writer: TraceWriter | None = None,
         budget_tracker: BudgetTracker | None = None,
         model_config: ModelConfig | None = None,
+        max_validation_retries: int = 2,
     ) -> None:
         """
         Initialize the step executor.
@@ -42,6 +46,7 @@ class StepExecutor:
             trace_writer: Optional trace writer
             budget_tracker: Optional budget tracker
             model_config: Default model configuration
+            max_validation_retries: Max retries for validation failures
         """
         self.gateway = gateway
         self.trace_writer = trace_writer
@@ -51,6 +56,7 @@ class StepExecutor:
             model_id="deepseek-chat",
             temperature=0.0,
         )
+        self.validator = OutputValidator(max_retry_attempts=max_validation_retries)
 
     async def execute(
         self,
@@ -121,7 +127,7 @@ class StepExecutor:
         step_id: str,
         trace_ctx: TraceContext,
     ) -> StepResult:
-        """Execute an LLM call step."""
+        """Execute an LLM call step with optional validation."""
         # Build request
         messages = []
         for m in decision.messages:
@@ -137,29 +143,89 @@ class StepExecutor:
                 )
             )
 
-        request = LLMRequest(messages=messages)
+        # Extract schema if provided in decision
+        expected_schema = decision.metadata.get("expected_schema") if hasattr(decision, "metadata") else None
+        validate_structured = decision.metadata.get("validate_structured", False) if hasattr(decision, "metadata") else False
+        required_fields = decision.metadata.get("required_fields", ["thought", "action"]) if hasattr(decision, "metadata") else ["thought", "action"]
 
-        # Check budget before call
-        if self.budget_tracker:
-            self.budget_tracker.check_budget()
+        # Try LLM call with retries for validation failures
+        max_attempts = 1 + self.validator.max_retry_attempts
+        last_error = None
 
-        # Make LLM call
-        try:
-            response = await self.gateway.generate(
-                request=request,
-                config=self.model_config,
-                trace_ctx=trace_ctx,
-            )
-        except Exception as e:
-            raise StepExecutionError(
-                f"LLM call failed: {e}",
-                step_id=step_id,
-                recoverable=self._is_recoverable_error(e),
-            ) from e
+        for attempt in range(max_attempts):
+            request = LLMRequest(messages=messages)
 
-        # Update budget tracker
-        if self.budget_tracker and response.usage:
-            self.budget_tracker.add_usage(response.usage)
+            # Check budget before call
+            if self.budget_tracker:
+                self.budget_tracker.check_budget()
+
+            # Make LLM call
+            try:
+                response = await self.gateway.generate(
+                    request=request,
+                    config=self.model_config,
+                    trace_ctx=trace_ctx,
+                )
+            except Exception as e:
+                raise StepExecutionError(
+                    f"LLM call failed: {e}",
+                    step_id=step_id,
+                    recoverable=self._is_recoverable_error(e),
+                ) from e
+
+            # Update budget tracker
+            if self.budget_tracker and response.usage:
+                self.budget_tracker.add_usage(response.usage)
+
+            # Validate if schema expected
+            if expected_schema:
+                validation = self.validator.validate_json(response, expected_schema)
+                if not validation.valid:
+                    last_error = f"Validation failed: {', '.join(validation.errors)}"
+                    # Retry with error feedback
+                    if attempt < max_attempts - 1:
+                        retry_prompt = self.validator.create_retry_prompt(
+                            validation,
+                            schema_description=f"Expected schema: {expected_schema.__name__}" if expected_schema else None
+                        )
+                        messages.append({"role": "assistant", "content": response.content or ""})
+                        messages.append({"role": "user", "content": retry_prompt})
+                        continue
+                    # Last attempt failed
+                    return StepResult(
+                        step_type=StepType.THINK,
+                        step_id=step_id,
+                        success=False,
+                        error=last_error,
+                        is_recoverable=True,
+                        llm_response=response,
+                    )
+
+            # Validate structured format if requested
+            if validate_structured:
+                validation = self.validator.validate_structured_format(response, required_fields)
+                if not validation.valid:
+                    last_error = f"Format validation failed: {', '.join(validation.errors)}"
+                    if attempt < max_attempts - 1:
+                        retry_prompt = self.validator.create_retry_prompt(
+                            validation,
+                            schema_description=f"Required fields: {', '.join(required_fields)}"
+                        )
+                        messages.append({"role": "assistant", "content": response.content or ""})
+                        messages.append({"role": "user", "content": retry_prompt})
+                        continue
+                    # Last attempt failed
+                    return StepResult(
+                        step_type=StepType.THINK,
+                        step_id=step_id,
+                        success=False,
+                        error=last_error,
+                        is_recoverable=True,
+                        llm_response=response,
+                    )
+
+            # Validation passed or no validation required
+            break
 
         # Parse response for thought/action
         thought, action = self._parse_llm_response(response.content or "")
@@ -174,7 +240,8 @@ class StepExecutor:
                 action=action,
                 llm_response=response,
                 state_updates={
-                    "tokens_used": state.tokens_used + response.usage.total_tokens,
+                    "goal_reached": True,
+                    "tokens_used": state.tokens_used + (response.usage.total_tokens if response.usage else 0),
                 },
             )
 
@@ -186,7 +253,7 @@ class StepExecutor:
             action=action,
             llm_response=response,
             state_updates={
-                "tokens_used": state.tokens_used + response.usage.total_tokens,
+                "tokens_used": state.tokens_used + (response.usage.total_tokens if response.usage else 0),
             },
         )
 
