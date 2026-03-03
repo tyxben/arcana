@@ -25,7 +25,6 @@ from arcana.rag.retriever import Retriever
 from arcana.rag.verifier import CitationVerifier
 from arcana.storage.base import VectorSearchResult, VectorStore
 
-
 # ── MockVectorStore ──────────────────────────────────────────────
 # Inline mock since InMemoryVectorStore may not exist yet.
 
@@ -93,7 +92,7 @@ class MockVectorStore(VectorStore):
     def _cosine_similarity(a: list[float], b: list[float]) -> float:
         if len(a) != len(b):
             return 0.0
-        dot = sum(x * y for x, y in zip(a, b))
+        dot = sum(x * y for x, y in zip(a, b, strict=True))
         norm_a = math.sqrt(sum(x * x for x in a))
         norm_b = math.sqrt(sum(x * x for x in b))
         if norm_a == 0 or norm_b == 0:
@@ -283,7 +282,7 @@ class TestChunkerMetadata:
         chunks1 = chunker.chunk(doc, config)
         chunks2 = chunker.chunk(doc, config)
         assert len(chunks1) == len(chunks2)
-        for c1, c2 in zip(chunks1, chunks2):
+        for c1, c2 in zip(chunks1, chunks2, strict=True):
             assert c1.id == c2.id
 
     def test_chunk_offsets(self, chunker: Chunker) -> None:
