@@ -43,6 +43,7 @@ class EventType(str, Enum):
     CHECKPOINT = "checkpoint"
     PLAN = "plan"
     VERIFY = "verify"
+    MEMORY_WRITE = "memory_write"
 
 
 class BudgetSnapshot(BaseModel):
