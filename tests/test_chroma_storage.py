@@ -8,7 +8,6 @@ import pytest
 
 from arcana.storage.chroma import ChromaVectorStore, _flatten_metadata
 
-
 # ── ChromaVectorStore Tests ─────────────────────────────────────────
 
 

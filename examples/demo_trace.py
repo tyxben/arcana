@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
-from arcana.contracts.trace import AgentRole, EventType, TraceContext, TraceEvent
+from arcana.contracts.trace import AgentRole, EventType, TraceEvent
 from arcana.trace.reader import TraceReader
 from arcana.trace.writer import TraceWriter
 from arcana.utils.config import load_config
@@ -75,14 +75,14 @@ async def demo_basic_trace():
 
     # Get summary
     summary = reader.get_summary(ctx.run_id)
-    print(f"\nTrace Summary:")
+    print("\nTrace Summary:")
     print(f"  - Total events: {summary['total_events']}")
     print(f"  - LLM calls: {summary['llm_calls']}")
     print(f"  - Tool calls: {summary['tool_calls']}")
 
     # Cleanup
     writer.delete(ctx.run_id)
-    print(f"\nDeleted trace file")
+    print("\nDeleted trace file")
 
 
 async def test_provider(provider_name: str, provider, model_config: ModelConfig, writer: TraceWriter):

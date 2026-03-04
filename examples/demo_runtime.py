@@ -51,7 +51,7 @@ async def demo_basic_execution():
     print("\n🚀 Running agent with goal: 'Calculate 15 + 27'")
     state = await agent.run("Calculate 15 + 27 and explain the result")
 
-    print(f"\n✅ Execution completed!")
+    print("\n✅ Execution completed!")
     print(f"   Status: {state.status.value}")
     print(f"   Steps: {state.current_step}")
     print(f"   Tokens used: {state.tokens_used}")
@@ -103,13 +103,13 @@ async def demo_with_budget_and_trace():
     goal = "Explain what the Fibonacci sequence is and give the first 5 numbers"
     state = await agent.run(goal)
 
-    print(f"\n✅ Execution completed!")
+    print("\n✅ Execution completed!")
     print(f"   Status: {state.status.value}")
     print(f"   Steps: {state.current_step}")
 
     # Show budget usage
     budget_snapshot = budget_tracker.to_snapshot()
-    print(f"\n💰 Budget Usage:")
+    print("\n💰 Budget Usage:")
     print(f"   Tokens: {budget_snapshot.tokens_used}/{budget_snapshot.max_tokens}")
     print(f"   Cost: ${budget_snapshot.cost_usd:.4f}")
     print(f"   Time: {budget_snapshot.time_ms}ms")
@@ -118,7 +118,7 @@ async def demo_with_budget_and_trace():
     trace_files = list(trace_dir.glob(f"{state.run_id}.jsonl"))
     if trace_files:
         print(f"\n📝 Trace file: {trace_files[0]}")
-        print(f"   (Use TraceReader to analyze)")
+        print("   (Use TraceReader to analyze)")
 
     # Show checkpoints
     checkpoint_files = list(checkpoint_dir.glob(f"{state.run_id}.checkpoints.jsonl"))
@@ -162,9 +162,9 @@ async def demo_progress_detection():
     print("\n🚀 Running agent that will get stuck...")
     state = await agent.run("Some task")
 
-    print(f"\n⚠️  Agent stopped!")
+    print("\n⚠️  Agent stopped!")
     print(f"   Status: {state.status.value}")
-    print(f"   Reason: No progress detected")
+    print("   Reason: No progress detected")
     print(f"   Consecutive no-progress steps: {state.consecutive_no_progress}")
     print(f"   Total steps: {state.current_step}")
 
@@ -225,13 +225,13 @@ async def demo_checkpointing_and_resume():
     print("\n🚀 Running agent with checkpointing...")
     state = await agent.run("Multi-step task")
 
-    print(f"\n✅ Execution completed!")
+    print("\n✅ Execution completed!")
     print(f"   Steps: {state.current_step}")
 
     # Load and show checkpoints
     snapshot = await agent.state_manager.load_snapshot(state.run_id)
     if snapshot:
-        print(f"\n💾 Latest checkpoint:")
+        print("\n💾 Latest checkpoint:")
         print(f"   Step ID: {snapshot.step_id}")
         print(f"   Resumable: {snapshot.is_resumable}")
         print(f"   State hash: {snapshot.state_hash}")

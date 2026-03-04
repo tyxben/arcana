@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 def _require_chromadb() -> None:
     """Raise a clear error if chromadb is not installed."""
     try:
-        import chromadb as _  # noqa: F811
+        import chromadb  # noqa: F401, F811
     except ImportError:
         raise ImportError(
             "chromadb is required for ChromaVectorStore. "

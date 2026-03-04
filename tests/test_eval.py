@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -12,13 +12,10 @@ from arcana.contracts.eval import (
     EvalResult,
     GateConfig,
     OutcomeCriterion,
-    RegressionResult,
 )
 from arcana.contracts.state import AgentState, ExecutionStatus
-from arcana.contracts.trace import StopReason, TraceContext, TraceEvent, EventType, AgentRole
 from arcana.eval.gate import RegressionGate
 from arcana.eval.runner import EvalRunner
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -79,7 +76,7 @@ class TestContracts:
             expected_outcome=OutcomeCriterion.STATUS,
             expected_value="completed",
         )
-        with pytest.raises(Exception):  # frozen
+        with pytest.raises(AttributeError):  # frozen
             case.id = "changed"  # type: ignore[misc]
 
     def test_eval_result_serialization(self):

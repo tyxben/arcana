@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import pytest
 
 from arcana.contracts.llm import LLMResponse, TokenUsage
@@ -13,9 +11,8 @@ from arcana.contracts.multi_agent import (
     HandoffResult,
     MessageType,
 )
-from arcana.contracts.runtime import RuntimeConfig
-from arcana.contracts.state import AgentState, ExecutionStatus
-from arcana.contracts.trace import AgentRole, EventType
+from arcana.contracts.state import AgentState
+from arcana.contracts.trace import AgentRole
 from arcana.gateway.registry import ModelGatewayRegistry
 from arcana.multi_agent.message_bus import MessageBus
 from arcana.multi_agent.team import (
@@ -29,7 +26,6 @@ from arcana.multi_agent.team import (
 )
 from arcana.runtime.policies.react import ReActPolicy
 from arcana.runtime.reducers.default import DefaultReducer
-
 
 # ── Mock Helpers ─────────────────────────────────────────────────────
 
@@ -61,13 +57,13 @@ class _MockGateway:
 
         if "Verify" in goal_text or "verify" in goal_text:
             # Critic response
-            content = f"Thought: Verified\nAction: FINISH"
+            content = "Thought: Verified\nAction: FINISH"
         elif "Execute" in goal_text or "execute" in goal_text:
             # Executor response
-            content = f"Thought: Executing\nAction: FINISH"
+            content = "Thought: Executing\nAction: FINISH"
         else:
             # Planner response
-            content = f"Thought: Planning\nAction: FINISH"
+            content = "Thought: Planning\nAction: FINISH"
 
         return LLMResponse(
             content=content,
@@ -426,7 +422,6 @@ class TestTeamOrchestrator:
     async def test_trace_events_written(self):
         """Trace events are written for team orchestration."""
         import tempfile
-        from pathlib import Path
 
         from arcana.trace.writer import TraceWriter
 

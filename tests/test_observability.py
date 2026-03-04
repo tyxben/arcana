@@ -1,7 +1,7 @@
 """Tests for the observability module — MetricsCollector + MetricsHook."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -16,8 +16,7 @@ from arcana.contracts.trace import (
     TraceEvent,
 )
 from arcana.observability.hooks import MetricsHook, StepMetric
-from arcana.observability.metrics import AggregateMetrics, MetricsCollector, RunSummary
-
+from arcana.observability.metrics import MetricsCollector, RunSummary
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
