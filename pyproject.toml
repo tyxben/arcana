@@ -15,6 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+chromadb = [
+    "chromadb>=0.5",
+]
 langchain = [
     "langchain-core>=0.3",
     "langchain-openai>=0.3",
@@ -25,6 +28,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.5",
     "mypy>=1.11",
+    "chromadb>=0.5",
 ]
 
 [build-system]
