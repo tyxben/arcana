@@ -51,6 +51,12 @@ class EventType(str, Enum):
     TASK_COMPLETE = "task_complete"
     TASK_FAIL = "task_fail"
 
+    # Graph engine events
+    GRAPH_NODE_START = "graph_node_start"
+    GRAPH_NODE_COMPLETE = "graph_node_complete"
+    GRAPH_TRANSITION = "graph_transition"
+    GRAPH_INTERRUPT = "graph_interrupt"
+
 
 class BudgetSnapshot(BaseModel):
     """Snapshot of budget consumption at a point in time."""
