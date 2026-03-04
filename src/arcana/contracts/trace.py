@@ -45,6 +45,12 @@ class EventType(str, Enum):
     VERIFY = "verify"
     MEMORY_WRITE = "memory_write"
 
+    # Orchestrator events
+    TASK_SUBMIT = "task_submit"
+    TASK_START = "task_start"
+    TASK_COMPLETE = "task_complete"
+    TASK_FAIL = "task_fail"
+
 
 class BudgetSnapshot(BaseModel):
     """Snapshot of budget consumption at a point in time."""
