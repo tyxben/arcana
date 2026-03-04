@@ -10,10 +10,8 @@ from arcana.contracts.memory import (
     MemoryQuery,
     MemoryType,
     MemoryWriteRequest,
-    MemoryWriteResult,
     RevocationRequest,
 )
-from arcana.contracts.trace import EventType
 from arcana.memory.episodic import EpisodicMemoryStore
 from arcana.memory.governance import WritePolicy
 from arcana.memory.long_term import LongTermMemoryStore
@@ -22,7 +20,6 @@ from arcana.memory.working import WorkingMemoryStore
 from arcana.rag.embedder import MockEmbedder
 from arcana.storage.memory import InMemoryBackend, InMemoryVectorStore
 from arcana.trace.writer import TraceWriter
-
 
 # ── Fixtures ─────────────────────────────────────────────────────
 

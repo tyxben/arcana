@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from arcana.contracts.runtime import RuntimeConfig, StepResult
+from arcana.contracts.runtime import RuntimeConfig, StepResult, StepType
 from arcana.contracts.state import AgentState, ExecutionStatus
 from arcana.contracts.trace import (
     AgentRole,
@@ -178,8 +178,11 @@ class Agent:
                     break
 
                 # Checkpoint if needed
-                if self._should_checkpoint(state, step_result):
-                    await self.state_manager.checkpoint(state, trace_ctx)
+                checkpoint_reason = self._should_checkpoint(state, step_result)
+                if checkpoint_reason:
+                    await self.state_manager.checkpoint(
+                        state, trace_ctx, reason=checkpoint_reason
+                    )
 
                 # Call hooks: on_step_complete
                 await self._call_hooks("on_step_complete", state, step_result, trace_ctx)
@@ -271,15 +274,34 @@ class Agent:
         self,
         state: AgentState,
         step_result: StepResult,
-    ) -> bool:
-        """Determine if we should create a checkpoint."""
+    ) -> str | None:
+        """
+        Determine if we should create a checkpoint.
+
+        Returns:
+            Checkpoint reason string if checkpoint needed, None otherwise.
+        """
         # Checkpoint on error
         if not step_result.success and self.config.checkpoint_on_error:
-            return True
+            return "error"
+
+        # Checkpoint on plan step completion
+        if (
+            step_result.state_updates.get("plan_step_completed")
+            and self.config.checkpoint_on_plan_step
+        ):
+            return "plan_step"
+
+        # Checkpoint on verification step
+        if (
+            step_result.step_type == StepType.VERIFY
+            and self.config.checkpoint_on_verification
+        ):
+            return "verification"
 
         # Checkpoint on interval
         if state.current_step % self.config.checkpoint_interval_steps == 0:
-            return True
+            return "interval"
 
         # Checkpoint on budget thresholds
         if self.budget_tracker:
@@ -290,9 +312,9 @@ class Agent:
                     and current_ratio >= threshold
                 ):
                     self._last_checkpoint_budget_ratio = current_ratio
-                    return True
+                    return "budget"
 
-        return False
+        return None
 
     def _get_budget_ratio(self) -> float:
         """Get current budget consumption ratio (0.0 to 1.0)."""

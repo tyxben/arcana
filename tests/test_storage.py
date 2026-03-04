@@ -8,7 +8,6 @@ import pytest
 
 from arcana.storage.memory import InMemoryBackend, InMemoryVectorStore, _cosine_similarity
 
-
 # ═══════════════════════════════════════════════════════════════════
 # InMemoryBackend Tests
 # ═══════════════════════════════════════════════════════════════════

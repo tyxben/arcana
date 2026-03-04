@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -74,7 +74,7 @@ class StateSnapshot(BaseModel):
 
     run_id: str
     step_id: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # State hash for integrity verification
     state_hash: str
@@ -83,7 +83,8 @@ class StateSnapshot(BaseModel):
     state: AgentState
 
     # Checkpoint metadata
-    checkpoint_reason: str | None = None
+    checkpoint_reason: str = ""  # "interval", "error", "plan_step", "verification", "budget"
+    plan_progress: dict[str, Any] = Field(default_factory=dict)  # Plan state at checkpoint time
     is_resumable: bool = True
 
     model_config = ConfigDict(

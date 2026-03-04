@@ -2,9 +2,9 @@
 
 import pytest
 
-from arcana.contracts.llm import LLMResponse, Message, MessageRole, ModelConfig, TokenUsage
+from arcana.contracts.llm import LLMResponse, TokenUsage
 from arcana.contracts.runtime import RuntimeConfig
-from arcana.contracts.state import AgentState, ExecutionStatus
+from arcana.contracts.state import ExecutionStatus
 from arcana.gateway.budget import BudgetTracker
 from arcana.gateway.registry import ModelGatewayRegistry
 from arcana.runtime.agent import Agent
@@ -165,7 +165,7 @@ class TestCheckpointing:
 
     async def test_creates_checkpoints(self, agent_with_checkpoints):
         """Test that checkpoints are created."""
-        state = await agent_with_checkpoints.run("Test goal")
+        await agent_with_checkpoints.run("Test goal")
 
         # Check that checkpoints were created
         checkpoint_dir = agent_with_checkpoints.state_manager.checkpoint_dir
@@ -207,7 +207,7 @@ class TestTracing:
             trace_writer=trace_writer,
         )
 
-        state = await agent.run("Test goal")
+        await agent.run("Test goal")
 
         # Check trace file was created
         trace_files = list(trace_dir.glob("*.jsonl"))

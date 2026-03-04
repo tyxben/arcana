@@ -16,7 +16,6 @@ from arcana.tool_gateway.gateway import ToolGateway
 from arcana.tool_gateway.registry import ToolRegistry
 from arcana.trace.writer import TraceWriter
 
-
 # ── Mock Providers ───────────────────────────────────────────────
 
 
@@ -141,7 +140,7 @@ class TestStepExecutorWithToolGateway:
 
     async def test_step_executor_tool_call(self):
         """Test that StepExecutor correctly routes tool calls through ToolGateway."""
-        from arcana.contracts.runtime import PolicyDecision, StepResult
+        from arcana.contracts.runtime import PolicyDecision
         from arcana.contracts.state import AgentState
         from arcana.contracts.trace import TraceContext
         from arcana.runtime.step import StepExecutor

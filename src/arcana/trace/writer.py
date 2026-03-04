@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -77,7 +77,7 @@ class TraceWriter:
 
         # Add timestamp if not present
         if "timestamp" not in data:
-            data["timestamp"] = datetime.now(timezone.utc).isoformat()
+            data["timestamp"] = datetime.now(UTC).isoformat()
 
         json_line = json.dumps(data, ensure_ascii=False, default=str)
 

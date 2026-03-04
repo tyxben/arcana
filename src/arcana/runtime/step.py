@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-
-from pydantic import BaseModel
-
 from uuid import uuid4
 
 from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
@@ -19,6 +16,7 @@ if TYPE_CHECKING:
     from arcana.contracts.trace import TraceContext
     from arcana.gateway.budget import BudgetTracker
     from arcana.gateway.registry import ModelGatewayRegistry
+    from arcana.runtime.verifiers.base import BaseVerifier
     from arcana.tool_gateway.gateway import ToolGateway
     from arcana.trace.writer import TraceWriter
 
@@ -38,6 +36,7 @@ class StepExecutor:
         *,
         gateway: ModelGatewayRegistry,
         tool_gateway: ToolGateway | None = None,
+        verifier: BaseVerifier | None = None,
         trace_writer: TraceWriter | None = None,
         budget_tracker: BudgetTracker | None = None,
         model_config: ModelConfig | None = None,
@@ -49,6 +48,7 @@ class StepExecutor:
         Args:
             gateway: Model gateway for LLM calls
             tool_gateway: Optional tool gateway for tool execution
+            verifier: Optional verifier for goal/plan verification
             trace_writer: Optional trace writer
             budget_tracker: Optional budget tracker
             model_config: Default model configuration
@@ -56,6 +56,7 @@ class StepExecutor:
         """
         self.gateway = gateway
         self.tool_gateway = tool_gateway
+        self.verifier = verifier
         self.trace_writer = trace_writer
         self.budget_tracker = budget_tracker
         self.model_config = model_config or ModelConfig(
@@ -101,6 +102,10 @@ class StepExecutor:
                     success=True,
                     thought="Goal achieved",
                     state_updates={"goal_reached": True},
+                )
+            elif decision.action_type == "verify":
+                return await self._execute_verify(
+                    state, decision, step_id
                 )
             elif decision.action_type == "fail":
                 return StepResult(
@@ -311,6 +316,51 @@ class StepExecutor:
                 for r in results
                 if not r.success
             ),
+        )
+
+    async def _execute_verify(
+        self,
+        state: AgentState,
+        decision: PolicyDecision,
+        step_id: str,
+    ) -> StepResult:
+        """Execute a verification step."""
+        state_updates: dict[str, object] = {"goal_reached": True}
+
+        if self.verifier is not None:
+            # Load plan from decision metadata if available
+            from arcana.contracts.plan import Plan
+
+            plan: Plan | None = None
+            plan_data = decision.metadata.get("plan")
+            if plan_data is not None:
+                try:
+                    plan = Plan.model_validate(plan_data)
+                except Exception:
+                    plan = None
+
+            verification = await self.verifier.verify(state, plan)
+            state_updates["verification_result"] = verification.model_dump(mode="json")
+
+            from arcana.contracts.plan import VerificationOutcome
+
+            if verification.outcome == VerificationOutcome.FAILED:
+                return StepResult(
+                    step_type=StepType.VERIFY,
+                    step_id=step_id,
+                    success=False,
+                    thought="Verification failed",
+                    observation=f"Coverage: {verification.coverage:.0%}, Failed: {verification.failed_criteria}",
+                    state_updates=state_updates,
+                    is_recoverable=True,
+                )
+
+        return StepResult(
+            step_type=StepType.VERIFY,
+            step_id=step_id,
+            success=True,
+            thought="Verification complete",
+            state_updates=state_updates,
         )
 
     def _parse_llm_response(

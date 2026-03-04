@@ -82,6 +82,8 @@ class RuntimeConfig(BaseModel):
     checkpoint_budget_thresholds: list[float] = Field(
         default_factory=lambda: [0.5, 0.75, 0.9]
     )
+    checkpoint_on_plan_step: bool = True  # Checkpoint after each plan step
+    checkpoint_on_verification: bool = True  # Checkpoint after verification
 
     # Retry configuration
     step_retry_count: int = 2

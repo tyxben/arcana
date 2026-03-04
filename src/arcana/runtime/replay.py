@@ -220,6 +220,93 @@ class ReplayEngine:
 
         return None
 
+    async def get_step_states(
+        self,
+        run_id: str,
+    ) -> list[tuple[str, AgentState]]:
+        """
+        Get (step_id, state) pairs for each step in a run.
+
+        Useful for debugging by examining state at each step.
+
+        Args:
+            run_id: Run ID to get step states for
+
+        Returns:
+            List of (step_id, state) tuples in execution order
+        """
+        events = self.reader.read_events(run_id)
+        if not events:
+            return []
+
+        state = self._reconstruct_initial_state(events)
+        step_states: list[tuple[str, AgentState]] = []
+
+        for event in events:
+            state = self._apply_event(state, event)
+            # Create a copy of state at this point
+            state_copy = state.model_copy(deep=True)
+            step_states.append((event.step_id, state_copy))
+
+        return step_states
+
+    async def compare_runs(
+        self,
+        run_id_a: str,
+        run_id_b: str,
+    ) -> dict[str, Any]:
+        """
+        Compare two runs and return detailed comparison.
+
+        Args:
+            run_id_a: First run ID
+            run_id_b: Second run ID
+
+        Returns:
+            Dictionary with divergence_step, total_steps_a, total_steps_b,
+            and matching_steps count
+        """
+        events_a = self.reader.read_events(run_id_a)
+        events_b = self.reader.read_events(run_id_b)
+
+        total_steps_a = len(events_a)
+        total_steps_b = len(events_b)
+        min_length = min(total_steps_a, total_steps_b)
+
+        divergence_step: int | None = None
+        matching_steps = 0
+
+        for i in range(min_length):
+            event_a = events_a[i]
+            event_b = events_b[i]
+
+            # Compare state hashes
+            if event_a.state_after_hash != event_b.state_after_hash:
+                divergence_step = i
+                break
+
+            # Compare LLM response digests
+            if (
+                event_a.llm_response_digest
+                and event_b.llm_response_digest
+                and event_a.llm_response_digest != event_b.llm_response_digest
+            ):
+                divergence_step = i
+                break
+
+            matching_steps += 1
+
+        # If no divergence found in shared range but lengths differ
+        if divergence_step is None and total_steps_a != total_steps_b:
+            divergence_step = min_length
+
+        return {
+            "divergence_step": divergence_step,
+            "total_steps_a": total_steps_a,
+            "total_steps_b": total_steps_b,
+            "matching_steps": matching_steps,
+        }
+
     def _reconstruct_initial_state(
         self,
         events: list[TraceEvent],

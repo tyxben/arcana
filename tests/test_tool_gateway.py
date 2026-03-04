@@ -13,12 +13,11 @@ from arcana.contracts.tool import (
     ToolSpec,
 )
 from arcana.contracts.trace import TraceContext
-from arcana.tool_gateway.base import ToolExecutionError, ToolProvider
+from arcana.tool_gateway.base import ToolProvider
 from arcana.tool_gateway.gateway import ToolGateway
 from arcana.tool_gateway.registry import ToolRegistry
 from arcana.tool_gateway.validators import validate_arguments
 from arcana.trace.writer import TraceWriter
-
 
 # ── Test Tool Providers ──────────────────────────────────────────
 
@@ -381,7 +380,7 @@ class TestIdempotency:
         call1 = _make_call("echo", idempotency_key="key-1")
         call2 = _make_call("echo", id="call-2", idempotency_key="key-2")
 
-        result1 = await gw.call(call1, trace_ctx=trace_ctx)
+        await gw.call(call1, trace_ctx=trace_ctx)
         result2 = await gw.call(call2, trace_ctx=trace_ctx)
 
         assert result2.tool_call_id == "call-2"

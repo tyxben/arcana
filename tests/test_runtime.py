@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from arcana.contracts.runtime import PolicyDecision, RuntimeConfig, StepResult, StepType
+from arcana.contracts.runtime import RuntimeConfig, StepResult, StepType
 from arcana.contracts.state import AgentState, ExecutionStatus
 from arcana.runtime.exceptions import StateTransitionError
 from arcana.runtime.policies.react import ReActPolicy

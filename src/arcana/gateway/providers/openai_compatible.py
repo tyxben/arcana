@@ -15,7 +15,7 @@ the OpenAI chat completions format. Most modern LLM providers support this:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from arcana.contracts.llm import (
@@ -32,9 +32,9 @@ from arcana.utils.hashing import canonical_hash
 
 try:
     from openai import (
-        AsyncOpenAI,
         APIConnectionError,
         APITimeoutError,
+        AsyncOpenAI,
         RateLimitError,
     )
 
@@ -199,13 +199,13 @@ class OpenAICompatibleProvider(ModelGateway):
                 provider=self._provider_name,
                 retryable=True,
                 status_code=429,
-            )
+            ) from e
         except (APIConnectionError, APITimeoutError) as e:
             raise ProviderError(
                 str(e),
                 provider=self._provider_name,
                 retryable=True,
-            )
+            ) from e
         except Exception as e:
             error_msg = str(e)
             # Check for retryable status codes in error message as fallback
@@ -216,7 +216,7 @@ class OpenAICompatibleProvider(ModelGateway):
                 error_msg,
                 provider=self._provider_name,
                 retryable=retryable,
-            )
+            ) from e
 
         # Parse response
         choice = response.choices[0]
@@ -261,7 +261,7 @@ class OpenAICompatibleProvider(ModelGateway):
                 run_id=trace_ctx.run_id,
                 task_id=trace_ctx.task_id,
                 step_id=trace_ctx.new_step_id(),
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 event_type=EventType.LLM_CALL,
                 llm_request_digest=request_digest,
                 llm_response_digest=response_digest,

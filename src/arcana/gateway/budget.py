@@ -33,7 +33,7 @@ class BudgetTracker:
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     @classmethod
-    def from_budget(cls, budget: Budget | None) -> "BudgetTracker":
+    def from_budget(cls, budget: Budget | None) -> BudgetTracker:
         """Create a tracker from a Budget object."""
         if budget is None:
             return cls()

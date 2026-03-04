@@ -108,6 +108,12 @@ class StateManager:
         serializable = state.model_dump(exclude={"start_time", "elapsed_ms"})
         state_hash = canonical_hash(serializable)
 
+        # Capture plan progress from working memory if present
+        plan_progress: dict[str, object] = {}
+        plan_data = state.working_memory.get("plan")
+        if plan_data and isinstance(plan_data, dict):
+            plan_progress = dict(plan_data)
+
         # Create snapshot
         snapshot = StateSnapshot(
             run_id=state.run_id,
@@ -115,6 +121,7 @@ class StateManager:
             state_hash=state_hash,
             state=state,
             checkpoint_reason=reason,
+            plan_progress=plan_progress,
             is_resumable=state.status
             in {
                 ExecutionStatus.RUNNING,
@@ -170,6 +177,22 @@ class StateManager:
         else:
             # Return latest
             return snapshots[-1] if snapshots else None
+
+    async def list_checkpoints(self, run_id: str) -> list[StateSnapshot]:
+        """
+        List all checkpoints for a run.
+
+        Args:
+            run_id: Run ID to list checkpoints for
+
+        Returns:
+            List of snapshots ordered by creation time
+        """
+        checkpoint_file = self._get_checkpoint_file(run_id)
+        if not checkpoint_file.exists():
+            return []
+
+        return self._read_checkpoints(checkpoint_file)
 
     def verify_snapshot(self, snapshot: StateSnapshot) -> bool:
         """

@@ -156,7 +156,7 @@ class ModelGatewayRegistry:
                         raise
 
             # All providers failed
-            raise last_error
+            raise last_error from last_error
 
     async def health_check_all(self) -> dict[str, bool]:
         """

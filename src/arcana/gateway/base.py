@@ -33,10 +33,10 @@ class ModelGateway(ABC):
     @abstractmethod
     async def generate(
         self,
-        request: "LLMRequest",
-        config: "ModelConfig",
-        trace_ctx: "TraceContext | None" = None,
-    ) -> "LLMResponse":
+        request: LLMRequest,
+        config: ModelConfig,
+        trace_ctx: TraceContext | None = None,
+    ) -> LLMResponse:
         """
         Generate a response from the LLM.
 
