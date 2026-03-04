@@ -20,22 +20,50 @@ A controllable, reproducible, and evaluable Agent Platform.
 - **Schema Validation**: LLM output validation with automatic retries
 - **Error Handling**: Classified error types with retry strategies
 
+## Module Maturity
+
+| Module | Status | Description |
+|--------|--------|-------------|
+| Contracts | ✅ Stable | Pydantic data models for all subsystems |
+| Trace | ✅ Stable | JSONL event logging, reader/writer |
+| Model Gateway | ✅ Stable | Multi-provider LLM routing with fallback |
+| Budget Tracker | ✅ Stable | Token/cost/time enforcement |
+| Agent Runtime | ✅ Stable | Policy-Step-Reducer execution engine |
+| Progress Detection | ✅ Stable | Loop and stuck state detection |
+| Checkpoint/Resume | ✅ Stable | State snapshots and recovery |
+| Replay Engine | ✅ Stable | Debug via cached response replay |
+| Schema Validation | ✅ Stable | LLM output validation with retries |
+| Error Handling | ✅ Stable | Classified errors with retry strategies |
+| Tool Gateway | 🔧 Beta | Authorization, validation, audit pipeline |
+| RAG | 🔧 Beta | Embedding, retrieval, reranking |
+| Memory | 🔧 Beta | Working, long-term, episodic memory |
+| Orchestrator | 🔧 Beta | Task DAG scheduling, concurrent execution |
+| Multi-Agent | 🔧 Beta | Team collaboration (Planner-Executor-Critic) |
+| Observability | 🧪 Alpha | Metrics collection and hooks |
+| Eval Harness | 🧪 Alpha | Evaluation runner and quality gates |
+
 ## Quick Start
 
 ```bash
-# Install dependencies
-uv sync --all-extras
+# Install
+pip install -e ".[dev]"
 
 # Copy environment variables
 cp .env.example .env
 # Edit .env with your API keys
 
+# Run linting
+make lint
+
+# Run type checking
+make typecheck
+
 # Run tests
-uv run pytest
+make test
 
 # Run demos
-uv run python examples/demo_trace.py     # Trace system demo
-uv run python examples/demo_runtime.py   # Agent runtime demo
+python examples/demo_trace.py     # Trace system demo
+python examples/demo_runtime.py   # Agent runtime demo
 ```
 
 ## Project Structure
@@ -99,16 +127,18 @@ asyncio.run(main())
 
 ```bash
 # Install dev dependencies
-uv sync --all-extras
+pip install -e ".[dev]"
 
-# Run linter
-uv run ruff check .
+# Run all checks
+make all          # lint + typecheck + test
 
-# Run type checker
-uv run mypy src/
-
-# Run tests with coverage
-uv run pytest --cov=arcana
+# Individual commands
+make lint         # ruff check
+make format       # ruff format + fix
+make typecheck    # mypy strict
+make test         # pytest
+make test-cov     # pytest with coverage
+make clean        # remove build artifacts
 ```
 
 ## License

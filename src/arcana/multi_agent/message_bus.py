@@ -40,6 +40,11 @@ class MessageBus:
         """
         Retrieve all pending messages for a role (non-blocking drain).
 
+        Note: This method is provided for custom orchestrator implementations.
+        The default ``TeamOrchestrator`` does not use ``subscribe()``; it
+        communicates between roles via direct state passing and only uses
+        ``publish()`` / ``history()`` for audit logging.
+
         Args:
             role: The agent role to get messages for.
 

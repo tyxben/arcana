@@ -18,7 +18,15 @@ from arcana.contracts.state import AgentState, ExecutionStatus
 from arcana.contracts.trace import AgentRole, EventType
 from arcana.gateway.registry import ModelGatewayRegistry
 from arcana.multi_agent.message_bus import MessageBus
-from arcana.multi_agent.team import RoleConfig, TeamOrchestrator
+from arcana.multi_agent.team import (
+    APPROVED_VERDICTS,
+    WM_KEY_FEEDBACK,
+    WM_KEY_PLAN,
+    WM_KEY_RESULT,
+    WM_KEY_VERDICT,
+    RoleConfig,
+    TeamOrchestrator,
+)
 from arcana.runtime.policies.react import ReActPolicy
 from arcana.runtime.reducers.default import DefaultReducer
 
@@ -81,7 +89,7 @@ class _VerdictReducer(DefaultReducer):
 
     async def reduce(self, state, step_result):
         state = await super().reduce(state, step_result)
-        state.working_memory["verdict"] = self._verdict
+        state.working_memory[WM_KEY_VERDICT] = self._verdict
         return state
 
 
@@ -94,7 +102,7 @@ class _PlanReducerMock(DefaultReducer):
 
     async def reduce(self, state, step_result):
         state = await super().reduce(state, step_result)
-        state.working_memory["plan"] = "Step 1: Do the thing"
+        state.working_memory[WM_KEY_PLAN] = "Step 1: Do the thing"
         return state
 
 
@@ -107,7 +115,7 @@ class _ResultReducerMock(DefaultReducer):
 
     async def reduce(self, state, step_result):
         state = await super().reduce(state, step_result)
-        state.working_memory["result"] = "Execution completed successfully"
+        state.working_memory[WM_KEY_RESULT] = "Execution completed successfully"
         return state
 
 
@@ -303,7 +311,7 @@ class TestTeamOrchestrator:
                 state = await super().reduce(state, step_result)
                 call_count += 1
                 # Fail on first call (round 1), pass on second (round 2)
-                state.working_memory["verdict"] = (
+                state.working_memory[WM_KEY_VERDICT] = (
                     "pass" if call_count >= 2 else "fail"
                 )
                 return state
@@ -500,7 +508,7 @@ class TestIntegration:
                 state = await super().reduce(state, step_result)
                 round_counter["n"] += 1
                 # Pass on round 3 (3rd critic call)
-                state.working_memory["verdict"] = (
+                state.working_memory[WM_KEY_VERDICT] = (
                     "pass" if round_counter["n"] >= 3 else "fail"
                 )
                 return state
@@ -571,3 +579,65 @@ class TestModuleExports:
         assert hasattr(ma, "CollaborationSession")
         assert hasattr(ma, "HandoffResult")
         assert hasattr(ma, "MessageType")
+        assert hasattr(ma, "WM_KEY_PLAN")
+        assert hasattr(ma, "WM_KEY_RESULT")
+        assert hasattr(ma, "WM_KEY_FEEDBACK")
+        assert hasattr(ma, "WM_KEY_VERDICT")
+        assert hasattr(ma, "APPROVED_VERDICTS")
+
+
+# ── Budget Exhaustion & Error Handling Tests ────────────────────────
+
+
+class TestBudgetAndErrors:
+    @pytest.mark.asyncio
+    async def test_budget_exhausted_before_start(self):
+        """Budget already exhausted → returns budget_exhausted immediately."""
+        from arcana.gateway.budget import BudgetTracker
+
+        configs = _make_role_configs(verdict="pass")
+        gateway = _make_gateway()
+        budget = BudgetTracker(max_tokens=10, tokens_used=100)
+        team = TeamOrchestrator(
+            configs, gateway, max_rounds=3, global_budget=budget
+        )
+
+        result = await team.run("Should stop early")
+
+        assert result.final_status == "budget_exhausted"
+        assert result.rounds == 0
+
+    @pytest.mark.asyncio
+    async def test_agent_error_returns_error_status(self):
+        """If an agent raises, HandoffResult has status='error'."""
+
+        class _CrashingGateway:
+            async def generate(self, request, config, trace_ctx=None):
+                raise RuntimeError("LLM provider down")
+
+        gateway = ModelGatewayRegistry()
+        gateway._providers["crash"] = _CrashingGateway()
+        gateway._default_provider = "crash"
+
+        configs = _make_role_configs(verdict="pass")
+        team = TeamOrchestrator(configs, gateway, max_rounds=3)
+
+        result = await team.run("Will crash")
+
+        assert result.final_status == "error"
+        assert result.rounds == 1
+
+    def test_approved_verdicts_constant(self):
+        """APPROVED_VERDICTS contains expected values."""
+        assert "pass" in APPROVED_VERDICTS
+        assert "true" in APPROVED_VERDICTS
+        assert "yes" in APPROVED_VERDICTS
+        assert "approved" in APPROVED_VERDICTS
+        assert "fail" not in APPROVED_VERDICTS
+
+    def test_wm_key_constants(self):
+        """Working memory key constants have expected values."""
+        assert WM_KEY_PLAN == "plan"
+        assert WM_KEY_RESULT == "result"
+        assert WM_KEY_FEEDBACK == "feedback"
+        assert WM_KEY_VERDICT == "verdict"
