@@ -53,6 +53,8 @@ class CalculatorTool(ToolProvider):
 class MockModelGateway:
     """Mock LLM gateway for integration tests."""
 
+    default_model = "mock-model"
+
     def __init__(self, responses: list[str] | None = None) -> None:
         self.responses = responses or ["Thought: Done\nAction: FINISH"]
         self.call_count = 0

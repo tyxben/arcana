@@ -651,6 +651,10 @@ class TestStepExecutorVerify:
         self, *, verifier: GoalVerifier | None = None
     ) -> StepExecutor:
         mock_gateway = MagicMock()
+        mock_gateway.default_provider = "mock"
+        mock_provider = MagicMock()
+        mock_provider.default_model = "mock-model"
+        mock_gateway.get.return_value = mock_provider
         return StepExecutor(
             gateway=mock_gateway,
             verifier=verifier,

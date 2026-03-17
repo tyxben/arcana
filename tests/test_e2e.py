@@ -126,6 +126,7 @@ def _mock_gateway(response_content: str = "Hello!") -> ModelGatewayRegistry:
         return_value=_fake_llm_response(response_content)
     )
     mock_provider.health_check = AsyncMock(return_value=True)
+    mock_provider.default_model = "mock-model"
     gateway.register("deepseek", mock_provider)
     gateway.set_default("deepseek")
     return gateway
@@ -857,7 +858,12 @@ class TestModelRouter:
     async def test_get_config_for_role(self) -> None:
         """get_config_for_role should return a ModelConfig for each role."""
         gateway = _mock_gateway()
-        router = ModelRouter(gateway)
+        # Use a config where all roles point to the registered "deepseek" provider
+        # so that default_model resolution works with the mock gateway.
+        routing_config = RoutingConfig(
+            strategist_provider="deepseek",
+        )
+        router = ModelRouter(gateway, config=routing_config)
         for role in ModelRole:
             config = router.get_config_for_role(role)
             assert isinstance(config, ModelConfig)

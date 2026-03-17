@@ -748,17 +748,27 @@ class Agent:
         return None
 
     def _get_default_config(self) -> ModelConfig:
-        """Get a ModelConfig for the default provider."""
+        """Get a ModelConfig for the default provider.
+
+        Resolution order:
+        1. Provider's default_model attribute
+        2. Raise ValueError -- never guess a hardcoded model name
+        """
         from arcana.contracts.llm import ModelConfig
 
         provider_name = self.gateway.default_provider or "deepseek"
-        # Try to get the actual default model from the provider
         provider = self.gateway.get(provider_name)
-        model_id = "deepseek-chat"  # safe fallback
+        model_id: str | None = None
         if provider and hasattr(provider, "default_model"):
             dm = provider.default_model
             if isinstance(dm, str) and dm:
                 model_id = dm
+        if not model_id:
+            msg = (
+                f"No default model configured for provider '{provider_name}'. "
+                "Pass model_config explicitly or register a provider with a default_model."
+            )
+            raise ValueError(msg)
         return ModelConfig(provider=provider_name, model_id=model_id)
 
     # ------------------------------------------------------------------

@@ -63,11 +63,28 @@ class StepExecutor:
         self.verifier = verifier
         self.trace_writer = trace_writer
         self.budget_tracker = budget_tracker
-        self.model_config = model_config or ModelConfig(
-            provider="deepseek",
-            model_id="deepseek-chat",
-            temperature=0.0,
-        )
+        if model_config is not None:
+            self.model_config = model_config
+        else:
+            # Resolve from gateway's default provider instead of hardcoding
+            provider_name = gateway.default_provider or "deepseek"
+            provider = gateway.get(provider_name)
+            default_model_id: str | None = None
+            if provider and hasattr(provider, "default_model"):
+                dm = provider.default_model
+                if isinstance(dm, str) and dm:
+                    default_model_id = dm
+            if not default_model_id:
+                msg = (
+                    f"No default model configured for provider '{provider_name}'. "
+                    "Pass model_config explicitly or register a provider with a default_model."
+                )
+                raise ValueError(msg)
+            self.model_config = ModelConfig(
+                provider=provider_name,
+                model_id=default_model_id,
+                temperature=0.0,
+            )
         self.validator = OutputValidator(max_retry_attempts=max_validation_retries)
 
     async def execute(

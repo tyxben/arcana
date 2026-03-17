@@ -32,17 +32,18 @@ class RoutingConfig(BaseModel):
 
     model_config = {"protected_namespaces": ()}
 
-    # 每个角色对应的 provider + model
+    # 每个角色对应的 provider + model.
+    # model 为 None 时使用 provider 的 default_model。
     router_provider: str = "deepseek"
-    router_model: str = "deepseek-chat"
+    router_model: str | None = None  # Uses provider default if None
     strategist_provider: str = "anthropic"
-    strategist_model: str = "claude-sonnet-4-20250514"
+    strategist_model: str | None = None  # Uses provider default if None
     executor_provider: str = "deepseek"
-    executor_model: str = "deepseek-chat"
+    executor_model: str | None = None  # Uses provider default if None
     compressor_provider: str = "deepseek"
-    compressor_model: str = "deepseek-chat"
+    compressor_model: str | None = None  # Uses provider default if None
     validator_provider: str = "deepseek"
-    validator_model: str = "deepseek-chat"
+    validator_model: str | None = None  # Uses provider default if None
 
     # 优化选项
     auto_downgrade: bool = True  # 简单任务自动用小模型

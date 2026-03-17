@@ -33,6 +33,8 @@ from arcana.runtime.reducers.default import DefaultReducer
 class _MockGateway:
     """Mock LLM gateway with configurable per-role responses."""
 
+    default_model = "mock-model"
+
     def __init__(
         self,
         *,
@@ -607,6 +609,8 @@ class TestBudgetAndErrors:
         """If an agent raises, HandoffResult has status='error'."""
 
         class _CrashingGateway:
+            default_model = "mock-model"
+
             async def generate(self, request, config, trace_ctx=None):
                 raise RuntimeError("LLM provider down")
 

@@ -16,6 +16,8 @@ from arcana.trace.writer import TraceWriter
 class MockModelGateway:
     """Mock gateway for testing."""
 
+    default_model = "mock-model"
+
     def __init__(self, responses: list[str] | None = None) -> None:
         self.responses = responses or ["Thought: Test thought\nAction: FINISH"]
         self.call_count = 0
@@ -222,6 +224,8 @@ class TestErrorHandling:
 
         class FailingGateway:
             """Gateway that always fails."""
+
+            default_model = "mock-model"
 
             async def generate(self, request, config, trace_ctx=None):
                 raise Exception("API Error")

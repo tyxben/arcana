@@ -28,8 +28,13 @@ class ModelRouter:
         self._config = config or RoutingConfig()
 
     def get_config_for_role(self, role: ModelRole) -> ModelConfig:
-        """为指定角色返回 ModelConfig。"""
-        role_map: dict[ModelRole, tuple[str, str]] = {
+        """为指定角色返回 ModelConfig。
+
+        If the model is None in the routing config, resolve it from the
+        provider's default_model attribute. Raise ValueError if no default
+        can be determined.
+        """
+        role_map: dict[ModelRole, tuple[str, str | None]] = {
             ModelRole.ROUTER: (
                 self._config.router_provider,
                 self._config.router_model,
@@ -51,8 +56,21 @@ class ModelRouter:
                 self._config.validator_model,
             ),
         }
-        provider, model = role_map[role]
-        return ModelConfig(provider=provider, model_id=model)  # type: ignore[arg-type]
+        provider_name, model_id = role_map[role]
+        if not model_id:
+            provider = self._registry.get(provider_name)
+            if provider and hasattr(provider, "default_model"):
+                dm = provider.default_model
+                if isinstance(dm, str) and dm:
+                    model_id = dm
+            if not model_id:
+                msg = (
+                    f"No model configured for role '{role.value}' "
+                    f"and provider '{provider_name}' has no default_model. "
+                    "Set the model explicitly in RoutingConfig."
+                )
+                raise ValueError(msg)
+        return ModelConfig(provider=provider_name, model_id=model_id)
 
     def select_role(
         self,

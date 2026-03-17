@@ -57,6 +57,8 @@ def _make_task(
 class _MockModelGateway:
     """Mock LLM gateway that always returns FINISH."""
 
+    default_model = "mock-model"
+
     def __init__(self, *, fail: bool = False) -> None:
         self._fail = fail
 

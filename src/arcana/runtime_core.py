@@ -288,7 +288,11 @@ class Runtime:
                     ):
                         model_id = p.default_model
                     else:
-                        model_id = "deepseek-chat"
+                        msg = (
+                            f"No default model configured for provider '{provider}'. "
+                            "Set model on AgentConfig or register a provider with a default_model."
+                        )
+                        raise ValueError(msg)
 
                 config = ModelConfig(provider=provider, model_id=model_id)
 
@@ -480,7 +484,13 @@ class Runtime:
         )
 
     def _resolve_model_config(self) -> ModelConfig:
-        """Get default ModelConfig."""
+        """Get default ModelConfig.
+
+        Resolution order:
+        1. RuntimeConfig.default_model (user-provided)
+        2. Provider's default_model attribute
+        3. Raise ValueError -- never guess a hardcoded model name
+        """
         provider_name = self._config.default_provider
         model_id = self._config.default_model
         if not model_id:
@@ -492,7 +502,11 @@ class Runtime:
             ):
                 model_id = provider.default_model
             else:
-                model_id = "deepseek-chat"
+                msg = (
+                    f"No default model configured for provider '{provider_name}'. "
+                    "Pass default_model in RuntimeConfig or register a provider with a default_model."
+                )
+                raise ValueError(msg)
         return ModelConfig(provider=provider_name, model_id=model_id)
 
 

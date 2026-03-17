@@ -462,12 +462,30 @@ class ConversationAgent:
     # ------------------------------------------------------------------
 
     def _resolve_model_config(self) -> ModelConfig:
-        """Return the model config to use for LLM calls."""
+        """Return the model config to use for LLM calls.
+
+        Resolution order:
+        1. Explicitly provided model_config (set at init)
+        2. Provider's default_model attribute
+        3. Raise ValueError -- never guess a hardcoded model name
+        """
         if self.model_config:
             return self.model_config
-        # Fallback: derive from gateway's default provider
+        # Derive from gateway's default provider
         provider_name = self.gateway.default_provider or "deepseek"
-        return ModelConfig(provider=provider_name, model_id="deepseek-chat")
+        provider = self.gateway.get(provider_name)
+        model_id: str | None = None
+        if provider and hasattr(provider, "default_model"):
+            dm = provider.default_model
+            if isinstance(dm, str) and dm:
+                model_id = dm
+        if not model_id:
+            msg = (
+                f"No default model configured for provider '{provider_name}'. "
+                "Pass model_config explicitly or register a provider with a default_model."
+            )
+            raise ValueError(msg)
+        return ModelConfig(provider=provider_name, model_id=model_id)
 
     # ------------------------------------------------------------------
     # Error diagnosis
