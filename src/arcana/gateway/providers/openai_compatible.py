@@ -143,10 +143,20 @@ class OpenAICompatibleProvider(ModelGateway):
             if hasattr(role, "value"):  # Enum
                 role = role.value
 
-            result.append({
+            converted: dict[str, Any] = {
                 "role": role,
                 "content": msg.get("content", ""),
-            })
+            }
+
+            # Tool messages require tool_call_id (OpenAI format)
+            if role == "tool" and msg.get("tool_call_id"):
+                converted["tool_call_id"] = msg["tool_call_id"]
+
+            # Assistant messages with name field
+            if msg.get("name"):
+                converted["name"] = msg["name"]
+
+            result.append(converted)
         return result
 
     async def generate(
