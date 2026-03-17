@@ -407,25 +407,34 @@ class ConversationAgent:
         This works with DeepSeek, OpenAI, Gemini-compat, and other
         OpenAI-format providers.
         """
-        # For OpenAI-compatible APIs, we need to include the tool results
-        # as a user message summarizing what happened (since our Message model
-        # doesn't carry the native tool_calls array that OpenAI requires on
-        # assistant messages). This approach works across all providers.
-        parts = []
-        if facts.assistant_text:
-            parts.append(facts.assistant_text)
-        for tc, result in zip(facts.tool_calls, results, strict=False):
-            parts.append(
-                f"Tool '{tc.name}' was called with arguments {tc.arguments}.\n"
-                f"Result: {result.output_str}"
-            )
+        # Native tool conversation format:
+        # 1. Assistant message with tool_calls (OpenAI format)
+        # 2. Tool result messages with tool_call_id
 
+        from arcana.contracts.llm import ToolCallRequest
+
+        # Build assistant message with tool_calls
+        tool_call_requests = [
+            ToolCallRequest(id=tc.id, name=tc.name, arguments=tc.arguments)
+            for tc in facts.tool_calls
+        ]
         messages.append(
             Message(
-                role=MessageRole.USER,
-                content="[Tool execution results]\n" + "\n\n".join(parts),
+                role=MessageRole.ASSISTANT,
+                content=facts.assistant_text,
+                tool_calls=tool_call_requests,
             )
         )
+
+        # Tool result messages (one per result)
+        for result in results:
+            messages.append(
+                Message(
+                    role=MessageRole.TOOL,
+                    content=result.output_str,
+                    tool_call_id=result.tool_call_id,
+                )
+            )
 
         return messages
 

@@ -196,6 +196,7 @@ async def run(
 
     if engine == "conversation":
         # V2: ConversationAgent (recommended)
+        from arcana.gateway.budget import BudgetTracker
         from arcana.runtime.conversation import ConversationAgent
 
         # Resolve model_id
@@ -207,10 +208,24 @@ async def run(
             else:
                 model_id = "deepseek-chat"
 
+        # Budget tracker
+        budget_tracker = BudgetTracker(
+            max_cost_usd=max_cost_usd,
+            max_tokens=max_turns * 10000,
+        )
+
+        # Intent classifier (optional)
+        classifier = None
+        if auto_route:
+            from arcana.routing.classifier import HybridClassifier
+            classifier = HybridClassifier(gateway=gateway)
+
         agent = ConversationAgent(
             gateway=gateway,
             model_config=ModelConfig(provider=provider, model_id=model_id),
             tool_gateway=tool_gateway,
+            budget_tracker=budget_tracker,
+            intent_classifier=classifier,
             max_turns=max_turns,
         )
 

@@ -152,6 +152,30 @@ class OpenAICompatibleProvider(ModelGateway):
             if role == "tool" and msg.get("tool_call_id"):
                 converted["tool_call_id"] = msg["tool_call_id"]
 
+            # Assistant messages with tool_calls (OpenAI native format)
+            if role == "assistant" and msg.get("tool_calls"):
+                raw_calls = msg["tool_calls"]
+                openai_calls = []
+                for tc in raw_calls:
+                    if isinstance(tc, dict):
+                        tc_id = tc.get("id", "")
+                        tc_name = tc.get("name", "")
+                        tc_args = tc.get("arguments", "")
+                    else:
+                        # Pydantic model
+                        tc_id = tc.id if hasattr(tc, "id") else ""
+                        tc_name = tc.name if hasattr(tc, "name") else ""
+                        tc_args = tc.arguments if hasattr(tc, "arguments") else ""
+                    openai_calls.append({
+                        "id": tc_id,
+                        "type": "function",
+                        "function": {"name": tc_name, "arguments": tc_args},
+                    })
+                converted["tool_calls"] = openai_calls
+                # OpenAI requires content to be null/None for tool_call messages
+                if not converted.get("content"):
+                    converted["content"] = None
+
             # Assistant messages with name field
             if msg.get("name"):
                 converted["name"] = msg["name"]

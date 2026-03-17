@@ -80,6 +80,8 @@ class Message(BaseModel):
     content: str | list[ContentBlock] | None = None
     name: str | None = None
     tool_call_id: str | None = None
+    # For assistant messages that contain tool calls (OpenAI native format)
+    tool_calls: list[ToolCallRequest] | None = None
 
 
 # ---------------------------------------------------------------------------
