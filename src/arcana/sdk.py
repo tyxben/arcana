@@ -142,9 +142,11 @@ async def run(
     tools: list[Callable] | None = None,  # type: ignore[type-arg]
     provider: str = "deepseek",
     model: str | None = None,
-    max_steps: int = 20,
+    api_key: str | None = None,
+    max_turns: int = 20,
     max_cost_usd: float = 1.0,
     auto_route: bool = True,
+    engine: str = "conversation",
     stream: bool = False,
 ) -> RunResult:
     """
@@ -158,52 +160,89 @@ async def run(
         tools: Optional list of @arcana.tool decorated functions
         provider: LLM provider name (default: "deepseek")
         model: Model ID (auto-selected if None)
-        max_steps: Maximum execution steps
-        max_cost_usd: Maximum cost in USD
+        api_key: API key for the provider. If None, reads from environment variable.
+        max_turns: Maximum execution turns (default: 20)
+        max_cost_usd: Maximum cost in USD (default: 1.0)
         auto_route: Enable intent routing (default: True)
+        engine: Execution engine - "conversation" (V2, default) or "adaptive" (V1)
         stream: Enable streaming output (reserved for future use)
 
     Returns:
         RunResult with output and execution metadata
-    """
-    from arcana.contracts.runtime import RuntimeConfig
-    from arcana.gateway.budget import BudgetTracker
-    from arcana.routing.classifier import HybridClassifier
-    from arcana.runtime.agent import Agent
-    from arcana.runtime.policies.adaptive import AdaptivePolicy
-    from arcana.runtime.reducers.default import DefaultReducer
 
-    # Setup gateway (lazy -- only import/create what's needed)
-    gateway = _setup_gateway(provider, model)
+    Examples:
+        # Simplest usage
+        result = await arcana.run("What is 2+2?", api_key="sk-xxx")
+
+        # With tools
+        @arcana.tool(when_to_use="For math")
+        def calc(expression: str) -> str:
+            return str(eval(expression))
+
+        result = await arcana.run("15*37+89?", tools=[calc], api_key="sk-xxx")
+
+        # With OpenAI
+        result = await arcana.run("Hello", provider="openai", api_key="sk-proj-xxx")
+    """
+    from arcana.contracts.llm import ModelConfig
+
+    # Setup gateway
+    gateway = _setup_gateway(provider, model, api_key)
 
     # Setup tools
     tool_gateway = None
     if tools:
         tool_gateway = _setup_tools(tools)
 
-    # Setup classifier
-    classifier = HybridClassifier(gateway=gateway) if auto_route else None
+    if engine == "conversation":
+        # V2: ConversationAgent (recommended)
+        from arcana.runtime.conversation import ConversationAgent
 
-    # Setup budget tracker
-    budget_tracker = BudgetTracker(
-        max_cost_usd=max_cost_usd,
-        max_tokens=max_steps * 10000,  # rough estimate per step
-    )
+        # Resolve model_id
+        model_id = model
+        if not model_id:
+            p = gateway.get(provider)
+            if p and hasattr(p, "default_model") and isinstance(p.default_model, str):
+                model_id = p.default_model
+            else:
+                model_id = "deepseek-chat"
 
-    # Create agent
-    agent = Agent(
-        policy=AdaptivePolicy(),
-        reducer=DefaultReducer(),
-        gateway=gateway,
-        config=RuntimeConfig(max_steps=max_steps),
-        tool_gateway=tool_gateway,
-        intent_classifier=classifier,
-        auto_route=auto_route,
-        budget_tracker=budget_tracker,
-    )
+        agent = ConversationAgent(
+            gateway=gateway,
+            model_config=ModelConfig(provider=provider, model_id=model_id),
+            tool_gateway=tool_gateway,
+            max_turns=max_turns,
+        )
 
-    # Run
-    state = await agent.run(goal)
+        state = await agent.run(goal)
+
+    else:
+        # V1: Agent + AdaptivePolicy (legacy compatible)
+        from arcana.contracts.runtime import RuntimeConfig
+        from arcana.gateway.budget import BudgetTracker
+        from arcana.routing.classifier import HybridClassifier
+        from arcana.runtime.agent import Agent
+        from arcana.runtime.policies.adaptive import AdaptivePolicy
+        from arcana.runtime.reducers.default import DefaultReducer
+
+        classifier = HybridClassifier(gateway=gateway) if auto_route else None
+        budget_tracker = BudgetTracker(
+            max_cost_usd=max_cost_usd,
+            max_tokens=max_turns * 10000,
+        )
+
+        agent = Agent(
+            policy=AdaptivePolicy(),
+            reducer=DefaultReducer(),
+            gateway=gateway,
+            config=RuntimeConfig(max_steps=max_turns),
+            tool_gateway=tool_gateway,
+            intent_classifier=classifier,
+            auto_route=auto_route,
+            budget_tracker=budget_tracker,
+        )
+
+        state = await agent.run(goal)
 
     return RunResult(
         output=state.working_memory.get("answer", state.working_memory.get("result", "")),
@@ -218,11 +257,18 @@ async def run(
 # --- Internal Helpers ---
 
 
-def _setup_gateway(provider: str, model: str | None) -> Any:
-    """Lazy setup of model gateway."""
+def _setup_gateway(provider: str, model: str | None, api_key: str | None = None) -> Any:
+    """Lazy setup of model gateway.
+
+    Args:
+        provider: Provider name.
+        model: Model ID (unused here, resolved later).
+        api_key: Explicit API key. Falls back to environment variable if None.
+    """
     import os
 
     from arcana.gateway.providers.openai_compatible import (
+        OpenAICompatibleProvider,
         create_deepseek_provider,
         create_gemini_provider,
         create_glm_provider,
@@ -232,40 +278,63 @@ def _setup_gateway(provider: str, model: str | None) -> Any:
     )
     from arcana.gateway.registry import ModelGatewayRegistry
 
-    # Validate API key for cloud providers
-    api_key_env: dict[str, str] = {
+    # Resolve API key: explicit > env var
+    env_var_map: dict[str, str] = {
         "deepseek": "DEEPSEEK_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
         "gemini": "GEMINI_API_KEY",
         "kimi": "KIMI_API_KEY",
         "glm": "GLM_API_KEY",
         "minimax": "MINIMAX_API_KEY",
     }
 
-    if provider in api_key_env:
-        env_var = api_key_env[provider]
-        key = os.environ.get(env_var, "")
-        if not key:
-            msg = (
-                f"API key not found. Set the {env_var} environment variable.\n"
-                f"Example: export {env_var}=sk-xxx"
-            )
-            raise ValueError(msg)
+    resolved_key = api_key
+    if not resolved_key and provider in env_var_map:
+        resolved_key = os.environ.get(env_var_map[provider], "")
+
+    if not resolved_key and provider != "ollama":
+        env_var = env_var_map.get(provider, f"{provider.upper()}_API_KEY")
+        msg = (
+            f"API key required for provider '{provider}'.\n"
+            f"Either pass api_key='sk-xxx' or set {env_var} environment variable."
+        )
+        raise ValueError(msg)
 
     gateway = ModelGatewayRegistry()
 
-    factories: dict[str, Callable] = {  # type: ignore[type-arg]
-        "deepseek": lambda: create_deepseek_provider(os.environ.get("DEEPSEEK_API_KEY", "")),
-        "gemini": lambda: create_gemini_provider(os.environ.get("GEMINI_API_KEY", "")),
-        "kimi": lambda: create_kimi_provider(os.environ.get("KIMI_API_KEY", "")),
-        "glm": lambda: create_glm_provider(os.environ.get("GLM_API_KEY", "")),
-        "minimax": lambda: create_minimax_provider(os.environ.get("MINIMAX_API_KEY", "")),
-        "ollama": lambda: create_ollama_provider(),
-    }
+    # Factory for providers with explicit key
+    if provider == "openai":
+        gateway.register(provider, OpenAICompatibleProvider(
+            provider_name="openai",
+            api_key=resolved_key or "",
+            base_url="https://api.openai.com/v1",
+            default_model="gpt-4o-mini",
+        ))
+    elif provider == "anthropic":
+        try:
+            from arcana.gateway.providers.anthropic import AnthropicProvider
+            gateway.register(provider, AnthropicProvider(api_key=resolved_key or ""))
+        except ImportError:
+            msg = "anthropic SDK not installed. Install with: pip install arcana-agent[anthropic]"
+            raise ImportError(msg) from None
+    elif provider == "deepseek":
+        gateway.register(provider, create_deepseek_provider(resolved_key or ""))
+    elif provider == "gemini":
+        gateway.register(provider, create_gemini_provider(resolved_key or ""))
+    elif provider == "kimi":
+        gateway.register(provider, create_kimi_provider(resolved_key or ""))
+    elif provider == "glm":
+        gateway.register(provider, create_glm_provider(resolved_key or ""))
+    elif provider == "minimax":
+        gateway.register(provider, create_minimax_provider(resolved_key or ""))
+    elif provider == "ollama":
+        gateway.register(provider, create_ollama_provider())
+    else:
+        msg = f"Unknown provider '{provider}'. Supported: deepseek, openai, anthropic, gemini, kimi, glm, minimax, ollama"
+        raise ValueError(msg)
 
-    if provider in factories:
-        gateway.register(provider, factories[provider]())
-        gateway.set_default(provider)
-
+    gateway.set_default(provider)
     return gateway
 
 
