@@ -35,6 +35,27 @@ print(result.output)  # "644"
 
 Five lines. Intent routing, adaptive policy, budget guardrails, and trace logging are all on by default.
 
+### V2: ConversationAgent (recommended)
+
+```python
+from arcana.runtime.conversation import ConversationAgent
+from arcana.gateway.registry import ModelGatewayRegistry
+from arcana.gateway.providers.openai_compatible import create_deepseek_provider
+from arcana.contracts.llm import ModelConfig
+
+gateway = ModelGatewayRegistry()
+gateway.register("deepseek", create_deepseek_provider("your-api-key"))
+gateway.set_default("deepseek")
+
+agent = ConversationAgent(
+    gateway=gateway,
+    model_config=ModelConfig(provider="deepseek", model_id="deepseek-chat"),
+)
+
+state = await agent.run("What is the capital of France?")
+print(state.working_memory["answer"])  # "The capital of France is Paris."
+```
+
 ---
 
 ## Installation
@@ -58,6 +79,13 @@ pip install -e ".[dev]"
 ---
 
 ## Core Concepts / 核心概念
+
+### ConversationAgent (V2 Engine)
+
+The new execution model. No Policy, no Reducer — just LLM turns.
+Each turn produces `TurnFacts` (raw LLM output) and `TurnAssessment`
+(runtime interpretation), kept visibly separate. The LLM drives the
+conversation; the runtime provides tools, budget, and trace.
 
 ### Intent Router (意图路由)
 
@@ -88,19 +116,20 @@ Context is organized in four layers: Identity (always present), Task (goal + con
 ## Architecture / 架构
 
 ```
-Request → Intent Router → Direct Answer (fast path, 1 LLM call)
-                        → Agent Loop (Adaptive Policy)
-                             ↕
-                        Runtime OS
-                        ├── Budget Guardian
-                        ├── Trace Recorder
-                        ├── Tool Gateway (auth, validation, audit)
-                        ├── Lazy Tool Registry
-                        ├── Diagnostic Recovery
-                        └── Model Router
+Request → Intent Router → Direct Answer (1 LLM call)
+                        → ConversationAgent (V2, recommended)
+                             LLM Turn → TurnFacts → TurnAssessment → State
+                             Runtime OS: Budget | Trace | Tools | Diagnostics
+                        → Agent + AdaptivePolicy (V1, compatible)
 ```
 
 The runtime is an operating system, not a pipeline. It provides services -- budget enforcement, trace recording, tool dispatch, error diagnostics -- but never dictates strategy. The LLM calls on them as needed.
+
+### Verified with Real APIs ✅
+- DeepSeek (deepseek-chat) — direct answer + tools + multi-step
+- OpenAI (gpt-4o-mini) — direct answer + tools
+- Anthropic (claude-sonnet-4) — direct answer
+- Also supported (not yet verified): Kimi, GLM, MiniMax, Ollama, Gemini
 
 ---
 

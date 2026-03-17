@@ -13,7 +13,7 @@ Usage:
     export DEEPSEEK_API_KEY="sk-xxx"
 
     # Run demo
-    uv run python examples/demo_v2.py
+    uv run python examples/07_full_demo.py
 """
 
 import asyncio

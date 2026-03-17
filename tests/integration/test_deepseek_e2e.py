@@ -5,7 +5,7 @@ Runs 5 scenarios against the live LLM to validate end-to-end agent behavior.
 Each scenario is independent -- a failure in one does not block the others.
 
 Usage:
-    DEEPSEEK_API_KEY="sk-xxx" uv run python examples/demo_deep_test.py
+    DEEPSEEK_API_KEY="sk-xxx" uv run pytest tests/integration/test_deepseek_e2e.py -v
 """
 
 from __future__ import annotations

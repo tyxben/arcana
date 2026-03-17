@@ -5,7 +5,7 @@ Compares V1 (Agent + AdaptivePolicy) vs V2 (ConversationAgent)
 on the same tasks.
 
 Usage:
-    DEEPSEEK_API_KEY="sk-xxx" uv run python examples/demo_conversation.py
+    DEEPSEEK_API_KEY="sk-xxx" uv run python examples/06_conversation_agent.py
 """
 
 import asyncio
@@ -15,9 +15,10 @@ import sys
 # Add project to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-DEEPSEEK_API_KEY = os.environ.get(
-    "DEEPSEEK_API_KEY", "sk-f41605eef2c2433587a93b213b4a6d88"
-)
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+if not DEEPSEEK_API_KEY:
+    print("ERROR: DEEPSEEK_API_KEY not set")
+    sys.exit(1)
 
 
 async def test_v2_direct():
