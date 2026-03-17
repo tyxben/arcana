@@ -1,41 +1,24 @@
-# Examples
+# Arcana Examples
 
-## Prerequisites
+## Quick Start
+- `01_hello.py` -- Single LLM call
+- `02_with_tools.py` -- Tools via SDK
 
-1. Install the project:
-   ```bash
-   cd /path/to/arcana
-   pip install -e "."
-   ```
+## Runtime (Recommended)
+- `08_fastapi_integration.py` -- Web service integration
+- `09_multi_agent.py` -- Multi-agent collaboration
+- `10_tool_with_runtime.py` -- Runtime with custom tools
 
-2. Copy and configure environment:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys (DeepSeek, Gemini, etc.)
-   ```
+## Advanced
+- `03_adaptive_policy.py` -- V1 Adaptive Policy engine
+- `04_intent_router.py` -- Intent classification
+- `05_budget_control.py` -- Budget enforcement
+- `06_conversation_agent.py` -- V2 ConversationAgent
+- `07_full_demo.py` -- All features demo
 
-## Available Examples
-
-### Trace System Demo
-
-Demonstrates the JSONL trace system, canonical hashing, and multi-provider LLM calls with tracing:
-
+## Running
+All examples need an API key:
 ```bash
-python examples/demo_trace.py
+export DEEPSEEK_API_KEY=sk-xxx
+uv run python examples/08_fastapi_integration.py
 ```
-
-This demo runs without API keys for the trace and hashing portions. The LLM call section requires `DEEPSEEK_API_KEY` and/or `GEMINI_API_KEY` in `.env`.
-
-### Agent Runtime Demo
-
-Demonstrates the full agent runtime with Policy-Step-Reducer pattern, including:
-- Basic agent execution
-- Budget tracking and trace logging
-- Progress detection (stuck agent)
-- Checkpointing and resume
-
-```bash
-python examples/demo_runtime.py
-```
-
-**Note**: Demos 1-2 require `DEEPSEEK_API_KEY` in `.env`. Demos 3-4 use mock gateways and run without API keys.
