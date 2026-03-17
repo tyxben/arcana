@@ -340,3 +340,53 @@ def create_ollama_provider(
         default_model=default_model,
         trace_writer=trace_writer,
     )
+
+
+# ---------------------------------------------------------------------------
+# Chinese provider factories
+# ---------------------------------------------------------------------------
+
+
+def create_kimi_provider(
+    api_key: str,
+    trace_writer: TraceWriter | None = None,
+) -> OpenAICompatibleProvider:
+    """Create a Kimi (Moonshot) provider."""
+    return OpenAICompatibleProvider(
+        provider_name="kimi",
+        api_key=api_key,
+        base_url="https://api.moonshot.cn/v1",
+        default_model="moonshot-v1-8k",
+        supported_models=["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+        trace_writer=trace_writer,
+    )
+
+
+def create_glm_provider(
+    api_key: str,
+    trace_writer: TraceWriter | None = None,
+) -> OpenAICompatibleProvider:
+    """Create a GLM (Zhipu AI) provider."""
+    return OpenAICompatibleProvider(
+        provider_name="glm",
+        api_key=api_key,
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+        default_model="glm-4-flash",
+        supported_models=["glm-4", "glm-4-flash", "glm-4v", "glm-4-long"],
+        trace_writer=trace_writer,
+    )
+
+
+def create_minimax_provider(
+    api_key: str,
+    trace_writer: TraceWriter | None = None,
+) -> OpenAICompatibleProvider:
+    """Create a MiniMax provider."""
+    return OpenAICompatibleProvider(
+        provider_name="minimax",
+        api_key=api_key,
+        base_url="https://api.minimax.chat/v1",
+        default_model="abab6.5s-chat",
+        supported_models=["abab6.5s-chat", "abab6.5-chat", "abab5.5-chat"],
+        trace_writer=trace_writer,
+    )

@@ -6,11 +6,15 @@ for the Gemini API's OpenAI-compatible endpoint.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from arcana.gateway.providers.openai_compatible import (
     OpenAICompatibleProvider,
     create_gemini_provider,
 )
-from arcana.trace.writer import TraceWriter
+
+if TYPE_CHECKING:
+    from arcana.trace.writer import TraceWriter
 
 # Re-export for backwards compatibility
 __all__ = ["GeminiProvider", "create_gemini_provider"]

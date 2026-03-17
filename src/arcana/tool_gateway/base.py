@@ -1,15 +1,16 @@
-"""Abstract base class for tool providers."""
+"""Protocol for tool providers."""
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from typing import Protocol, runtime_checkable
 
 from arcana.contracts.tool import ToolCall, ToolResult, ToolSpec
 
 
-class ToolProvider(ABC):
+@runtime_checkable
+class ToolProvider(Protocol):
     """
-    Abstract base class for tool implementations.
+    Protocol for tool implementations.
 
     Each ToolProvider encapsulates a single tool. Authorization,
     validation, retry, and tracing are handled by the ToolGateway
@@ -17,12 +18,10 @@ class ToolProvider(ABC):
     """
 
     @property
-    @abstractmethod
     def spec(self) -> ToolSpec:
         """Return the tool specification."""
         ...
 
-    @abstractmethod
     async def execute(self, call: ToolCall) -> ToolResult:
         """
         Execute a tool call.

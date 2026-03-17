@@ -7,8 +7,7 @@ from typing import Annotated, Any
 import pytest
 from pydantic import BaseModel, Field
 
-from arcana.graph import START, END, StateGraph, add_messages
-
+from arcana.graph import END, START, StateGraph, add_messages
 
 # ---------------------------------------------------------------------------
 # Helpers

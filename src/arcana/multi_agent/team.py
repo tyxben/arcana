@@ -11,6 +11,7 @@ from arcana.contracts.multi_agent import (
     HandoffResult,
     MessageType,
 )
+from arcana.contracts.state import ExecutionStatus
 from arcana.contracts.trace import AgentRole, EventType, TraceEvent
 from arcana.gateway.base import BudgetExceededError
 from arcana.multi_agent.message_bus import MessageBus
@@ -96,6 +97,12 @@ class TeamOrchestrator:
         """
         session = CollaborationSession(goal=goal, max_rounds=self._max_rounds)
         session_id = session.session_id
+
+        # Validate all required roles are configured upfront
+        for required_role in (AgentRole.PLANNER, AgentRole.EXECUTOR, AgentRole.CRITIC):
+            if required_role not in self._role_configs:
+                msg = f"No configuration for role: {required_role.value}"
+                raise ValueError(msg)
 
         total_tokens = 0
         total_cost = 0.0
@@ -268,6 +275,14 @@ class TeamOrchestrator:
         )
 
         state = await agent.run(goal)
+
+        # If the agent finished with a failed status (e.g. internal error caught
+        # by Agent._handle_error), surface it as an exception so the orchestrator
+        # can report an error HandoffResult instead of silently continuing.
+        if state.status == ExecutionStatus.FAILED:
+            error_detail = state.last_error or "Agent execution failed"
+            raise RuntimeError(error_detail)
+
         return state
 
     def _create_agent(self, role: AgentRole) -> Agent:

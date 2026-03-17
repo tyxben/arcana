@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
+from arcana.contracts.llm import LLMRequest, LLMResponse, Message, MessageRole, ModelConfig
 from arcana.contracts.runtime import PolicyDecision, StepResult, StepType
 from arcana.contracts.tool import ToolCall
 from arcana.runtime.exceptions import StepExecutionError
@@ -19,6 +21,8 @@ if TYPE_CHECKING:
     from arcana.runtime.verifiers.base import BaseVerifier
     from arcana.tool_gateway.gateway import ToolGateway
     from arcana.trace.writer import TraceWriter
+
+logger = logging.getLogger(__name__)
 
 
 class StepExecutor:
@@ -189,6 +193,18 @@ class StepExecutor:
             if self.budget_tracker and response.usage:
                 self.budget_tracker.add_usage(response.usage)
 
+            # Handle AdaptivePolicy strategy responses before validation.
+            # The strategy phase returns JSON with fields like "strategy",
+            # "reasoning", "action" -- not the "Thought:/Action:" text format
+            # that validate_structured expects. Intercept and handle early.
+            is_strategy_phase = (
+                decision.metadata.get("phase") == "strategy"
+                if hasattr(decision, "metadata")
+                else False
+            )
+            if is_strategy_phase:
+                return self._handle_strategy_response(response, state, step_id)
+
             # Validate if schema expected
             if expected_schema:
                 validation = self.validator.validate_json(response, expected_schema)
@@ -304,7 +320,7 @@ class StepExecutor:
         all_success = all(r.success for r in results)
         observation = "\n".join(r.output_str for r in results)
 
-        return StepResult(
+        step_result = StepResult(
             step_type=StepType.ACT,
             step_id=step_id,
             success=all_success,
@@ -317,6 +333,25 @@ class StepExecutor:
                 if not r.success
             ),
         )
+
+        # Diagnostic recovery: diagnose the first failed tool result so that
+        # AdaptivePolicy can see the diagnosis on the next decide() call.
+        for result in results:
+            if not result.success and result.error:
+                from arcana.runtime.diagnosis.diagnoser import diagnose_tool_error
+
+                diagnosis = diagnose_tool_error(
+                    tool_name=result.name,
+                    tool_error=result.error,
+                    available_tools=self._get_available_tool_names(),
+                )
+                step_result.state_updates["last_diagnosis"] = diagnosis.model_dump()
+                step_result.state_updates["recovery_prompt"] = (
+                    diagnosis.to_recovery_prompt()
+                )
+                break  # Diagnose only the first failure
+
+        return step_result
 
     async def _execute_verify(
         self,
@@ -362,6 +397,146 @@ class StepExecutor:
             thought="Verification complete",
             state_updates=state_updates,
         )
+
+    def _handle_strategy_response(
+        self,
+        response: LLMResponse,
+        state: AgentState,
+        step_id: str,
+    ) -> StepResult:
+        """Handle AdaptivePolicy strategy JSON responses.
+
+        Instead of validating for Thought:/Action: format, parse the
+        strategy JSON and convert it into the appropriate StepResult.
+        """
+        from arcana.contracts.strategy import StrategyType
+        from arcana.runtime.policies.adaptive import AdaptivePolicy
+
+        content = response.content or ""
+        token_delta = response.usage.total_tokens if response.usage else 0
+
+        # Parse strategy decision from LLM output
+        try:
+            strategy_decision = AdaptivePolicy.parse_strategy_response(content)
+        except ValueError:
+            # LLM did not return valid strategy JSON -- treat as plain thought
+            logger.warning("Could not parse strategy JSON; falling back to plain thought")
+            return StepResult(
+                step_type=StepType.THINK,
+                step_id=step_id,
+                success=True,
+                thought=content,
+                llm_response=response,
+                state_updates={
+                    "tokens_used": state.tokens_used + token_delta,
+                },
+            )
+
+        # Load current adaptive state from working_memory
+        adaptive_state = state.working_memory.get("adaptive_state", {})
+        if isinstance(adaptive_state, dict):
+            adaptive_state = dict(adaptive_state)  # shallow copy
+            adaptive_state["current_strategy"] = strategy_decision.strategy.value
+        else:
+            # It might be an AdaptiveState pydantic model; convert to dict
+            adaptive_state = {"current_strategy": strategy_decision.strategy.value}
+
+        match strategy_decision.strategy:
+            case StrategyType.DIRECT_ANSWER:
+                return StepResult(
+                    step_type=StepType.VERIFY,
+                    step_id=step_id,
+                    success=True,
+                    thought=strategy_decision.reasoning,
+                    action=f"direct_answer: {strategy_decision.action}",
+                    llm_response=response,
+                    state_updates={
+                        "goal_reached": True,
+                        "answer": strategy_decision.action,
+                        "result": strategy_decision.action,
+                        "adaptive_state": adaptive_state,
+                        "tokens_used": state.tokens_used + token_delta,
+                    },
+                )
+
+            case StrategyType.SINGLE_TOOL:
+                return StepResult(
+                    step_type=StepType.THINK,
+                    step_id=step_id,
+                    success=True,
+                    thought=strategy_decision.reasoning,
+                    action=f"tool_call: {strategy_decision.tool_name}({json.dumps(strategy_decision.tool_arguments or {})})",
+                    llm_response=response,
+                    state_updates={
+                        "pending_tool_call": {
+                            "name": strategy_decision.tool_name,
+                            "arguments": strategy_decision.tool_arguments or {},
+                        },
+                        "adaptive_state": adaptive_state,
+                        "tokens_used": state.tokens_used + token_delta,
+                    },
+                )
+
+            case StrategyType.PARALLEL:
+                return StepResult(
+                    step_type=StepType.THINK,
+                    step_id=step_id,
+                    success=True,
+                    thought=strategy_decision.reasoning,
+                    action=f"parallel: {len(strategy_decision.parallel_actions or [])} tool calls",
+                    llm_response=response,
+                    state_updates={
+                        "pending_parallel_calls": strategy_decision.parallel_actions or [],
+                        "adaptive_state": adaptive_state,
+                        "tokens_used": state.tokens_used + token_delta,
+                    },
+                )
+
+            case StrategyType.PLAN_AND_EXECUTE:
+                plan = strategy_decision.plan or []
+                adaptive_state["plan_steps"] = plan
+                adaptive_state["completed_plan_steps"] = []
+                return StepResult(
+                    step_type=StepType.PLAN,
+                    step_id=step_id,
+                    success=True,
+                    thought=strategy_decision.reasoning,
+                    action=f"plan: {len(plan)} steps",
+                    llm_response=response,
+                    state_updates={
+                        "adaptive_state": adaptive_state,
+                        "current_plan": plan,
+                        "tokens_used": state.tokens_used + token_delta,
+                    },
+                )
+
+            case StrategyType.PIVOT:
+                adaptive_state["pivot_count"] = adaptive_state.get("pivot_count", 0) + 1
+                return StepResult(
+                    step_type=StepType.THINK,
+                    step_id=step_id,
+                    success=True,
+                    thought=f"PIVOT: {strategy_decision.pivot_reason}",
+                    action=f"New approach: {strategy_decision.pivot_new_approach}",
+                    llm_response=response,
+                    state_updates={
+                        "adaptive_state": adaptive_state,
+                        "tokens_used": state.tokens_used + token_delta,
+                    },
+                )
+
+            case _:  # SEQUENTIAL or any other
+                return StepResult(
+                    step_type=StepType.THINK,
+                    step_id=step_id,
+                    success=True,
+                    thought=strategy_decision.reasoning,
+                    llm_response=response,
+                    state_updates={
+                        "adaptive_state": adaptive_state,
+                        "tokens_used": state.tokens_used + token_delta,
+                    },
+                )
 
     def _parse_llm_response(
         self,
@@ -420,6 +595,12 @@ class StepExecutor:
             thought = content.strip() if content.strip() else None
 
         return thought, action
+
+    def _get_available_tool_names(self) -> list[str]:
+        """Return tool names from the tool gateway registry."""
+        if self.tool_gateway is not None:
+            return self.tool_gateway.registry.list_tools()
+        return []
 
     def _is_recoverable_error(self, error: Exception) -> bool:
         """Determine if an error is recoverable."""

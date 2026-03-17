@@ -7,9 +7,8 @@ from typing import Any
 
 import pytest
 
-from arcana.graph import START, END, StateGraph, GraphInterrupt, Command, GraphCheckpointer
+from arcana.graph import END, START, Command, GraphCheckpointer, GraphInterrupt, StateGraph
 from arcana.graph.compiled_graph import CompiledGraph
-
 
 # ---------------------------------------------------------------------------
 # Helpers

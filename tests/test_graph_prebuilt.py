@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
-from arcana.contracts.llm import LLMRequest, LLMResponse, ModelConfig, TokenUsage, ToolCallRequest
+from arcana.contracts.llm import LLMResponse, ModelConfig, TokenUsage, ToolCallRequest
 from arcana.contracts.tool import ToolResult
-from arcana.graph.prebuilt.react_agent import create_react_agent
 from arcana.graph.prebuilt.plan_execute import create_plan_execute_agent
+from arcana.graph.prebuilt.react_agent import create_react_agent
 
 MOCK_CONFIG = ModelConfig(provider="openai", model_id="mock-model")
 

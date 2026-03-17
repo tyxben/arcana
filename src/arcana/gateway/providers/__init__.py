@@ -31,6 +31,9 @@ from arcana.gateway.providers.deepseek import DeepSeekProvider, create_deepseek_
 from arcana.gateway.providers.gemini import GeminiProvider, create_gemini_provider
 from arcana.gateway.providers.openai_compatible import (
     OpenAICompatibleProvider,
+    create_glm_provider,
+    create_kimi_provider,
+    create_minimax_provider,
     create_ollama_provider,
 )
 
@@ -43,5 +46,8 @@ __all__ = [
     # Factory functions
     "create_gemini_provider",
     "create_deepseek_provider",
+    "create_glm_provider",
+    "create_kimi_provider",
+    "create_minimax_provider",
     "create_ollama_provider",
 ]

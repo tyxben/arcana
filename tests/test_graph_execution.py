@@ -17,7 +17,6 @@ from arcana.graph.reducers import (
 )
 from arcana.graph.state_graph import GraphValidationError, StateGraph
 
-
 # ---------------------------------------------------------------------------
 # Shared state models
 # ---------------------------------------------------------------------------
@@ -626,8 +625,7 @@ class TestGraphValidation:
         graph.set_entry_point("only")
         graph.set_finish_point("only")
 
-        app = graph.compile()
-        # Should compile without error
+        graph.compile()  # Should compile without error
 
     async def test_set_entry_finish_executes(self):
         graph = StateGraph(state_schema=SimpleState)

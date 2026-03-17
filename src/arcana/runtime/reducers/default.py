@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from arcana.contracts.runtime import StepType
 from arcana.runtime.reducers.base import BaseReducer
 
 if TYPE_CHECKING:
@@ -37,10 +38,17 @@ class DefaultReducer(BaseReducer):
         if step_summary:
             state.completed_steps.append(step_summary)
 
-        # Apply state updates from step
+        # Apply state updates from step.
+        # Keys that match AgentState attributes are set directly on
+        # the state object. All other keys are written into
+        # working_memory so that policies can read them on subsequent
+        # decide() calls (e.g. "answer", "pending_tool_call",
+        # "adaptive_state").
         for key, value in step_result.state_updates.items():
             if hasattr(state, key):
                 setattr(state, key, value)
+            else:
+                state.working_memory[key] = value
 
         # Apply memory updates
         for key, value in step_result.memory_updates.items():
@@ -49,6 +57,12 @@ class DefaultReducer(BaseReducer):
                 state.working_memory.pop(key, None)
             else:
                 state.working_memory[key] = value
+
+        # After a tool execution step, clear pending tool call keys from
+        # working_memory so the adaptive policy does not re-execute them.
+        if step_result.step_type == StepType.ACT:
+            state.working_memory.pop("pending_tool_call", None)
+            state.working_memory.pop("pending_parallel_calls", None)
 
         # Track errors
         if step_result.success:

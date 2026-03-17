@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from arcana.contracts.eval import (
     EvalCase,
@@ -76,7 +77,7 @@ class TestContracts:
             expected_outcome=OutcomeCriterion.STATUS,
             expected_value="completed",
         )
-        with pytest.raises(AttributeError):  # frozen
+        with pytest.raises(ValidationError):  # frozen (Pydantic v2)
             case.id = "changed"  # type: ignore[misc]
 
     def test_eval_result_serialization(self):

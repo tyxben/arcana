@@ -42,6 +42,18 @@ class ToolSpec(BaseModel):
     retry_delay_ms: int = 1000
     timeout_ms: int = 30000
 
+    # Affordance fields (for LLM understanding)
+    # These are optional and backward-compatible. They are consumed only by
+    # format_tool_for_llm() and ToolMatcher, NOT sent to OpenAI function calling API.
+    when_to_use: str | None = None
+    what_to_expect: str | None = None
+    failure_meaning: str | None = None
+    success_next_step: str | None = None
+
+    # Categorization
+    category: str | None = None  # "search", "file", "code", "web", "data", "shell"
+    related_tools: list[str] = Field(default_factory=list)
+
 
 class ToolCall(BaseModel):
     """A tool call to be executed."""

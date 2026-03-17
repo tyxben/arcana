@@ -14,7 +14,9 @@ from arcana.contracts.tool import (
 )
 from arcana.contracts.trace import TraceContext
 from arcana.tool_gateway.base import ToolProvider
+from arcana.tool_gateway.formatter import format_tool_for_llm, format_tool_list_for_llm
 from arcana.tool_gateway.gateway import ToolGateway
+from arcana.tool_gateway.lazy_registry import KeywordToolMatcher, LazyToolRegistry
 from arcana.tool_gateway.registry import ToolRegistry
 from arcana.tool_gateway.validators import validate_arguments
 from arcana.trace.writer import TraceWriter
@@ -546,3 +548,428 @@ class TestCallMany:
         # Results should be in original order
         assert results[0].tool_call_id == "c1"
         assert results[1].tool_call_id == "c2"
+
+
+# ── Helper: ToolSpec + ToolProvider factories for lazy registry tests ──
+
+
+def _make_spec(
+    name: str,
+    description: str = "A tool",
+    **kwargs,
+) -> ToolSpec:
+    """Create a ToolSpec with sensible defaults."""
+    return ToolSpec(
+        name=name,
+        description=description,
+        input_schema={"type": "object", "properties": {}},
+        **kwargs,
+    )
+
+
+class _SimpleProvider:
+    """Minimal ToolProvider for registry population."""
+
+    def __init__(self, spec: ToolSpec) -> None:
+        self._spec = spec
+
+    @property
+    def spec(self) -> ToolSpec:
+        return self._spec
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        return ToolResult(
+            tool_call_id=call.id, name=call.name, success=True, output="ok"
+        )
+
+    async def health_check(self) -> bool:
+        return True
+
+
+def _make_registry(*specs: ToolSpec) -> ToolRegistry:
+    """Build a ToolRegistry populated with SimpleProviders."""
+    reg = ToolRegistry()
+    for s in specs:
+        reg.register(_SimpleProvider(s))
+    return reg
+
+
+# ── TestKeywordToolMatcher ──────────────────────────────────────
+
+
+class TestKeywordToolMatcher:
+    """Test the keyword-based tool matching strategy."""
+
+    def test_prefers_name_match(self):
+        specs = [
+            _make_spec("web_search", "Search the internet"),
+            _make_spec("file_read", "Read a file from disk"),
+        ]
+        matcher = KeywordToolMatcher()
+        ranked = matcher.rank("search the web", specs)
+        assert ranked[0].name == "web_search"
+
+    def test_description_keyword_overlap(self):
+        specs = [
+            _make_spec("tool_a", "Parse CSV files into tables"),
+            _make_spec("tool_b", "Send HTTP requests"),
+        ]
+        matcher = KeywordToolMatcher()
+        ranked = matcher.rank("parse a CSV file", specs)
+        assert ranked[0].name == "tool_a"
+
+    def test_when_to_use_boosts_score(self):
+        specs = [
+            _make_spec(
+                "tool_a",
+                "Generic tool",
+                when_to_use="When you need current news articles",
+            ),
+            _make_spec("tool_b", "Generic tool"),
+        ]
+        matcher = KeywordToolMatcher()
+        ranked = matcher.rank("find current news", specs)
+        assert ranked[0].name == "tool_a"
+
+    def test_deterministic_tie_breaking(self):
+        """Tools with equal scores are sorted alphabetically by name."""
+        specs = [
+            _make_spec("zzz_tool", "Does stuff"),
+            _make_spec("aaa_tool", "Does stuff"),
+        ]
+        matcher = KeywordToolMatcher()
+        ranked = matcher.rank("unrelated query", specs)
+        assert ranked[0].name == "aaa_tool"
+        assert ranked[1].name == "zzz_tool"
+
+    def test_category_keyword_match(self):
+        specs = [
+            _make_spec("my_search", "Search for information"),
+            _make_spec("my_writer", "Write documents"),
+        ]
+        matcher = KeywordToolMatcher()
+        ranked = matcher.rank("find some data", specs)
+        # "find" maps to "search" category, which matches "search" in "my_search" name
+        assert ranked[0].name == "my_search"
+
+    def test_empty_candidates(self):
+        matcher = KeywordToolMatcher()
+        ranked = matcher.rank("anything", [])
+        assert ranked == []
+
+
+# ── TestLazyToolRegistry ────────────────────────────────────────
+
+
+class TestLazyToolRegistry:
+    """Test the lazy tool registry."""
+
+    def _make_full_registry(self, n: int = 10) -> ToolRegistry:
+        """Create a registry with n tools."""
+        specs = [_make_spec(f"tool_{i:02d}", f"Tool number {i}") for i in range(n)]
+        return _make_registry(*specs)
+
+    def test_initial_selection_respects_max(self):
+        reg = self._make_full_registry(50)
+        lazy = LazyToolRegistry(reg, max_initial_tools=5)
+        selected = lazy.select_initial_tools("search the web for Python tutorials")
+        assert len(selected) <= 5
+
+    def test_working_set_populated_after_initial_selection(self):
+        reg = self._make_full_registry(10)
+        lazy = LazyToolRegistry(reg, max_initial_tools=3)
+        lazy.select_initial_tools("do something")
+        assert len(lazy.working_set) == 3
+
+    def test_available_but_hidden(self):
+        reg = self._make_full_registry(10)
+        lazy = LazyToolRegistry(reg, max_initial_tools=3)
+        lazy.select_initial_tools("do something")
+        hidden = lazy.available_but_hidden
+        assert len(hidden) == 7
+        # Hidden tools should not be in working set
+        ws_names = {s.name for s in lazy.working_set}
+        for name in hidden:
+            assert name not in ws_names
+
+    def test_expand_returns_new_tools_only(self):
+        specs = [
+            _make_spec("web_search", "Search the internet"),
+            _make_spec("file_read", "Read a file from disk"),
+            _make_spec("shell_exec", "Run a shell command"),
+        ]
+        reg = _make_registry(*specs)
+        lazy = LazyToolRegistry(reg, max_initial_tools=2)
+        lazy.select_initial_tools("search and read files")
+        initial_names = {s.name for s in lazy.working_set}
+
+        new_tools = lazy.expand("run a shell command")
+        assert len(new_tools) > 0
+        for t in new_tools:
+            assert t.name not in initial_names
+
+    def test_expand_does_not_exceed_max_working_set(self):
+        reg = self._make_full_registry(20)
+        lazy = LazyToolRegistry(reg, max_initial_tools=10, max_working_set=12)
+        lazy.select_initial_tools("do something")
+        assert len(lazy.working_set) == 10
+
+        lazy.expand("need more tools")
+        assert len(lazy.working_set) <= 12
+
+    def test_expand_always_adds_at_least_one(self):
+        """Even when working set is at capacity, expand adds at least one tool."""
+        reg = self._make_full_registry(5)
+        lazy = LazyToolRegistry(reg, max_initial_tools=3, max_working_set=3)
+        lazy.select_initial_tools("do something")
+        assert len(lazy.working_set) == 3
+
+        new_tools = lazy.expand("need more tools")
+        # Should add at least 1 even though at max
+        assert len(new_tools) >= 1
+
+    def test_get_tool_on_demand_existing(self):
+        specs = [
+            _make_spec("web_search", "Search the internet"),
+            _make_spec("file_read", "Read a file from disk"),
+            _make_spec("shell_exec", "Run a shell command"),
+        ]
+        reg = _make_registry(*specs)
+        lazy = LazyToolRegistry(reg, max_initial_tools=1)
+        lazy.select_initial_tools("search the web")
+        assert "shell_exec" not in [s.name for s in lazy.working_set]
+
+        spec = lazy.get_tool_on_demand("shell_exec")
+        assert spec is not None
+        assert spec.name == "shell_exec"
+        assert "shell_exec" in [s.name for s in lazy.working_set]
+
+    def test_get_tool_on_demand_already_in_working_set(self):
+        specs = [_make_spec("web_search", "Search the internet")]
+        reg = _make_registry(*specs)
+        lazy = LazyToolRegistry(reg, max_initial_tools=5)
+        lazy.select_initial_tools("search")
+
+        # Requesting a tool already in working set should return it
+        spec = lazy.get_tool_on_demand("web_search")
+        assert spec is not None
+        assert spec.name == "web_search"
+
+    def test_get_tool_on_demand_nonexistent(self):
+        reg = self._make_full_registry(3)
+        lazy = LazyToolRegistry(reg, max_initial_tools=1)
+        lazy.select_initial_tools("do something")
+
+        spec = lazy.get_tool_on_demand("does_not_exist")
+        assert spec is None
+
+    def test_to_openai_tools_only_includes_working_set(self):
+        reg = self._make_full_registry(10)
+        lazy = LazyToolRegistry(reg, max_initial_tools=2)
+        lazy.select_initial_tools("use tool_00")
+        openai_tools = lazy.to_openai_tools()
+        assert len(openai_tools) <= 2
+        for tool in openai_tools:
+            assert tool["type"] == "function"
+            assert "name" in tool["function"]
+            assert "description" in tool["function"]
+            assert "parameters" in tool["function"]
+
+    def test_reset_clears_working_set(self):
+        reg = self._make_full_registry(5)
+        lazy = LazyToolRegistry(reg, max_initial_tools=3)
+        lazy.select_initial_tools("do something")
+        assert len(lazy.working_set) == 3
+
+        lazy.reset()
+        assert len(lazy.working_set) == 0
+        assert len(lazy.expansion_log) == 0
+
+    def test_expansion_log_records_events(self):
+        reg = self._make_full_registry(20)
+        lazy = LazyToolRegistry(reg, max_initial_tools=3, max_working_set=5)
+        lazy.select_initial_tools("do something")
+        # expand adds up to (5-3)=2 hidden tools
+        lazy.expand("need more tools")
+        # Pick a tool that won't be added by either initial or expand
+        # (initial gets 3, expand gets 2, so at least 15 remain hidden)
+        ws_names = {s.name for s in lazy.working_set}
+        remaining = [n for n in reg.list_tools() if n not in ws_names]
+        assert len(remaining) > 0
+        lazy.get_tool_on_demand(remaining[0])
+
+        log = lazy.expansion_log
+        assert len(log) == 3
+        assert log[0].trigger == "initial_selection"
+        assert log[1].trigger == "on_demand_expansion"
+        assert log[2].trigger == "explicit_request"
+
+
+# ── TestFormatToolForLLM ────────────────────────────────────────
+
+
+class TestFormatToolForLLM:
+    """Test tool description formatting for LLM consumption."""
+
+    def test_basic_description_without_affordances(self):
+        spec = _make_spec("web_search", "Search the web")
+        formatted = format_tool_for_llm(spec)
+        assert "**web_search**: Search the web" in formatted
+        # No affordance lines
+        assert "Use when:" not in formatted
+        assert "Expect:" not in formatted
+
+    def test_includes_when_to_use(self):
+        spec = _make_spec(
+            "web_search",
+            "Search the web",
+            when_to_use="When you need current information",
+        )
+        formatted = format_tool_for_llm(spec)
+        assert "Use when: When you need current information" in formatted
+
+    def test_includes_what_to_expect(self):
+        spec = _make_spec(
+            "web_search",
+            "Search the web",
+            what_to_expect="Returns a list of search results",
+        )
+        formatted = format_tool_for_llm(spec)
+        assert "Expect: Returns a list of search results" in formatted
+
+    def test_includes_failure_meaning(self):
+        spec = _make_spec(
+            "web_search",
+            "Search the web",
+            failure_meaning="Query was too broad",
+        )
+        formatted = format_tool_for_llm(spec)
+        assert "If it fails: Query was too broad" in formatted
+
+    def test_includes_success_next_step(self):
+        spec = _make_spec(
+            "web_search",
+            "Search the web",
+            success_next_step="Summarize and cite results",
+        )
+        formatted = format_tool_for_llm(spec)
+        assert "After success: Summarize and cite results" in formatted
+
+    def test_includes_write_warning(self):
+        spec = _make_spec(
+            "file_write",
+            "Write a file",
+            side_effect=SideEffect.WRITE,
+        )
+        formatted = format_tool_for_llm(spec)
+        assert "[WRITE]" in formatted
+
+    def test_no_write_warning_for_read_tools(self):
+        spec = _make_spec("file_read", "Read a file")
+        formatted = format_tool_for_llm(spec)
+        assert "[WRITE]" not in formatted
+
+    def test_full_affordance_spec(self):
+        spec = ToolSpec(
+            name="web_search",
+            description="Search the web",
+            input_schema={
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+            },
+            when_to_use="When you need current information",
+            what_to_expect="Returns search results with snippets",
+            failure_meaning="Query was too broad",
+            success_next_step="Summarize the most relevant results",
+        )
+        formatted = format_tool_for_llm(spec)
+        assert "**web_search**" in formatted
+        assert "Use when:" in formatted
+        assert "Expect:" in formatted
+        assert "If it fails:" in formatted
+        assert "After success:" in formatted
+
+
+# ── TestFormatToolListForLLM ────────────────────────────────────
+
+
+class TestFormatToolListForLLM:
+    """Test batch tool list formatting."""
+
+    def test_empty_list(self):
+        formatted = format_tool_list_for_llm([])
+        assert formatted == "No tools are currently available."
+
+    def test_single_tool(self):
+        specs = [_make_spec("echo", "Echo input back")]
+        formatted = format_tool_list_for_llm(specs)
+        assert "You have access to 1 tools:" in formatted
+        assert "**echo**" in formatted
+        assert "additional tools may be made available" in formatted
+
+    def test_multiple_tools(self):
+        specs = [
+            _make_spec("tool_a", "First tool"),
+            _make_spec("tool_b", "Second tool"),
+            _make_spec("tool_c", "Third tool"),
+        ]
+        formatted = format_tool_list_for_llm(specs)
+        assert "You have access to 3 tools:" in formatted
+        assert "**tool_a**" in formatted
+        assert "**tool_b**" in formatted
+        assert "**tool_c**" in formatted
+
+
+# ── TestToolSpecAffordanceFields ────────────────────────────────
+
+
+class TestToolSpecAffordanceFields:
+    """Test that ToolSpec affordance fields are properly handled."""
+
+    def test_backward_compatible_defaults(self):
+        """Existing ToolSpec usage works unchanged."""
+        spec = ToolSpec(
+            name="echo",
+            description="Echo input",
+            input_schema={"type": "object", "properties": {}},
+        )
+        assert spec.when_to_use is None
+        assert spec.what_to_expect is None
+        assert spec.failure_meaning is None
+        assert spec.success_next_step is None
+        assert spec.category is None
+        assert spec.related_tools == []
+
+    def test_all_affordance_fields_settable(self):
+        spec = ToolSpec(
+            name="web_search",
+            description="Search the web",
+            input_schema={"type": "object", "properties": {}},
+            when_to_use="When you need current info",
+            what_to_expect="Returns search results",
+            failure_meaning="Query too broad",
+            success_next_step="Summarize results",
+            category="search",
+            related_tools=["summarize", "extract_citations"],
+        )
+        assert spec.when_to_use == "When you need current info"
+        assert spec.what_to_expect == "Returns search results"
+        assert spec.failure_meaning == "Query too broad"
+        assert spec.success_next_step == "Summarize results"
+        assert spec.category == "search"
+        assert spec.related_tools == ["summarize", "extract_citations"]
+
+    def test_serialization_roundtrip(self):
+        spec = ToolSpec(
+            name="test",
+            description="test",
+            input_schema={},
+            when_to_use="use it now",
+            category="code",
+            related_tools=["other"],
+        )
+        data = spec.model_dump()
+        restored = ToolSpec.model_validate(data)
+        assert restored.when_to_use == "use it now"
+        assert restored.category == "code"
+        assert restored.related_tools == ["other"]

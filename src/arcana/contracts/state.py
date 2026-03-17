@@ -54,9 +54,13 @@ class AgentState(BaseModel):
     consecutive_errors: int = 0
     consecutive_no_progress: int = 0
 
-    def increment_step(self) -> None:
-        """Increment the step counter."""
-        self.current_step += 1
+    def with_step(self, step: int) -> AgentState:
+        """Return a new state with updated step counter."""
+        return self.model_copy(update={"current_step": step})
+
+    def increment_step(self) -> AgentState:
+        """Return a new state with step counter incremented by 1."""
+        return self.with_step(self.current_step + 1)
 
     @property
     def steps_remaining(self) -> int:

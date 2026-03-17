@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import threading
 import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
@@ -95,7 +94,7 @@ class ToolGateway:
 
         # Idempotency cache: key -> ToolResult
         self._idempotency_cache: dict[str, ToolResult] = {}
-        self._cache_lock = threading.Lock()
+        self._cache_lock = asyncio.Lock()
 
     async def call(
         self,
@@ -158,7 +157,7 @@ class ToolGateway:
             return result
 
         # 4. Check idempotency cache
-        cached = self._check_idempotency(tool_call.idempotency_key)
+        cached = await self._check_idempotency(tool_call.idempotency_key)
         if cached is not None:
             return cached
 
@@ -171,7 +170,7 @@ class ToolGateway:
         result = await self._execute_with_retry(provider, tool_call, spec)
 
         # 7. Cache if idempotency key present
-        self._cache_result(tool_call.idempotency_key, result)
+        await self._cache_result(tool_call.idempotency_key, result)
 
         # 8. Audit
         if trace_ctx:
@@ -226,18 +225,18 @@ class ToolGateway:
         missing = required - self.granted_capabilities
         return sorted(missing)
 
-    def _check_idempotency(self, key: str | None) -> ToolResult | None:
+    async def _check_idempotency(self, key: str | None) -> ToolResult | None:
         """Return cached result if idempotency key was seen before."""
         if key is None:
             return None
-        with self._cache_lock:
+        async with self._cache_lock:
             return self._idempotency_cache.get(key)
 
-    def _cache_result(self, key: str | None, result: ToolResult) -> None:
+    async def _cache_result(self, key: str | None, result: ToolResult) -> None:
         """Store result in idempotency cache."""
         if key is None:
             return
-        with self._cache_lock:
+        async with self._cache_lock:
             self._idempotency_cache[key] = result
 
     async def _confirm_execution(

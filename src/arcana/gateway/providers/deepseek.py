@@ -6,11 +6,15 @@ for the DeepSeek API.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from arcana.gateway.providers.openai_compatible import (
     OpenAICompatibleProvider,
     create_deepseek_provider,
 )
-from arcana.trace.writer import TraceWriter
+
+if TYPE_CHECKING:
+    from arcana.trace.writer import TraceWriter
 
 # Re-export for backwards compatibility
 __all__ = ["DeepSeekProvider", "create_deepseek_provider"]

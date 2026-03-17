@@ -6,7 +6,6 @@ from arcana.graph.compiled_graph import CompiledGraph
 from arcana.graph.constants import END, START
 from arcana.graph.state_graph import GraphValidationError, StateGraph
 
-
 # --- Simple node functions for testing ---
 
 
