@@ -34,6 +34,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from arcana.contracts.llm import ModelConfig
+from arcana.contracts.mcp import MCPServerConfig
 from arcana.contracts.state import AgentState
 
 
@@ -92,6 +93,7 @@ class Runtime:
         *,
         providers: dict[str, str] | None = None,  # {"deepseek": "sk-xxx"}
         tools: list[Callable] | None = None,  # type: ignore[type-arg]
+        mcp_servers: list[MCPServerConfig] | None = None,
         budget: Budget | None = None,
         trace: bool = False,
         config: RuntimeConfig | None = None,
@@ -107,6 +109,10 @@ class Runtime:
         self._tool_gateway = None
         if tools:
             self._tool_registry, self._tool_gateway = self._setup_tools(tools)
+
+        # Store MCP configs for lazy connection
+        self._mcp_configs = mcp_servers or []
+        self._mcp_client: Any = None  # MCPClient, set after connect_mcp()
 
         # Setup trace (long-lived)
         self._trace_writer = None
@@ -134,6 +140,10 @@ class Runtime:
             budget: Override default budget for this run
             tools: Additional tools for this run only
         """
+        # Auto-connect MCP on first run
+        if self._mcp_configs and not self._mcp_client:
+            await self.connect_mcp()
+
         session = self._create_session(
             engine=engine,
             max_turns=max_turns,
@@ -141,6 +151,36 @@ class Runtime:
             extra_tools=tools,
         )
         return await session.run(goal)
+
+    async def connect_mcp(self) -> list[str]:
+        """Connect to configured MCP servers and register tools.
+
+        Returns list of registered MCP tool names.
+        """
+        if not self._mcp_configs:
+            return []
+
+        from arcana.mcp.setup import setup_mcp_tools
+
+        # Ensure we have a tool registry/gateway
+        if not self._tool_registry:
+            from arcana.tool_gateway.gateway import ToolGateway
+            from arcana.tool_gateway.registry import ToolRegistry
+
+            self._tool_registry = ToolRegistry()
+            self._tool_gateway = ToolGateway(registry=self._tool_registry)
+
+        self._mcp_client = await setup_mcp_tools(
+            self._mcp_configs, self._tool_registry
+        )
+
+        return [name for name, _ in self._mcp_client.get_all_tools()]
+
+    async def close(self) -> None:
+        """Cleanup runtime resources."""
+        if self._mcp_client:
+            await self._mcp_client.disconnect_all()
+            self._mcp_client = None
 
     @asynccontextmanager
     async def session(
