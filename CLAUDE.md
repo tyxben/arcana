@@ -23,7 +23,7 @@ uv run ruff check .
 # Type check (strict mode)
 uv run mypy src/
 
-# Run integration tests (requires API keys in .env)
+# Run integration tests (requires API keys via env vars or .env)
 uv run pytest tests/integration/ -v
 
 # Run demo
@@ -130,7 +130,13 @@ V1 path (still compatible):
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set API keys:
+Pass `api_key` directly to `arcana.run()` — no `.env` file required:
+
+```python
+result = await arcana.run("Hello", api_key="sk-xxx")
+```
+
+Environment variables are still supported as a fallback:
 - `DEEPSEEK_API_KEY` (primary, verified)
 - `OPENAI_API_KEY` (verified)
 - `ANTHROPIC_API_KEY` (verified)
@@ -143,9 +149,18 @@ These providers have been tested with real API keys:
 - OpenAI (gpt-4o-mini) — direct answer + tools
 - Anthropic (claude-sonnet-4) — direct answer
 
+## SDK Interface (`sdk.py`)
+
+Key parameters for `arcana.run()`:
+- `api_key`: API key string (preferred over env vars)
+- `provider`: Provider name (`"deepseek"`, `"openai"`, `"anthropic"`, etc.)
+- `engine`: `"conversation"` (default, V2 ConversationAgent) or `"adaptive"` (V1)
+- `max_turns`: Maximum number of agent turns (renamed from `max_steps`)
+- `tools`: List of tools decorated with `@arcana.tool`
+
 ## Project Status
 
-Current: v0.1.0-alpha.1 — V2 ConversationAgent engine working with real APIs.
+Current: v0.1.0-alpha.2 — `arcana.run()` accepts `api_key`, default engine is ConversationAgent (V2).
 
 ## Learning Resources
 

@@ -2,16 +2,23 @@
 Arcana: Agent with Tools
 
 Uses @arcana.tool decorator and arcana.run() SDK.
+
+Usage:
+    DEEPSEEK_API_KEY="sk-xxx" uv run python examples/02_with_tools.py
 """
 
 import asyncio
-import os  # noqa: F401 -- remind user to set DEEPSEEK_API_KEY
-
-# Must set: export DEEPSEEK_API_KEY=sk-xxx
+import os
+import sys
 
 
 async def main():
     from arcana.sdk import run, tool
+
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+    if not api_key:
+        print("Set DEEPSEEK_API_KEY or pass api_key to run()")
+        sys.exit(1)
 
     @tool(
         when_to_use="When you need to calculate math expressions",
@@ -25,7 +32,8 @@ async def main():
         "What is (15 * 37) + (89 * 2)?",
         tools=[calculator],
         provider="deepseek",
-        max_steps=5,
+        api_key=api_key,
+        max_turns=5,
     )
     print(f"Answer: {result.output}")
     print(f"Steps: {result.steps}, Tokens: {result.tokens_used}")

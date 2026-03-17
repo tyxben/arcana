@@ -29,7 +29,11 @@ import arcana
 def calc(expression: str) -> str:
     return str(eval(expression))
 
-result = await arcana.run("What is 15 * 37 + 89?", tools=[calc])
+result = await arcana.run(
+    "What is 15 * 37 + 89?",
+    tools=[calc],
+    api_key="sk-xxx",  # or set DEEPSEEK_API_KEY env var
+)
 print(result.output)  # "644"
 ```
 
@@ -38,23 +42,16 @@ Five lines. Intent routing, adaptive policy, budget guardrails, and trace loggin
 ### V2: ConversationAgent (recommended)
 
 ```python
-from arcana.runtime.conversation import ConversationAgent
-from arcana.gateway.registry import ModelGatewayRegistry
-from arcana.gateway.providers.openai_compatible import create_deepseek_provider
-from arcana.contracts.llm import ModelConfig
-
-gateway = ModelGatewayRegistry()
-gateway.register("deepseek", create_deepseek_provider("your-api-key"))
-gateway.set_default("deepseek")
-
-agent = ConversationAgent(
-    gateway=gateway,
-    model_config=ModelConfig(provider="deepseek", model_id="deepseek-chat"),
+# Or use the SDK directly (recommended)
+result = await arcana.run(
+    "What is the capital of France?",
+    provider="openai",
+    api_key="sk-proj-xxx",
 )
-
-state = await agent.run("What is the capital of France?")
-print(state.working_memory["answer"])  # "The capital of France is Paris."
 ```
+
+Under the hood this creates a `ConversationAgent` (the default `engine="conversation"`).
+Use `engine="adaptive"` to fall back to the V1 Agent + AdaptivePolicy pipeline.
 
 ---
 
@@ -67,6 +64,9 @@ pip install arcana-agent
 pip install arcana-agent[anthropic]
 pip install arcana-agent[all-providers]
 ```
+
+No `.env` file needed -- pass `api_key` directly to `arcana.run()`.
+Environment variables (`DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, etc.) are still supported as a fallback.
 
 Or from source:
 

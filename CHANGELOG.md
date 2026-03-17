@@ -2,6 +2,19 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [0.1.0-alpha.2] - 2026-03-18
+
+### Changed
+- `arcana.run()` now accepts `api_key` parameter — no .env file needed
+- Default engine switched to ConversationAgent (V2)
+- `max_steps` renamed to `max_turns` in `arcana.run()`
+- `engine="conversation"` (default) or `engine="adaptive"` (V1)
+
+### Fixed
+- SDK no longer forces environment variables for API keys
+- OpenAI and Anthropic providers now work in `arcana.run()`
+- Clear error message when no API key provided
+
 ## [0.1.0-alpha.1] - 2026-03-18
 
 ### Added

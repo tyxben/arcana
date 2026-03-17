@@ -1,8 +1,10 @@
 """
 Demo: ConversationAgent -- LLM-native execution.
 
-Compares V1 (Agent + AdaptivePolicy) vs V2 (ConversationAgent)
-on the same tasks.
+Demonstrates ConversationAgent (V2 engine):
+  - Direct answer
+  - Tool usage via native tool_use
+  - Streaming events
 
 Usage:
     DEEPSEEK_API_KEY="sk-xxx" uv run python examples/06_conversation_agent.py
@@ -12,12 +14,9 @@ import asyncio
 import os
 import sys
 
-# Add project to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 if not DEEPSEEK_API_KEY:
-    print("ERROR: DEEPSEEK_API_KEY not set")
+    print("ERROR: Set DEEPSEEK_API_KEY environment variable")
     sys.exit(1)
 
 
