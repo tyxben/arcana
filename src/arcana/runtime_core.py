@@ -31,7 +31,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from arcana.contracts.llm import ModelConfig
 from arcana.contracts.state import AgentState
@@ -42,6 +42,27 @@ class Budget(BaseModel):
 
     max_cost_usd: float = 10.0
     max_tokens: int = 500_000
+
+
+class AgentConfig(BaseModel):
+    """Configuration for a single agent in a team."""
+
+    name: str
+    prompt: str  # System prompt defining this agent's role/personality
+    model: str | None = None  # Override model for this agent
+    provider: str | None = None  # Override provider for this agent
+
+
+class TeamResult(BaseModel):
+    """Result of a multi-agent run."""
+
+    output: Any = None
+    success: bool = False
+    rounds: int = 0
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    agent_outputs: dict[str, str] = Field(default_factory=dict)  # name -> last output
+    conversation_log: list[dict[str, Any]] = Field(default_factory=list)  # full history
 
 
 class RuntimeConfig(BaseModel):
@@ -149,6 +170,163 @@ class Runtime:
             yield s
         finally:
             pass  # Session cleanup if needed
+
+    async def team(
+        self,
+        goal: str,
+        agents: list[AgentConfig],
+        *,
+        max_rounds: int = 3,
+        budget: Budget | None = None,
+    ) -> TeamResult:
+        """
+        Run a team of agents on a shared goal.
+
+        Each agent gets its own system prompt and takes turns responding
+        to a shared conversation. Runtime manages: resource isolation,
+        communication, budget, trace. Runtime does NOT: decide strategy,
+        assign roles, parse outputs for orchestration decisions.
+
+        Args:
+            goal: The shared objective
+            agents: List of agent configurations
+            max_rounds: Maximum conversation rounds (each agent speaks once per round)
+            budget: Budget for the entire team run
+        """
+        from arcana.contracts.llm import (
+            LLMRequest,
+            Message,
+            MessageRole,
+        )
+        from arcana.gateway.budget import BudgetTracker
+
+        team_budget = budget or self._budget_policy
+        budget_tracker = BudgetTracker(
+            max_cost_usd=team_budget.max_cost_usd,
+            max_tokens=team_budget.max_tokens,
+        )
+
+        # Shared conversation history -- all agents see what others said
+        shared_messages: list[Message] = [
+            Message(role=MessageRole.USER, content=f"Team goal: {goal}"),
+        ]
+
+        conversation_log: list[dict[str, Any]] = []
+        agent_outputs: dict[str, str] = {}
+        total_tokens = 0
+
+        for round_num in range(max_rounds):
+            for agent_config in agents:
+                # Budget check before each agent's turn
+                budget_tracker.check_budget()
+
+                # Build this agent's messages:
+                # System prompt (agent identity) + shared conversation
+                agent_messages = [
+                    Message(
+                        role=MessageRole.SYSTEM,
+                        content=(
+                            f"{agent_config.prompt}\n\n"
+                            f"You are '{agent_config.name}' in a team discussion. "
+                            f"Other agents can see your response. "
+                            f"When the team has fully addressed the goal, "
+                            f"the last agent should end with [DONE]."
+                        ),
+                    ),
+                    *shared_messages,
+                ]
+
+                # Resolve model config for this agent
+                provider = agent_config.provider or self._config.default_provider
+                model_id = agent_config.model or self._config.default_model
+                if not model_id:
+                    p = self._gateway.get(provider)
+                    if (
+                        p
+                        and hasattr(p, "default_model")
+                        and isinstance(p.default_model, str)
+                    ):
+                        model_id = p.default_model
+                    else:
+                        model_id = "deepseek-chat"
+
+                config = ModelConfig(provider=provider, model_id=model_id)
+
+                # Make LLM call
+                request = LLMRequest(messages=agent_messages)
+                response = await self._gateway.generate(
+                    request=request, config=config
+                )
+
+                # Track budget
+                if response.usage:
+                    budget_tracker.add_usage(response.usage)
+                    total_tokens += response.usage.total_tokens
+
+                # Add to shared conversation
+                agent_text = response.content or ""
+                shared_messages.append(
+                    Message(
+                        role=MessageRole.ASSISTANT,
+                        content=f"[{agent_config.name}]: {agent_text}",
+                    )
+                )
+
+                # Log
+                agent_outputs[agent_config.name] = agent_text
+                conversation_log.append(
+                    {
+                        "round": round_num + 1,
+                        "agent": agent_config.name,
+                        "content": agent_text,
+                        "tokens": (
+                            response.usage.total_tokens if response.usage else 0
+                        ),
+                    }
+                )
+
+                # Trace
+                if self._trace_writer:
+                    self._trace_writer.write_raw(
+                        f"team-{goal[:32]}",
+                        {
+                            "event": "agent_turn",
+                            "round": round_num + 1,
+                            "agent": agent_config.name,
+                            "content_length": len(agent_text),
+                            "tokens": (
+                                response.usage.total_tokens
+                                if response.usage
+                                else 0
+                            ),
+                        },
+                    )
+
+                # Check if done (any agent says [DONE])
+                if "[done]" in agent_text.lower():
+                    return TeamResult(
+                        output=agent_text.replace("[DONE]", "")
+                        .replace("[done]", "")
+                        .strip(),
+                        success=True,
+                        rounds=round_num + 1,
+                        total_tokens=total_tokens,
+                        total_cost_usd=budget_tracker.to_snapshot().cost_usd,
+                        agent_outputs=agent_outputs,
+                        conversation_log=conversation_log,
+                    )
+
+        # Max rounds reached
+        last_output = conversation_log[-1]["content"] if conversation_log else ""
+        return TeamResult(
+            output=last_output,
+            success=False,
+            rounds=max_rounds,
+            total_tokens=total_tokens,
+            total_cost_usd=budget_tracker.to_snapshot().cost_usd,
+            agent_outputs=agent_outputs,
+            conversation_log=conversation_log,
+        )
 
     # ------------------------------------------------------------------
     # Properties
