@@ -104,6 +104,7 @@ class Runtime:
         budget: Budget | None = None,
         trace: bool = False,
         memory: bool = False,
+        memory_budget_tokens: int = 800,
         config: RuntimeConfig | None = None,
     ) -> None:
         self._config = config or RuntimeConfig()
@@ -134,7 +135,7 @@ class Runtime:
         if memory:
             from arcana.memory.run_memory import RunMemoryStore
 
-            self._memory_store = RunMemoryStore()
+            self._memory_store = RunMemoryStore(default_budget_tokens=memory_budget_tokens)
 
     async def run(
         self,
@@ -167,10 +168,10 @@ class Runtime:
                 len(self._tool_registry.list_tools()),
             )
 
-        # Memory: build context from previous runs
+        # Memory: retrieve relevant facts for this goal
         memory_context = ""
         if self._memory_store and self._memory_store.fact_count > 0:
-            memory_context = self._memory_store.get_context(max_facts=10)
+            memory_context = self._memory_store.retrieve(goal)
 
         session = self._create_session(
             engine=engine,
