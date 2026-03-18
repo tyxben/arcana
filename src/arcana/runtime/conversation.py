@@ -377,7 +377,11 @@ class ConversationAgent:
                     tool_call_id=tc.id,
                     name=tc.name,
                     success=False,
-                    output="Tool gateway not configured",
+                    output=(
+                        f"Tool '{tc.name}' cannot be executed: no tools are registered. "
+                        f"Register tools with: Runtime(tools=[your_tool_function]) "
+                        f"or @arcana.tool decorator."
+                    ),
                 )
                 for tc in tool_calls
             ]
@@ -491,14 +495,32 @@ class ConversationAgent:
     # Error diagnosis
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _diagnose_tool_failure(result: ToolResult) -> str:
-        """Generate a diagnostic message for a failed tool call."""
-        error_msg = result.error.message if result.error else "Unknown error"
+    def _diagnose_tool_failure(self, result: ToolResult) -> str:
+        """Generate a diagnostic message for a failed tool call.
+
+        Uses the structured diagnoser when a ToolError is available,
+        falling back to a simple text message otherwise.
+        """
+        if result.error:
+            from arcana.runtime.diagnosis.diagnoser import diagnose_tool_error
+
+            diagnosis = diagnose_tool_error(
+                tool_name=result.name,
+                tool_error=result.error,
+                available_tools=self._get_tool_names(),
+            )
+            return diagnosis.to_recovery_prompt()
+
         return (
-            f"[System] Tool '{result.name}' failed: {error_msg}. "
+            f"[System] Tool '{result.name}' failed with an unknown error. "
             f"Please adjust your approach or try an alternative."
         )
+
+    def _get_tool_names(self) -> list[str]:
+        """Return the names of all currently registered tools."""
+        if not self.tool_gateway:
+            return []
+        return self.tool_gateway.registry.list_tools()
 
     # ------------------------------------------------------------------
     # Trace recording

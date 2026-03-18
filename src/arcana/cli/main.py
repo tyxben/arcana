@@ -137,6 +137,81 @@ async def _run_agent(
 
 
 @app.command()
+def trace(
+    action: str = typer.Argument(..., help="Action: list, show"),
+    run_id: str = typer.Argument(None, help="Run ID for show"),
+    trace_dir: str = typer.Option("./traces", "--dir", help="Trace directory"),
+) -> None:
+    """View agent execution traces."""
+    import datetime
+    from pathlib import Path
+
+    trace_path = Path(trace_dir)
+
+    if action == "list":
+        if not trace_path.exists():
+            console.print(f"[dim]No traces found in {trace_dir}[/dim]")
+            return
+
+        files = sorted(trace_path.glob("*.jsonl"), reverse=True)
+        if not files:
+            console.print("[dim]No trace files found[/dim]")
+            return
+
+        table = Table(title="Traces")
+        table.add_column("Run ID")
+        table.add_column("File")
+        table.add_column("Size")
+        table.add_column("Modified")
+
+        for f in files[:20]:
+            mtime = datetime.datetime.fromtimestamp(f.stat().st_mtime)
+            table.add_row(
+                f.stem,
+                f.name,
+                f"{f.stat().st_size:,} bytes",
+                mtime.strftime("%Y-%m-%d %H:%M"),
+            )
+        console.print(table)
+
+    elif action == "show" and run_id:
+        trace_file = trace_path / f"{run_id}.jsonl"
+        if not trace_file.exists():
+            console.print(f"[red]Trace not found: {trace_file}[/red]")
+            raise typer.Exit(1)
+
+        events = []
+        with open(trace_file) as f:
+            for line in f:
+                if line.strip():
+                    events.append(json.loads(line))
+
+        console.print(f"[bold]Trace: {run_id}[/bold]")
+        console.print(f"Events: {len(events)}")
+        console.print()
+
+        for i, event in enumerate(events):
+            event_type = event.get("event_type", "unknown")
+            timestamp = event.get("timestamp", "")[:19]
+            model = event.get("model", "")
+
+            if "complete" in event_type:
+                style = "green"
+            elif "llm" in event_type:
+                style = "cyan"
+            elif "tool" in event_type:
+                style = "yellow"
+            else:
+                style = "dim"
+            console.print(
+                f"  [{style}]{i + 1:3d}. {event_type:20s}[/{style}] {timestamp} {model}"
+            )
+
+    else:
+        console.print("[red]Usage: arcana trace list  OR  arcana trace show <run_id>[/red]")
+
+
+@app.command()
 def version() -> None:
     """Show Arcana version."""
     from importlib.metadata import version as get_version

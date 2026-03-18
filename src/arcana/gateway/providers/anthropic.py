@@ -276,10 +276,20 @@ def _map_anthropic_error(exc: Exception) -> ProviderError:
         return RateLimitError(str(exc), provider="anthropic")
 
     if isinstance(exc, anthropic.AuthenticationError):  # type: ignore[union-attr]
-        return AuthenticationError(str(exc), provider="anthropic")
+        return AuthenticationError(
+            f"Anthropic authentication failed. Check your API key. "
+            f"Pass it directly: Runtime(providers={{'anthropic': 'your-key'}}) "
+            f"or set the ANTHROPIC_API_KEY environment variable. "
+            f"Original error: {exc}",
+            provider="anthropic",
+        )
 
     if isinstance(exc, anthropic.NotFoundError):  # type: ignore[union-attr]
-        return ModelNotFoundError(str(exc), provider="anthropic")
+        return ModelNotFoundError(
+            f"{exc}. Known Anthropic models: claude-opus-4-20250514, claude-sonnet-4-20250514, claude-haiku-4-20250414. "
+            f"Check available models at https://docs.anthropic.com/en/docs/about-claude/models",
+            provider="anthropic",
+        )
 
     if isinstance(exc, anthropic.BadRequestError):  # type: ignore[union-attr]
         msg = str(exc).lower()
@@ -440,7 +450,8 @@ class AnthropicProvider:
     def __init__(self, api_key: str, trace_writer: TraceWriter | None = None) -> None:
         if not ANTHROPIC_AVAILABLE:
             raise ImportError(
-                "anthropic SDK not installed. Install with: pip install arcana[anthropic]"
+                "anthropic SDK is required for the Anthropic provider but not installed. "
+                "Install with: pip install anthropic  (or: uv add anthropic)"
             )
         self._client = anthropic.AsyncAnthropic(api_key=api_key)  # type: ignore[union-attr]
         self._trace_writer = trace_writer

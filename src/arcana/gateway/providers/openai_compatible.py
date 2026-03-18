@@ -104,7 +104,8 @@ class OpenAICompatibleProvider(ModelGateway):
         """
         if not OPENAI_AVAILABLE:
             raise ImportError(
-                "openai is not installed. Install with: pip install openai"
+                "openai package is required but not installed. "
+                "Install with: pip install openai  (or: uv add openai)"
             )
 
         self._provider_name = provider_name
@@ -229,25 +230,53 @@ class OpenAICompatibleProvider(ModelGateway):
 
         except RateLimitError as e:
             raise ProviderError(
-                str(e),
+                f"Rate limit hit on provider '{self._provider_name}': {e}. "
+                f"Wait a moment and retry, or set up a fallback provider.",
                 provider=self._provider_name,
                 retryable=True,
                 status_code=429,
             ) from e
         except (APIConnectionError, APITimeoutError) as e:
             raise ProviderError(
-                str(e),
+                f"Connection error with provider '{self._provider_name}': {e}. "
+                f"Check your network connection and the provider's status page.",
                 provider=self._provider_name,
                 retryable=True,
             ) from e
         except Exception as e:
             error_msg = str(e)
+            error_lower = error_msg.lower()
+            # Detect model-not-found errors
+            if any(phrase in error_lower for phrase in ["model not found", "model_not_found", "does not exist", "invalid model"]):
+                model_hint = (
+                    f"Model '{config.model_id}' not found on provider '{self._provider_name}'. "
+                )
+                if self._supported_models:
+                    model_hint += f"Known models: {self._supported_models}. "
+                model_hint += "Check available models in your provider's documentation."
+                raise ProviderError(
+                    model_hint,
+                    provider=self._provider_name,
+                    retryable=False,
+                    status_code=404,
+                ) from e
+            # Detect auth errors
+            if any(phrase in error_lower for phrase in ["401", "unauthorized", "invalid api key", "invalid_api_key", "authentication"]):
+                env_var = f"{self._provider_name.upper()}_API_KEY"
+                raise ProviderError(
+                    f"Authentication failed for provider '{self._provider_name}'. "
+                    f"Check your API key. Pass it directly: Runtime(providers={{'{self._provider_name}': 'your-key'}}) "
+                    f"or set the {env_var} environment variable.",
+                    provider=self._provider_name,
+                    retryable=False,
+                    status_code=401,
+                ) from e
             # Check for retryable status codes in error message as fallback
             retryable = any(
                 code in error_msg for code in ["503", "529", "502", "504"]
             )
             raise ProviderError(
-                error_msg,
+                f"Provider '{self._provider_name}' error: {error_msg}",
                 provider=self._provider_name,
                 retryable=retryable,
             ) from e

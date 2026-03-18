@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -36,6 +37,9 @@ from pydantic import BaseModel, Field
 from arcana.contracts.llm import ModelConfig
 from arcana.contracts.mcp import MCPServerConfig
 from arcana.contracts.state import AgentState
+from arcana.contracts.streaming import StreamEvent
+
+logger = logging.getLogger(__name__)
 
 
 class Budget(BaseModel):
@@ -144,6 +148,14 @@ class Runtime:
         if self._mcp_configs and not self._mcp_client:
             await self.connect_mcp()
 
+        # Hint when many tools are registered
+        if self._tool_registry and len(self._tool_registry.list_tools()) > 5:
+            logger.info(
+                "Runtime has %d tools registered; consider using "
+                "LazyToolRegistry to reduce prompt size.",
+                len(self._tool_registry.list_tools()),
+            )
+
         session = self._create_session(
             engine=engine,
             max_turns=max_turns,
@@ -151,6 +163,48 @@ class Runtime:
             extra_tools=tools,
         )
         return await session.run(goal)
+
+    async def stream(
+        self,
+        goal: str,
+        *,
+        engine: str = "conversation",
+        max_turns: int | None = None,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream agent execution events.
+
+        Usage::
+
+            async for event in runtime.stream("Analyze this"):
+                print(event.event_type, event.content)
+
+        Only the ``conversation`` engine supports streaming.
+        """
+        if engine != "conversation":
+            raise ValueError("Streaming only supported with engine='conversation'")
+
+        # Auto-connect MCP on first stream
+        if self._mcp_configs and not self._mcp_client:
+            await self.connect_mcp()
+
+        from arcana.routing.classifier import RuleBasedClassifier
+        from arcana.runtime.conversation import ConversationAgent
+
+        model_config = self._resolve_model_config()
+        classifier = RuleBasedClassifier()
+
+        agent = ConversationAgent(
+            gateway=self._gateway,
+            model_config=model_config,
+            tool_gateway=self._tool_gateway,
+            budget_tracker=self._create_budget_tracker(),
+            trace_writer=self._trace_writer,
+            intent_classifier=classifier,
+            max_turns=max_turns or self._config.max_turns,
+        )
+
+        async for event in agent.astream(goal):
+            yield event
 
     async def connect_mcp(self) -> list[str]:
         """Connect to configured MCP servers and register tools.
@@ -483,6 +537,15 @@ class Runtime:
             extra_tools=extra_tools,
         )
 
+    def _create_budget_tracker(self) -> Any:
+        """Create a fresh BudgetTracker from the runtime's budget policy."""
+        from arcana.gateway.budget import BudgetTracker
+
+        return BudgetTracker(
+            max_cost_usd=self._budget_policy.max_cost_usd,
+            max_tokens=self._budget_policy.max_tokens,
+        )
+
     def _resolve_model_config(self) -> ModelConfig:
         """Get default ModelConfig.
 
@@ -556,7 +619,10 @@ class Session:
         model_config = self._runtime._resolve_model_config()
 
         if self._engine == "conversation":
+            from arcana.routing.classifier import RuleBasedClassifier
             from arcana.runtime.conversation import ConversationAgent
+
+            classifier = RuleBasedClassifier()
 
             agent = ConversationAgent(
                 gateway=self._runtime._gateway,
@@ -564,6 +630,7 @@ class Session:
                 tool_gateway=tool_gateway,
                 budget_tracker=self.budget,
                 trace_writer=self._runtime._trace_writer,
+                intent_classifier=classifier,
                 max_turns=self._max_turns,
             )
             self.state = await agent.run(goal)

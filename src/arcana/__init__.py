@@ -3,6 +3,7 @@
 __version__ = "0.1.0"
 
 from arcana.contracts.mcp import MCPServerConfig as MCPServerConfig
+from arcana.contracts.streaming import StreamEvent as StreamEvent
 from arcana.runtime_core import AgentConfig as AgentConfig
 from arcana.runtime_core import Budget as Budget
 from arcana.runtime_core import RunResult as RuntimeResult  # noqa: F401

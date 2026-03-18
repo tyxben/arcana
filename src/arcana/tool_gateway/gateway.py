@@ -115,13 +115,18 @@ class ToolGateway:
         # 1. Resolve provider
         provider = self.registry.get(tool_call.name)
         if provider is None:
+            available = self.registry.list_tools()
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
                 success=False,
                 error=ToolError(
                     error_type=ErrorType.NON_RETRYABLE,
-                    message=f"Tool '{tool_call.name}' not found in registry",
+                    message=(
+                        f"Tool '{tool_call.name}' not found in registry. "
+                        f"Available tools: {available}. "
+                        f"Check the tool name for typos or register it with Runtime(tools=[...])."
+                    ),
                     code="TOOL_NOT_FOUND",
                 ),
             )

@@ -9,7 +9,6 @@ import asyncio
 import os
 import time
 
-
 TASKS = [
     {
         "goal": "What is the capital of France?",

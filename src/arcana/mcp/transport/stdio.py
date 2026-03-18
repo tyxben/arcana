@@ -23,7 +23,11 @@ class StdioTransport(MCPTransport):
 
     async def connect(self) -> None:
         if not self._config.command:
-            raise ValueError("StdioTransport requires a command")
+            raise ValueError(
+                f"MCP server '{self._config.name}' has no command configured. "
+                f"Set command in MCPServerConfig, e.g.: "
+                f"MCPServerConfig(name='{self._config.name}', command='npx', args=['-y', 'your-mcp-server'])"
+            )
 
         cmd = [self._config.command, *self._config.args]
         env = {**dict(os.environ), **self._config.env} if self._config.env else None
@@ -40,7 +44,10 @@ class StdioTransport(MCPTransport):
 
     async def send(self, message: MCPMessage) -> None:
         if not self._process or not self._process.stdin:
-            raise ConnectionError("Transport not connected")
+            raise ConnectionError(
+                f"MCP server '{self._config.name}' transport not connected. "
+                f"Call connect() before sending messages."
+            )
 
         data = serialize_message(message)
         self._process.stdin.write(data)
@@ -48,7 +55,10 @@ class StdioTransport(MCPTransport):
 
     async def receive(self) -> MCPMessage:
         if not self._process or not self._process.stdout:
-            raise ConnectionError("Transport not connected")
+            raise ConnectionError(
+                f"MCP server '{self._config.name}' transport not connected. "
+                f"Call connect() before receiving messages."
+            )
 
         line = await asyncio.wait_for(
             self._process.stdout.readline(),
@@ -56,7 +66,12 @@ class StdioTransport(MCPTransport):
         )
 
         if not line:
-            raise ConnectionError("MCP server closed connection")
+            cmd_str = f"{self._config.command} {' '.join(self._config.args)}" if self._config.command else "(unknown)"
+            raise ConnectionError(
+                f"MCP server '{self._config.name}' closed the connection unexpectedly "
+                f"(command: {cmd_str}). "
+                f"The server process may have crashed. Check its stderr output for details."
+            )
 
         return deserialize_message(line)
 

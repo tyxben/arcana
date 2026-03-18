@@ -80,19 +80,22 @@ class BudgetTracker:
         with self._lock:
             if self.max_tokens and self.tokens_used >= self.max_tokens:
                 raise BudgetExceededError(
-                    f"Token budget exceeded: {self.tokens_used}/{self.max_tokens}",
+                    f"Token budget exceeded: used {self.tokens_used:,} / limit {self.max_tokens:,} tokens. "
+                    f"Increase budget with Budget(max_tokens={self.max_tokens * 2:,}) or reduce max_turns.",
                     budget_type="tokens",
                 )
 
             if self.max_cost_usd and self.cost_usd >= self.max_cost_usd:
                 raise BudgetExceededError(
-                    f"Cost budget exceeded: ${self.cost_usd:.4f}/${self.max_cost_usd:.4f}",
+                    f"Cost budget exceeded: spent ${self.cost_usd:.4f} / limit ${self.max_cost_usd:.4f}. "
+                    f"Increase budget with Budget(max_cost_usd={self.max_cost_usd * 2:.2f}) or reduce max_turns.",
                     budget_type="cost",
                 )
 
             if self.max_time_ms and self.elapsed_ms >= self.max_time_ms:
                 raise BudgetExceededError(
-                    f"Time budget exceeded: {self.elapsed_ms}ms/{self.max_time_ms}ms",
+                    f"Time budget exceeded: elapsed {self.elapsed_ms:,}ms / limit {self.max_time_ms:,}ms. "
+                    f"Increase budget with Budget(max_time_ms={self.max_time_ms * 2:,}) or simplify the task.",
                     budget_type="time",
                 )
 

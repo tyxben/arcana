@@ -28,7 +28,15 @@ class MCPClient:
         """Connect to an MCP server and discover its tools."""
         transport = _create_transport(config)
         connection = MCPConnection(config=config, transport=transport)
-        await connection.connect()
+        try:
+            await connection.connect()
+        except Exception as exc:
+            cmd_str = f"{config.command} {' '.join(config.args)}" if config.command else "(no command)"
+            raise ConnectionError(
+                f"Failed to connect to MCP server '{config.name}' (command: {cmd_str}). "
+                f"Error: {exc}. "
+                f"Check that '{config.command}' is installed and available on PATH."
+            ) from exc
 
         # Discover tools
         tools = await connection.list_tools()
@@ -63,7 +71,12 @@ class MCPClient:
         """Call a tool on a specific server."""
         conn = self._connections.get(server_name)
         if not conn:
-            raise ConnectionError(f"Not connected to server '{server_name}'")
+            connected = self.connected_servers
+            raise ConnectionError(
+                f"Not connected to MCP server '{server_name}'. "
+                f"Connected servers: {connected}. "
+                f"Call connect() first or check the server name."
+            )
         return await conn.call_tool(tool_name, arguments)
 
     def get_all_tools(self) -> list[tuple[str, MCPToolSpec]]:
@@ -152,14 +165,22 @@ class MCPConnection:
             except Exception:
                 delay = self._config.reconnect_delay_ms * (2**attempt) / 1000
                 await asyncio.sleep(delay)
-        raise ConnectionError(f"Failed to reconnect to {self._config.name}")
+        cmd_str = f"{self._config.command} {' '.join(self._config.args)}" if self._config.command else "(no command)"
+        raise ConnectionError(
+            f"Failed to reconnect to MCP server '{self._config.name}' "
+            f"after {self._config.reconnect_attempts} attempts (command: {cmd_str}). "
+            f"Check that the server process is running and the command is correct."
+        )
 
 
 class MCPCallError(Exception):
     """Error from MCP tool call."""
 
     def __init__(self, code: int, message: str) -> None:
-        super().__init__(f"MCP error {code}: {message}")
+        super().__init__(
+            f"MCP server returned error (code={code}): {message}. "
+            f"This is an error from the MCP server, not from Arcana."
+        )
         self.code = code
 
 
@@ -170,8 +191,17 @@ def _create_transport(config: MCPServerConfig) -> MCPTransport:
 
         return StdioTransport(config)
     elif config.transport == MCPTransportType.SSE:
-        raise NotImplementedError("SSE transport not yet implemented")
+        raise NotImplementedError(
+            f"SSE transport not yet implemented for MCP server '{config.name}'. "
+            f"Use transport='stdio' instead."
+        )
     elif config.transport == MCPTransportType.STREAMABLE_HTTP:
-        raise NotImplementedError("Streamable HTTP transport not yet implemented")
+        raise NotImplementedError(
+            f"Streamable HTTP transport not yet implemented for MCP server '{config.name}'. "
+            f"Use transport='stdio' instead."
+        )
     else:
-        raise ValueError(f"Unknown transport: {config.transport}")
+        raise ValueError(
+            f"Unknown transport type '{config.transport}' for MCP server '{config.name}'. "
+            f"Supported transports: stdio. (SSE and Streamable HTTP are planned.)"
+        )

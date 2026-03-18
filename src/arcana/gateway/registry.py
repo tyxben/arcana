@@ -61,7 +61,12 @@ class ModelGatewayRegistry:
             name: Provider name to use as default
         """
         if name not in self._providers:
-            raise KeyError(f"Provider '{name}' is not registered")
+            registered = self.list_providers()
+            raise KeyError(
+                f"Provider '{name}' is not registered. "
+                f"Registered providers: {registered}. "
+                f"Register it first: Runtime(providers={{'{name}': 'your-api-key'}})"
+            )
         self._default_provider = name
 
     @property
@@ -127,7 +132,12 @@ class ModelGatewayRegistry:
             provider = self._providers.get(provider_name)
 
         if provider is None:
-            raise KeyError(f"Provider '{config.provider}' is not registered")
+            registered = self.list_providers()
+            raise KeyError(
+                f"Provider '{config.provider}' is not registered. "
+                f"Registered providers: {registered}. "
+                f"Register it first: Runtime(providers={{'{config.provider}': 'your-api-key'}})"
+            )
 
         # Try primary provider
         try:
