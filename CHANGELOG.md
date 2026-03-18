@@ -2,6 +2,34 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [0.1.0-beta.1] - 2026-03-18
+
+### Added
+- **Runtime + Session**: Long-lived resource container, create once use everywhere
+- **Runtime.team()**: Multi-agent collaboration (constitutional — Runtime provides comm, agents decide strategy)
+- **Runtime.stream()**: Async generator for streaming
+- **Runtime.graph()**: StateGraph factory
+- **Memory v2**: Relevance-based retrieval (keyword + recency + importance + token budget)
+- **MCP Client**: stdio transport, MCPToolProvider → ToolGateway bridge
+- **CLI**: `arcana run/trace/providers/version`
+- **ConversationAgent (V2)**: TurnFacts/TurnAssessment separation, 51% token savings
+- **108 new tests**: All user-facing modules now covered (713 total)
+- **Actionable error messages**: 8 files improved
+- **Intent Router**: Default on in ConversationAgent
+- **Diagnostic Recovery**: Structured diagnosis in V2
+
+### Changed
+- `arcana.run()` delegates to Runtime, accepts `api_key` param
+- Default engine is V2 ConversationAgent
+- Hardcoded model IDs removed — user explicit > provider default > error
+- README → "Agent Runtime for Production"
+
+### Fixed
+- AdaptivePolicy execution closure
+- Memory injection through direct_answer fast path
+- Tool results use native OpenAI format
+- single_tool argument generation
+
 ## [0.1.0-alpha.2] - 2026-03-18
 
 ### Changed
