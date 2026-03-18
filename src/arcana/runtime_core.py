@@ -29,8 +29,11 @@ import logging
 import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from arcana.graph.state_graph import StateGraph
 
 from pydantic import BaseModel, Field
 
@@ -100,6 +103,7 @@ class Runtime:
         mcp_servers: list[MCPServerConfig] | None = None,
         budget: Budget | None = None,
         trace: bool = False,
+        memory: bool = False,
         config: RuntimeConfig | None = None,
     ) -> None:
         self._config = config or RuntimeConfig()
@@ -124,6 +128,13 @@ class Runtime:
             from arcana.trace.writer import TraceWriter
 
             self._trace_writer = TraceWriter(output_dir=self._config.trace_dir)
+
+        # Memory (cross-run context)
+        self._memory_store: Any = None
+        if memory:
+            from arcana.memory.run_memory import RunMemoryStore
+
+            self._memory_store = RunMemoryStore()
 
     async def run(
         self,
@@ -156,13 +167,29 @@ class Runtime:
                 len(self._tool_registry.list_tools()),
             )
 
+        # Memory: build context from previous runs
+        memory_context = ""
+        if self._memory_store and self._memory_store.fact_count > 0:
+            memory_context = self._memory_store.get_context(max_facts=10)
+
         session = self._create_session(
             engine=engine,
             max_turns=max_turns,
             budget=budget,
             extra_tools=tools,
+            memory_context=memory_context,
         )
-        return await session.run(goal)
+        result = await session.run(goal)
+
+        # Memory: store result facts
+        if self._memory_store and result.success:
+            self._memory_store.store_run_result(
+                goal=goal,
+                answer=str(result.output) if result.output else "",
+                run_id=result.run_id,
+            )
+
+        return result
 
     async def stream(
         self,
@@ -427,6 +454,35 @@ class Runtime:
         )
 
     # ------------------------------------------------------------------
+    # Graph factory
+    # ------------------------------------------------------------------
+
+    def graph(self, state_schema: type | None = None) -> StateGraph:
+        """
+        Create a StateGraph connected to this Runtime's resources.
+
+        The graph uses Runtime's gateway for LLM calls and Runtime's
+        tool_gateway for tool execution when called from node functions.
+
+        Args:
+            state_schema: Pydantic model for graph state (optional)
+
+        Returns:
+            StateGraph ready for node/edge configuration
+
+        Example::
+
+            graph = runtime.graph(state_schema=MyState)
+            graph.add_node("search", search_fn)
+            graph.add_edge(START, "search")
+            app = graph.compile()
+            result = await app.ainvoke(initial_state)
+        """
+        from arcana.graph.state_graph import StateGraph
+
+        return StateGraph(state_schema=state_schema)
+
+    # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
 
@@ -441,6 +497,11 @@ class Runtime:
         if self._tool_registry:
             return self._tool_registry.list_tools()
         return []
+
+    @property
+    def memory(self) -> Any:
+        """Access the memory store (if enabled)."""
+        return self._memory_store
 
     # ------------------------------------------------------------------
     # Internal
@@ -527,6 +588,7 @@ class Runtime:
         max_turns: int | None = None,
         budget: Budget | None = None,
         extra_tools: list[Callable] | None = None,  # type: ignore[type-arg]
+        memory_context: str = "",
     ) -> Session:
         """Create a new session with per-run resources."""
         return Session(
@@ -535,6 +597,7 @@ class Runtime:
             max_turns=max_turns or self._config.max_turns,
             budget=budget or self._budget_policy,
             extra_tools=extra_tools,
+            memory_context=memory_context,
         )
 
     def _create_budget_tracker(self) -> Any:
@@ -591,12 +654,14 @@ class Session:
         max_turns: int = 20,
         budget: Budget | None = None,
         extra_tools: list[Callable] | None = None,  # type: ignore[type-arg]
+        memory_context: str = "",
     ) -> None:
         self._runtime = runtime
         self._engine = engine
         self._max_turns = max_turns
         self._budget_config = budget or Budget()
         self._extra_tools = extra_tools
+        self._memory_context = memory_context
 
         # Per-run resources
         self.run_id = str(uuid4())
@@ -624,15 +689,25 @@ class Session:
 
             classifier = RuleBasedClassifier()
 
-            agent = ConversationAgent(
-                gateway=self._runtime._gateway,
-                model_config=model_config,
-                tool_gateway=tool_gateway,
-                budget_tracker=self.budget,
-                trace_writer=self._runtime._trace_writer,
-                intent_classifier=classifier,
-                max_turns=self._max_turns,
-            )
+            # Build kwargs; inject custom system_prompt when memory context exists
+            agent_kwargs: dict[str, Any] = {
+                "gateway": self._runtime._gateway,
+                "model_config": model_config,
+                "tool_gateway": tool_gateway,
+                "budget_tracker": self.budget,
+                "trace_writer": self._runtime._trace_writer,
+                "intent_classifier": classifier,
+                "max_turns": self._max_turns,
+            }
+            if self._memory_context:
+                agent_kwargs["system_prompt"] = (
+                    "You are a helpful assistant. "
+                    "When you have fully answered the user's request, "
+                    "end your response with [DONE].\n\n"
+                    + self._memory_context
+                )
+
+            agent = ConversationAgent(**agent_kwargs)
             self.state = await agent.run(goal)
 
         else:

@@ -29,6 +29,8 @@ class DirectExecutor:
         goal: str,
         gateway: ModelGatewayRegistry,
         config: ModelConfig,
+        *,
+        system_prompt: str | None = None,
     ) -> str:
         """Answer with a single LLM call, no tools.
 
@@ -36,13 +38,14 @@ class DirectExecutor:
             goal: The user's request.
             gateway: Model gateway for LLM access.
             config: Model configuration to use.
+            system_prompt: Optional system prompt (includes memory context).
 
         Returns:
             The LLM's response content.
         """
         request = LLMRequest(
             messages=[
-                Message(role=MessageRole.SYSTEM, content="You are a helpful assistant."),
+                Message(role=MessageRole.SYSTEM, content=system_prompt or "You are a helpful assistant."),
                 Message(role=MessageRole.USER, content=goal),
             ]
         )

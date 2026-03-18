@@ -557,7 +557,9 @@ class ConversationAgent:
         run_id = str(uuid4())
         config = self._resolve_model_config()
         executor = DirectExecutor()
-        answer = await executor.direct_answer(goal, self.gateway, config)
+        answer = await executor.direct_answer(
+            goal, self.gateway, config, system_prompt=self.system_prompt,
+        )
 
         state = AgentState(
             run_id=run_id,
