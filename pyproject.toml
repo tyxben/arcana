@@ -1,6 +1,6 @@
 [project]
 name = "arcana-agent"
-version = "0.1.0-alpha.2"
+version = "0.1.0-beta.1"
 description = "An LLM-native agent framework that treats models as strategy cores, not workflow nodes."
 readme = "README.md"
 license = {text = "MIT"}
