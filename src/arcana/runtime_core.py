@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 if TYPE_CHECKING:
+    from arcana.graph.nodes.llm_node import LLMNode
+    from arcana.graph.nodes.tool_node import ToolNode
     from arcana.graph.state_graph import StateGraph
 
 from pydantic import BaseModel, Field
@@ -215,21 +217,30 @@ class Runtime:
         if self._mcp_configs and not self._mcp_client:
             await self.connect_mcp()
 
+        # Memory: retrieve relevant facts (same path as run())
+        memory_context = ""
+        if self._memory_store and self._memory_store.fact_count > 0:
+            memory_context = self._memory_store.retrieve(goal)
+
         from arcana.routing.classifier import RuleBasedClassifier
         from arcana.runtime.conversation import ConversationAgent
 
         model_config = self._resolve_model_config()
         classifier = RuleBasedClassifier()
 
-        agent = ConversationAgent(
-            gateway=self._gateway,
-            model_config=model_config,
-            tool_gateway=self._tool_gateway,
-            budget_tracker=self._create_budget_tracker(),
-            trace_writer=self._trace_writer,
-            intent_classifier=classifier,
-            max_turns=max_turns or self._config.max_turns,
-        )
+        agent_kwargs: dict[str, Any] = {
+            "gateway": self._gateway,
+            "model_config": model_config,
+            "tool_gateway": self._tool_gateway,
+            "budget_tracker": self._create_budget_tracker(),
+            "trace_writer": self._trace_writer,
+            "intent_classifier": classifier,
+            "max_turns": max_turns or self._config.max_turns,
+        }
+        if memory_context:
+            agent_kwargs["memory_context"] = memory_context
+
+        agent = ConversationAgent(**agent_kwargs)
 
         async for event in agent.astream(goal):
             yield event
@@ -453,6 +464,31 @@ class Runtime:
             agent_outputs=agent_outputs,
             conversation_log=conversation_log,
         )
+
+    # ------------------------------------------------------------------
+    # Graph node factories
+    # ------------------------------------------------------------------
+
+    def make_llm_node(self, *, system_prompt: str | None = None) -> LLMNode:
+        """Create an LLMNode pre-wired with this Runtime's gateway and model config."""
+        from arcana.graph.nodes.llm_node import LLMNode
+
+        model_config = self._resolve_model_config()
+        return LLMNode(
+            self._gateway,
+            model_config=model_config,
+            system_prompt=system_prompt,
+        )
+
+    def make_tool_node(self) -> ToolNode:
+        """Create a ToolNode pre-wired with this Runtime's tool gateway."""
+        from arcana.graph.nodes.tool_node import ToolNode
+
+        if self._tool_gateway is None:
+            raise ValueError(
+                "No tools registered. Pass tools= to Runtime() before calling make_tool_node()."
+            )
+        return ToolNode(self._tool_gateway)
 
     # ------------------------------------------------------------------
     # Graph factory
@@ -690,7 +726,7 @@ class Session:
 
             classifier = RuleBasedClassifier()
 
-            # Build kwargs; inject custom system_prompt when memory context exists
+            # Build kwargs; pass memory_context through to WorkingSetBuilder
             agent_kwargs: dict[str, Any] = {
                 "gateway": self._runtime._gateway,
                 "model_config": model_config,
@@ -701,12 +737,7 @@ class Session:
                 "max_turns": self._max_turns,
             }
             if self._memory_context:
-                agent_kwargs["system_prompt"] = (
-                    "You are a helpful assistant. "
-                    "When you have fully answered the user's request, "
-                    "end your response with [DONE].\n\n"
-                    + self._memory_context
-                )
+                agent_kwargs["memory_context"] = self._memory_context
 
             agent = ConversationAgent(**agent_kwargs)
             self.state = await agent.run(goal)
@@ -729,10 +760,14 @@ class Session:
             )
             self.state = await agent.run(goal)
 
+        raw_output = self.state.working_memory.get(
+            "answer", self.state.working_memory.get("result", "")
+        )
+        # Strip completion markers that the LLM may include
+        clean_output = raw_output.replace("[DONE]", "").replace("[done]", "").strip() if isinstance(raw_output, str) else raw_output
+
         return RunResult(
-            output=self.state.working_memory.get(
-                "answer", self.state.working_memory.get("result", "")
-            ),
+            output=clean_output,
             success=self.state.status.value == "completed",
             steps=self.state.current_step,
             tokens_used=self.state.tokens_used,

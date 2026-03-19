@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from arcana.contracts.llm import LLMResponse, ModelConfig, TokenUsage, ToolCallRequest
+from arcana.contracts.llm import LLMResponse, ModelConfig, StreamChunk, TokenUsage, ToolCallRequest
 from arcana.contracts.state import AgentState
 from arcana.contracts.turn import TurnAssessment, TurnFacts, TurnOutcome
 
@@ -322,17 +322,46 @@ class TestConversationAgentMock:
         responses: list[LLMResponse],
         tool_gateway: object | None = None,
     ) -> ConversationAgent:
-        """Create an agent with a mocked gateway that returns preset responses."""
+        """Create an agent with a mocked gateway that returns preset responses.
+
+        The mock supports both generate() and stream(). The stream() mock
+        wraps each response as StreamChunks (single text_delta + tool deltas + done).
+        """
         gateway = MagicMock()
         call_count = 0
 
-        async def mock_generate(request, config, trace_ctx=None):
+        def _next_response():
             nonlocal call_count
             idx = min(call_count, len(responses) - 1)
             call_count += 1
             return responses[idx]
 
+        async def mock_generate(request, config, trace_ctx=None):
+            return _next_response()
+
+        async def mock_stream(request, config, trace_ctx=None):
+            response = _next_response()
+            if response.content:
+                yield StreamChunk(type="text_delta", text=response.content)
+            if response.tool_calls:
+                for tc in response.tool_calls:
+                    yield StreamChunk(
+                        type="tool_call_delta",
+                        tool_call_id=tc.id,
+                        tool_name=tc.name,
+                        arguments_delta=tc.arguments,
+                    )
+            yield StreamChunk(
+                type="done",
+                usage=response.usage,
+                metadata={
+                    "finish_reason": response.finish_reason,
+                    "model": response.model,
+                },
+            )
+
         gateway.generate = AsyncMock(side_effect=mock_generate)
+        gateway.stream = mock_stream
         gateway.default_provider = "mock"
         gateway.get = MagicMock(return_value=None)
 
@@ -462,3 +491,316 @@ class TestConversationAgentMock:
         assert StreamEventType.RUN_START in event_types
         assert StreamEventType.RUN_COMPLETE in event_types
         assert len(events) >= 2
+
+
+@needs_conversation
+class TestContextManagement:
+    """Tests for unified context management via WorkingSetBuilder."""
+
+    def test_under_budget_passes_through(self) -> None:
+        """Messages under budget should pass through unchanged."""
+        from arcana.context.builder import WorkingSetBuilder
+        from arcana.contracts.context import TokenBudget
+        from arcana.contracts.llm import Message, MessageRole
+
+        builder = WorkingSetBuilder("System.", TokenBudget(total_window=128_000))
+        messages = [
+            Message(role=MessageRole.SYSTEM, content="System."),
+            Message(role=MessageRole.USER, content="Hello"),
+            Message(role=MessageRole.ASSISTANT, content="Hi!"),
+        ]
+        result = builder.build_conversation_context(messages)
+        assert len(result) == len(messages)
+
+    def test_over_budget_compresses(self) -> None:
+        """When over budget, old messages should be dropped or compressed."""
+        from arcana.context.builder import WorkingSetBuilder
+        from arcana.contracts.context import TokenBudget
+        from arcana.contracts.llm import Message, MessageRole
+
+        builder = WorkingSetBuilder(
+            "System.",
+            TokenBudget(total_window=500, response_reserve=50),
+        )
+        long_text = "This is a longer message to consume more tokens. " * 5
+        messages = [Message(role=MessageRole.SYSTEM, content="System.")]
+        for i in range(20):
+            messages.append(Message(role=MessageRole.USER, content=f"Q{i}: {long_text}"))
+            messages.append(Message(role=MessageRole.ASSISTANT, content=f"A{i}: {long_text}"))
+
+        result = builder.build_conversation_context(messages)
+        assert len(result) < len(messages)
+        assert result[0].role == MessageRole.SYSTEM
+        assert result[-1].content == messages[-1].content
+
+    def test_summary_included_when_space(self) -> None:
+        """Compressed middle should include summary when budget allows."""
+        from arcana.context.builder import WorkingSetBuilder
+        from arcana.contracts.context import TokenBudget
+        from arcana.contracts.llm import Message, MessageRole
+
+        builder = WorkingSetBuilder(
+            "System.",
+            TokenBudget(total_window=2000, response_reserve=100),
+        )
+        messages = [Message(role=MessageRole.SYSTEM, content="System.")]
+        for i in range(30):
+            messages.append(Message(role=MessageRole.USER, content=f"Question {i}?"))
+            messages.append(Message(role=MessageRole.ASSISTANT, content=f"Answer {i}."))
+
+        result = builder.build_conversation_context(messages)
+        if len(result) < len(messages):
+            has_summary = any("[Earlier conversation summary]" in (m.content or "") for m in result)
+            assert has_summary
+
+    def test_memory_injected_into_system_prompt(self) -> None:
+        """Memory context should be injected into system prompt on first turn."""
+        from arcana.context.builder import WorkingSetBuilder
+        from arcana.contracts.context import TokenBudget
+        from arcana.contracts.llm import Message, MessageRole
+
+        builder = WorkingSetBuilder(
+            "You are helpful.",
+            TokenBudget(total_window=128_000),
+        )
+        messages = [
+            Message(role=MessageRole.SYSTEM, content="You are helpful."),
+            Message(role=MessageRole.USER, content="Hi"),
+        ]
+        result = builder.build_conversation_context(
+            messages, memory_context="[Memory] User likes Python."
+        )
+        # Memory should be in system prompt
+        assert "[Memory] User likes Python." in result[0].content
+        assert "You are helpful." in result[0].content
+
+
+# =========================================================================
+# 3. Streaming tests -- real token-level streaming via LLM_CHUNK events
+# =========================================================================
+
+
+@needs_conversation
+class TestStreamingLLMChunks:
+    """Test that astream yields LLM_CHUNK events for token-level streaming."""
+
+    @staticmethod
+    def _make_streaming_agent(
+        chunks_per_turn: list[list[StreamChunk]],
+        tool_gateway: object | None = None,
+    ) -> ConversationAgent:
+        """Create an agent whose gateway yields specific StreamChunks per turn."""
+        gateway = MagicMock()
+        call_count = 0
+
+        async def mock_stream(request, config, trace_ctx=None):
+            nonlocal call_count
+            idx = min(call_count, len(chunks_per_turn) - 1)
+            call_count += 1
+            for chunk in chunks_per_turn[idx]:
+                yield chunk
+
+        gateway.stream = mock_stream
+        gateway.default_provider = "mock"
+        gateway.get = MagicMock(return_value=None)
+
+        return ConversationAgent(
+            gateway=gateway,
+            model_config=ModelConfig(provider="mock", model_id="mock-model"),
+            max_turns=5,
+            tool_gateway=tool_gateway,
+        )
+
+    @pytest.mark.asyncio
+    async def test_text_streaming_yields_llm_chunks(self) -> None:
+        """astream should yield LLM_CHUNK events for each text delta."""
+        from arcana.contracts.streaming import StreamEventType
+
+        turn_chunks = [[
+            StreamChunk(type="text_delta", text="Hello "),
+            StreamChunk(type="text_delta", text="world! "),
+            StreamChunk(type="text_delta", text="[DONE]"),
+            StreamChunk(
+                type="done",
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                metadata={"finish_reason": "stop", "model": "mock-model"},
+            ),
+        ]]
+        agent = self._make_streaming_agent(turn_chunks)
+
+        events = []
+        async for event in agent.astream("Say hello"):
+            events.append(event)
+
+        event_types = [e.event_type for e in events]
+        assert StreamEventType.LLM_CHUNK in event_types
+
+        chunk_events = [e for e in events if e.event_type == StreamEventType.LLM_CHUNK]
+        assert len(chunk_events) == 3
+        assert chunk_events[0].content == "Hello "
+        assert chunk_events[1].content == "world! "
+        assert chunk_events[2].content == "[DONE]"
+
+    @pytest.mark.asyncio
+    async def test_streaming_accumulates_into_completed_state(self) -> None:
+        """Streaming chunks should be accumulated into a complete response."""
+        turn_chunks = [[
+            StreamChunk(type="text_delta", text="The answer "),
+            StreamChunk(type="text_delta", text="is 42 "),
+            StreamChunk(type="text_delta", text="[DONE]"),
+            StreamChunk(
+                type="done",
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=8, total_tokens=18),
+                metadata={"finish_reason": "stop", "model": "mock-model"},
+            ),
+        ]]
+        agent = self._make_streaming_agent(turn_chunks)
+        state = await agent.run("What is the meaning of life?")
+
+        assert state.status.value == "completed"
+        assert "42" in str(state.working_memory.get("answer", ""))
+        assert state.tokens_used == 18
+
+    @pytest.mark.asyncio
+    async def test_streaming_tool_call_deltas(self) -> None:
+        """Tool call deltas should be accumulated and executed."""
+        from arcana.contracts.streaming import StreamEventType
+        from arcana.contracts.tool import ToolCall, ToolResult, ToolSpec
+        from arcana.tool_gateway.gateway import ToolGateway
+        from arcana.tool_gateway.registry import ToolRegistry
+
+        class MockSearchProvider:
+            @property
+            def spec(self) -> ToolSpec:
+                return ToolSpec(
+                    name="search",
+                    description="Search",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"q": {"type": "string"}},
+                        "required": ["q"],
+                    },
+                )
+
+            async def execute(self, call: ToolCall) -> ToolResult:
+                return ToolResult(
+                    tool_call_id=call.id, name=call.name,
+                    success=True, output="found it",
+                )
+
+            async def health_check(self) -> bool:
+                return True
+
+        registry = ToolRegistry()
+        registry.register(MockSearchProvider())
+        tool_gw = ToolGateway(registry=registry)
+
+        turn_chunks = [
+            # Turn 1: tool call with incremental argument deltas
+            [
+                StreamChunk(
+                    type="tool_call_delta", tool_call_id="tc-1",
+                    tool_name="search", arguments_delta='{"q":',
+                ),
+                StreamChunk(
+                    type="tool_call_delta", tool_call_id="tc-1",
+                    tool_name=None, arguments_delta=' "hello"}',
+                ),
+                StreamChunk(
+                    type="done",
+                    usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                    metadata={"finish_reason": "tool_calls", "model": "mock-model"},
+                ),
+            ],
+            # Turn 2: final answer
+            [
+                StreamChunk(type="text_delta", text="Found results [DONE]"),
+                StreamChunk(
+                    type="done",
+                    usage=TokenUsage(prompt_tokens=20, completion_tokens=10, total_tokens=30),
+                    metadata={"finish_reason": "stop", "model": "mock-model"},
+                ),
+            ],
+        ]
+        agent = self._make_streaming_agent(turn_chunks, tool_gateway=tool_gw)
+
+        events = []
+        async for event in agent.astream("Search for hello"):
+            events.append(event)
+
+        event_types = [e.event_type for e in events]
+        assert StreamEventType.TOOL_RESULT in event_types
+        assert StreamEventType.RUN_COMPLETE in event_types
+
+        # Final answer should be in the run_complete event
+        run_complete = [e for e in events if e.event_type == StreamEventType.RUN_COMPLETE][0]
+        assert "Found results" in (run_complete.content or "")
+
+    @pytest.mark.asyncio
+    async def test_thinking_deltas_yield_llm_thinking_events(self) -> None:
+        """Thinking deltas should yield LLM_THINKING events."""
+        from arcana.contracts.streaming import StreamEventType
+
+        turn_chunks = [[
+            StreamChunk(type="thinking_delta", thinking="Let me think..."),
+            StreamChunk(type="text_delta", text="Answer [DONE]"),
+            StreamChunk(
+                type="done",
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                metadata={"finish_reason": "stop", "model": "mock-model"},
+            ),
+        ]]
+        agent = self._make_streaming_agent(turn_chunks)
+
+        events = []
+        async for event in agent.astream("Think about it"):
+            events.append(event)
+
+        thinking_events = [e for e in events if e.event_type == StreamEventType.LLM_THINKING]
+        assert len(thinking_events) == 1
+        assert thinking_events[0].thinking == "Let me think..."
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_generate_when_stream_unavailable(self) -> None:
+        """Should fall back to generate() when stream() raises AttributeError."""
+        gateway = MagicMock()
+        gateway.stream = MagicMock(side_effect=AttributeError("no streaming"))
+
+        async def mock_generate(request, config, trace_ctx=None):
+            return LLMResponse(
+                content="Fallback response [DONE]",
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                model="mock-model",
+                finish_reason="stop",
+            )
+
+        gateway.generate = AsyncMock(side_effect=mock_generate)
+        gateway.default_provider = "mock"
+        gateway.get = MagicMock(return_value=None)
+
+        agent = ConversationAgent(
+            gateway=gateway,
+            model_config=ModelConfig(provider="mock", model_id="mock-model"),
+            max_turns=5,
+        )
+        state = await agent.run("Test fallback")
+
+        assert state.status.value == "completed"
+        assert "Fallback response" in str(state.working_memory.get("answer", ""))
+
+    @pytest.mark.asyncio
+    async def test_usage_from_separate_chunk(self) -> None:
+        """Usage sent as a separate 'usage' chunk should be tracked."""
+        turn_chunks = [[
+            StreamChunk(type="text_delta", text="Hello [DONE]"),
+            StreamChunk(type="done", metadata={"finish_reason": "stop", "model": "mock"}),
+            StreamChunk(
+                type="usage",
+                usage=TokenUsage(prompt_tokens=50, completion_tokens=25, total_tokens=75),
+            ),
+        ]]
+        agent = self._make_streaming_agent(turn_chunks)
+        state = await agent.run("Hi")
+
+        assert state.status.value == "completed"
+        assert state.tokens_used == 75

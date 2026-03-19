@@ -1,6 +1,5 @@
 """Tests for Arcana CLI."""
 
-import pytest
 from typer.testing import CliRunner
 
 from arcana.cli.main import app
@@ -43,3 +42,34 @@ class TestCLI:
         """Trace show with bad run_id should fail gracefully."""
         result = runner.invoke(app, ["trace", "show", "nonexistent", "--dir", "/tmp"])
         assert result.exit_code == 1
+
+    def test_run_yaml_config(self, tmp_path):
+        """Run with YAML config should parse and use config values."""
+        cfg = tmp_path / "agent.yaml"
+        cfg.write_text("goal: test goal\nprovider: deepseek\nmax_turns: 5\n")
+        result = runner.invoke(app, ["run", str(cfg)])
+        # Should fail at API key, not at YAML parsing
+        assert result.exit_code == 1
+        assert "API key" in result.stdout
+
+    def test_run_yaml_override_goal(self, tmp_path):
+        """--override should replace goal from YAML."""
+        cfg = tmp_path / "agent.yaml"
+        cfg.write_text("goal: original\nprovider: deepseek\n")
+        result = runner.invoke(app, ["run", str(cfg), "--override", "new goal"])
+        assert result.exit_code == 1
+        assert "API key" in result.stdout
+
+    def test_run_yaml_no_goal(self, tmp_path):
+        """YAML without goal and no --override should error."""
+        cfg = tmp_path / "no_goal.yaml"
+        cfg.write_text("provider: deepseek\n")
+        result = runner.invoke(app, ["run", str(cfg)])
+        assert result.exit_code == 1
+        assert "no goal" in result.stdout.lower()
+
+    def test_run_yaml_not_found(self):
+        """Missing YAML file should error."""
+        result = runner.invoke(app, ["run", "nonexistent.yaml"])
+        assert result.exit_code == 1
+        assert "not found" in result.stdout.lower()

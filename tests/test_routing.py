@@ -1,6 +1,5 @@
 """Tests for Intent Router -- classifiers and executor."""
 
-import pytest
 
 from arcana.contracts.intent import IntentClassification, IntentType
 from arcana.routing.classifier import RuleBasedClassifier

@@ -1,0 +1,23 @@
+# Arcana Agent Config
+# Usage: arcana run agent.yaml
+#        arcana run agent.yaml "Override goal here"
+#        arcana run agent.yaml --provider openai
+
+goal: "Explain what an Agent Runtime is in one paragraph."
+
+# Provider & model
+provider: deepseek
+# model: deepseek-chat        # optional, uses provider default if omitted
+# api_key: sk-xxx             # optional, falls back to env var
+
+# Execution
+engine: conversation           # conversation (default) or adaptive
+max_turns: 10
+max_cost: 0.50                 # USD
+
+# Optional features
+memory: false                  # cross-run memory
+trace: false                   # JSONL audit log
+
+# System prompt (optional)
+# system_prompt: "You are a concise technical writer."

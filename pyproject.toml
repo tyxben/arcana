@@ -1,7 +1,7 @@
 [project]
 name = "arcana-agent"
-version = "0.1.0-beta.1"
-description = "An LLM-native agent framework that treats models as strategy cores, not workflow nodes."
+version = "0.1.0b4"
+description = "Agent Runtime for production — LLM-native execution with tools, budget, and trace built in."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -25,6 +25,7 @@ dependencies = [
     "openai>=1.0",
     "typer>=0.9",
     "rich>=13.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -46,9 +47,9 @@ dev = [
 arcana = "arcana.cli.main:app"
 
 [project.urls]
-Homepage = "https://github.com/tysama/arcana-agent"
-Documentation = "https://github.com/tysama/arcana-agent"
-Repository = "https://github.com/tysama/arcana-agent"
+Homepage = "https://github.com/tyxben/arcana"
+Documentation = "https://github.com/tyxben/arcana"
+Repository = "https://github.com/tyxben/arcana"
 
 [build-system]
 requires = ["hatchling"]

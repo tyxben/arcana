@@ -9,8 +9,12 @@ from arcana.contracts.tool import ErrorType, SideEffect, ToolError, ToolSpec
 
 
 def serialize_message(msg: MCPMessage) -> bytes:
-    """Serialize MCPMessage to JSON-RPC bytes."""
-    return (msg.model_dump_json() + "\n").encode()
+    """Serialize MCPMessage to JSON-RPC bytes.
+
+    Excludes None fields to produce valid JSON-RPC messages.
+    A request must not contain 'result'/'error'; a response must not contain 'method'/'params'.
+    """
+    return (msg.model_dump_json(exclude_none=True) + "\n").encode()
 
 
 def deserialize_message(data: bytes) -> MCPMessage:

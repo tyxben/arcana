@@ -683,7 +683,12 @@ class Agent:
 
         executor = DirectExecutor()
         config = self._get_default_config()
-        answer = await executor.direct_answer(goal, self.gateway, config)
+        response = await executor.direct_answer(goal, self.gateway, config)
+        answer = (response.content or "").replace("[DONE]", "").replace("[done]", "").strip()
+
+        tokens_used = response.usage.total_tokens if response.usage else 0
+        if response.usage and self.budget_tracker:
+            self.budget_tracker.add_usage(response.usage)
 
         state = self._create_initial_state(goal, task_id)
         state = state.model_copy(
@@ -691,6 +696,8 @@ class Agent:
                 "status": ExecutionStatus.COMPLETED,
                 "current_step": 1,
                 "working_memory": {"answer": answer},
+                "tokens_used": tokens_used,
+                "cost_usd": self.budget_tracker.cost_usd if self.budget_tracker else 0.0,
             }
         )
         return state

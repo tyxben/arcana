@@ -2,37 +2,42 @@
 
 **Agent Runtime for Production** — Budget, tools, trace, and error recovery. Create once, use everywhere.
 
-面向生产环境的 Agent 运行时 — 预算管控、工具权限、全链路追踪、错误诊断。创建一次，处处复用。
+---
+
+## Quick Start
+
+```bash
+pip install arcana-agent
+```
+
+```python
+import arcana
+
+runtime = arcana.Runtime(
+    providers={"deepseek": "sk-xxx"},
+    budget=arcana.Budget(max_cost_usd=5.0),
+)
+
+result = await runtime.run("Analyze this data")
+print(result.output)
+print(f"Cost: ${result.cost_usd:.4f}, Tokens: {result.tokens_used}")
+```
+
+Or from CLI:
+
+```bash
+export DEEPSEEK_API_KEY=sk-xxx
+arcana run "What is 2+2?"
+arcana run agent.yaml
+```
 
 ---
 
 ## Why Arcana
 
-- **Runtime, not framework** — Arcana doesn't tell your LLM how to think. It provides budget, tools, trace, and error recovery as managed services. Your agent decides the strategy.
-
+- **Runtime, not framework** — Arcana doesn't tell your LLM how to think. It provides budget, tools, trace, and error recovery as managed services.
 - **Create once, use everywhere** — `Runtime` holds provider connections, tool registry, and budget policy. Reuse across requests, workers, and services.
-
-- **Production defaults** — Every run has budget limits, tool authorization, full trace logging, and structured error diagnosis. No configuration needed.
-
----
-
-## Quick Start
-
-```python
-import arcana
-
-# Create runtime (once, at startup)
-runtime = arcana.Runtime(
-    providers={"deepseek": "sk-xxx"},
-    budget=arcana.Budget(max_cost_usd=5.0),
-    trace=True,
-)
-
-# Run tasks
-result = await runtime.run("Analyze this data")
-print(result.output)
-print(f"Cost: ${result.cost_usd:.4f}, Steps: {result.steps}")
-```
+- **Production defaults** — Every run has budget limits, tool authorization, full trace logging, and structured error diagnosis.
 
 ---
 
@@ -54,12 +59,45 @@ result = await runtime.run("What is 15 * 37 + 89?")
 
 ---
 
+## Connect MCP Tools
+
+```python
+from arcana.contracts.mcp import MCPServerConfig
+
+runtime = arcana.Runtime(
+    providers={"deepseek": "sk-xxx"},
+    mcp_servers=[
+        MCPServerConfig(
+            name="filesystem",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-filesystem", "."],
+        ),
+    ],
+)
+# MCP tools auto-discovered and available to the agent
+```
+
+Supports stdio and Streamable HTTP transports.
+
+---
+
+## Streaming
+
+```python
+async for event in runtime.stream("Write a poem"):
+    if event.event_type.value == "llm_chunk":
+        print(event.content, end="", flush=True)
+```
+
+Real token-level streaming from any OpenAI-compatible provider.
+
+---
+
 ## Integrate with Your Service
 
 ```python
 from fastapi import FastAPI
-import arcana
-import os
+import arcana, os
 
 app = FastAPI()
 runtime = arcana.Runtime(
@@ -78,61 +116,66 @@ async def agent_endpoint(goal: str):
 
 ## What You Get for Free
 
-| Capability | Description | Default |
-|-----------|-------------|---------|
-| Budget Control | Token and cost limits per run | On |
-| Tool Authorization | Tools need explicit capabilities | On |
-| Full Trace | Every LLM call and tool invocation logged | Opt-in |
-| Error Diagnosis | Structured feedback on failures | On |
-| Multi-Provider | DeepSeek, OpenAI, Anthropic, Kimi, GLM, MiniMax, Ollama | Any |
-| Native Tool Use | LLM calls tools directly, no wrapper | On |
+| Capability | Description |
+|-----------|-------------|
+| Budget Control | Token and cost limits per run |
+| Tool Authorization | Tools need explicit capabilities |
+| Full Trace | Every LLM call and tool invocation logged |
+| Error Diagnosis | Structured feedback on failures |
+| Context Management | Auto-compression for long conversations |
+| Token Streaming | Real-time token output |
+| Multi-Provider | DeepSeek, OpenAI, Anthropic, Kimi, GLM, MiniMax, Gemini, Ollama |
+| MCP Support | stdio + Streamable HTTP transports |
+| YAML Config | `arcana run agent.yaml` |
+| Trace Web UI | `arcana trace serve` for visual debugging |
 
 ---
 
-## Three Layers
+## Architecture
 
 ```
-Layer 1: SDK                    ← arcana.run() / Runtime.run()
-Layer 2: Tool Runtime           ← ToolGateway + MCP (coming soon)
-Layer 3: Advanced Orchestration ← Graph / Multi-Agent (when needed)
+Runtime Default Path (built-in):
+  SDK           — arcana.run() / Runtime.run() / Runtime.stream()
+  Tool Runtime  — ToolGateway + MCP
+  Context       — WorkingSetBuilder (auto-compression, token budget)
+  Memory        — RunMemoryStore (lightweight cross-run recall)
+  Engine        — ConversationAgent (LLM-native, default)
+
+Advanced Platform Capabilities (composable):
+  Graph Engine    — StateGraph + LLMNode/ToolNode + Interrupt/Resume
+  Multi-Agent     — runtime.team()
+  Advanced Memory — MemoryManager + Governance
 ```
 
-Most users stay on Layer 1. Layer 2 activates when you add tools. Layer 3 is for complex workflows.
+Most users stay on the default path. Advanced capabilities activate when needed.
+
+---
+
+## Supported Providers
+
+| Provider | Status |
+|----------|--------|
+| **DeepSeek** | Verified |
+| **OpenAI** | Verified |
+| **Anthropic** | Verified |
+| **Kimi** (Moonshot) | Supported |
+| **GLM** (Zhipu) | Supported |
+| **MiniMax** | Supported |
+| **Google Gemini** | Supported |
+| **Ollama** | Supported |
+
+All cloud providers use the OpenAI-compatible adapter. Adding a new provider is one function call.
 
 ---
 
 ## Installation
 
 ```bash
-pip install arcana-agent
-pip install arcana-agent[anthropic]        # + Claude support
-pip install arcana-agent[all-providers]    # everything
+pip install arcana-agent                     # Core
+pip install arcana-agent[anthropic]          # + Claude
+pip install arcana-agent[all-providers]      # All providers
+pip install arcana-agent[ui]                 # + Trace Web UI
 ```
-
-Or from source:
-
-```bash
-git clone https://github.com/anthropic/arcana.git
-cd arcana
-uv sync --all-extras
-```
-
----
-
-## Supported Providers
-
-| Provider | Models | Status |
-|----------|--------|--------|
-| **DeepSeek** | DeepSeek-Chat, DeepSeek-Reasoner | Verified |
-| **OpenAI** | GPT-4o, GPT-4o-mini | Verified |
-| **Anthropic** | Claude Opus, Sonnet, Haiku | Verified |
-| **Kimi** (月之暗面) | Moonshot | Supported |
-| **GLM** (智谱) | GLM-4 | Supported |
-| **MiniMax** | abab6.5 | Supported |
-| **Google** | Gemini Pro, Flash | Supported |
-| **Ollama** | Any local model | Supported |
-
-All cloud providers use the OpenAI-compatible adapter. Adding a new provider is one function call.
 
 ---
 
@@ -140,62 +183,7 @@ All cloud providers use the OpenAI-compatible adapter. Adding a new provider is 
 
 > *"The framework provides capabilities, manages risk, and records execution. The LLM understands goals, forms strategies, and adapts. Never reverse this."*
 
-Arcana is governed by a [Constitution](./CONSTITUTION.md) — four prohibitions (no premature structuring, no controllability theater, no context hoarding, no mechanical retry) and seven design principles. Every design decision answers to this document.
-
----
-
-## Comparison
-
-| | Arcana | LangChain | OpenAI SDK |
-|--|--------|-----------|-----------|
-| Type | Runtime | Framework | SDK |
-| Budget control | Built-in | No | No |
-| Tool auth/audit | Built-in | No | No |
-| Trace logging | Built-in | Paid (LangSmith) | No |
-| Error diagnosis | Structured | Retry | No |
-| Create once, reuse | Runtime | Per-chain | Per-call |
-| LLM decides strategy | Yes | Framework decides | Yes |
-
----
-
-## Roadmap
-
-- [x] Multi-provider gateway (DeepSeek, OpenAI, Anthropic, + 5 more)
-- [x] Budget enforcement and full trace logging
-- [x] Structured error diagnosis
-- [x] Native tool use with authorization
-- [ ] `Runtime` top-level API (in progress)
-- [ ] MCP protocol support
-- [ ] CLI tool — `arcana run agent.yaml`
-- [ ] Trace Web UI (local LangSmith alternative)
-- [ ] Rust core rewrite
-
----
-
-## Contributing
-
-Before submitting a PR, self-check against the Constitution:
-
-1. Does it honor the fast path (direct by default)?
-2. Does it add to context only what's needed?
-3. Can the LLM reason about when to use it?
-4. Does it expand what problems the LLM can solve, not constrain how?
-5. Does failure produce something the LLM can act on?
-6. Is it a service the LLM can call, not a step it's forced through?
-7. Does it improve result quality, not just process visibility?
-
-Full details in [CONSTITUTION.md](./CONSTITUTION.md).
-
-```bash
-git clone https://github.com/anthropic/arcana.git
-cd arcana
-uv sync --all-extras
-
-uv run ruff check .         # Lint
-uv run mypy src/            # Type check
-uv run pytest               # Test
-uv run pytest --cov=arcana  # Coverage
-```
+See [CONSTITUTION.md](./CONSTITUTION.md).
 
 ---
 

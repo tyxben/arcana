@@ -17,9 +17,11 @@ from uuid import uuid4
 from arcana.contracts.intent import IntentType
 from arcana.contracts.llm import (
     LLMRequest,
+    LLMResponse,
     Message,
     MessageRole,
     ModelConfig,
+    TokenUsage,
     ToolCallRequest,
 )
 from arcana.contracts.state import AgentState, ExecutionStatus
@@ -73,6 +75,8 @@ class ConversationAgent:
         intent_classifier: IntentClassifier | None = None,
         max_turns: int = 20,
         system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
+        context_window: int = 128_000,
+        memory_context: str | None = None,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -82,6 +86,16 @@ class ConversationAgent:
         self.intent_classifier = intent_classifier
         self.max_turns = max_turns
         self.system_prompt = system_prompt
+
+        # Context management — unified through WorkingSetBuilder
+        from arcana.context.builder import WorkingSetBuilder
+        from arcana.contracts.context import TokenBudget
+
+        self._context_builder = WorkingSetBuilder(
+            identity=system_prompt,
+            token_budget=TokenBudget(total_window=context_window),
+        )
+        self._memory_context = memory_context
 
         # Populated during a run; accessed by run() after astream() finishes.
         self._state: AgentState | None = None
@@ -122,7 +136,8 @@ class ConversationAgent:
             max_steps=self.max_turns,
         )
         messages = self._build_initial_messages(goal)
-        tools = self._get_current_tools()
+        all_tools = self._get_current_tools()
+        tool_token_cost = self._estimate_tool_tokens(all_tools)
 
         yield StreamEvent(
             event_type=StreamEventType.RUN_START,
@@ -140,19 +155,99 @@ class ConversationAgent:
             if self.budget_tracker:
                 self.budget_tracker.check_budget()
 
-            # 2. Context rebuild (future: working_set integration)
-            # Currently a no-op; messages list is the full context.
+            # 2. Context rebuild — delegate to WorkingSetBuilder
+            #    Always include tools. Token optimization for tools belongs in
+            #    LazyToolRegistry (dynamic tool selection), not here.
+            curated = self._context_builder.build_conversation_context(
+                messages,
+                memory_context=self._memory_context if _turn == 0 else None,
+                tool_token_estimate=tool_token_cost,
+            )
+            # Write back so memory injection persists in messages for future turns
+            if _turn == 0 and self._memory_context:
+                messages = curated[:]
 
-            # 3. LLM call
+            # 3. LLM call (streaming when gateway supports it)
             request = LLMRequest(
-                messages=messages,
-                tools=tools if tools else None,
+                messages=curated,
+                tools=all_tools,
             )
             config = self._resolve_model_config()
-            response = await self.gateway.generate(
-                request=request,
-                config=config,
-            )
+
+            response: LLMResponse
+            try:
+                text_parts: list[str] = []
+                tc_names: dict[str, str] = {}
+                tc_args: dict[str, list[str]] = {}
+                stream_usage: TokenUsage | None = None
+                stream_finish = "stop"
+                stream_model = config.model_id
+
+                async for chunk in self.gateway.stream(
+                    request=request, config=config,
+                ):
+                    if chunk.type == "text_delta" and chunk.text:
+                        text_parts.append(chunk.text)
+                        yield StreamEvent(
+                            event_type=StreamEventType.LLM_CHUNK,
+                            run_id=run_id,
+                            step_id=str(state.current_step),
+                            content=chunk.text,
+                        )
+                    elif chunk.type == "thinking_delta" and chunk.thinking:
+                        yield StreamEvent(
+                            event_type=StreamEventType.LLM_THINKING,
+                            run_id=run_id,
+                            step_id=str(state.current_step),
+                            thinking=chunk.thinking,
+                        )
+                    elif chunk.type == "tool_call_delta" and chunk.tool_call_id:
+                        if chunk.tool_call_id not in tc_names:
+                            tc_names[chunk.tool_call_id] = chunk.tool_name or ""
+                        if chunk.tool_name:
+                            tc_names[chunk.tool_call_id] = chunk.tool_name
+                        if chunk.arguments_delta:
+                            tc_args.setdefault(
+                                chunk.tool_call_id, [],
+                            ).append(chunk.arguments_delta)
+                    elif chunk.type == "usage" and chunk.usage:
+                        stream_usage = chunk.usage
+                    elif chunk.type == "done":
+                        if chunk.metadata:
+                            stream_finish = chunk.metadata.get(
+                                "finish_reason", stream_finish,
+                            )
+                            stream_model = chunk.metadata.get(
+                                "model", stream_model,
+                            )
+                        if chunk.usage:
+                            stream_usage = chunk.usage
+
+                full_text = "".join(text_parts) if text_parts else None
+                tool_calls_list = [
+                    ToolCallRequest(
+                        id=tc_id,
+                        name=tc_names.get(tc_id, ""),
+                        arguments="".join(tc_args.get(tc_id, [])),
+                    )
+                    for tc_id in tc_names
+                ] or None
+                response = LLMResponse(
+                    content=full_text,
+                    tool_calls=tool_calls_list,
+                    usage=stream_usage or TokenUsage(
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        total_tokens=0,
+                    ),
+                    model=stream_model,
+                    finish_reason=stream_finish,
+                )
+            except (AttributeError, TypeError, NotImplementedError):
+                # Gateway doesn't support streaming — fall back to generate
+                response = await self.gateway.generate(
+                    request=request, config=config,
+                )
 
             # 4. Parse: response -> raw facts (NO interpretation)
             facts = self._parse_turn(response)
@@ -199,7 +294,7 @@ class ConversationAgent:
 
             # 7b-9b. Completed
             elif assessment.completed:
-                answer = assessment.answer or facts.assistant_text or ""
+                answer = _strip_done_marker(assessment.answer or facts.assistant_text or "")
                 state = state.model_copy(
                     update={
                         "status": ExecutionStatus.COMPLETED,
@@ -461,6 +556,17 @@ class ConversationAgent:
         tool_defs = self.tool_gateway.registry.to_openai_tools()
         return tool_defs if tool_defs else None
 
+    @staticmethod
+    def _estimate_tool_tokens(tools: list[dict[str, object]] | None) -> int:
+        """Estimate tokens consumed by tool schemas in the request."""
+        if not tools:
+            return 0
+        import json
+
+        from arcana.context.builder import estimate_tokens
+        # Tool schemas are sent as JSON; estimate their token cost
+        return sum(estimate_tokens(json.dumps(t)) for t in tools)
+
     # ------------------------------------------------------------------
     # Model config resolution
     # ------------------------------------------------------------------
@@ -557,9 +663,19 @@ class ConversationAgent:
         run_id = str(uuid4())
         config = self._resolve_model_config()
         executor = DirectExecutor()
-        answer = await executor.direct_answer(
+        response = await executor.direct_answer(
             goal, self.gateway, config, system_prompt=self.system_prompt,
         )
+        answer = _strip_done_marker(response.content or "")
+
+        # Track token usage
+        tokens_used = 0
+        cost_usd = 0.0
+        if response.usage:
+            tokens_used = response.usage.total_tokens
+            if self.budget_tracker:
+                self.budget_tracker.add_usage(response.usage)
+                cost_usd = self.budget_tracker.cost_usd
 
         state = AgentState(
             run_id=run_id,
@@ -567,6 +683,8 @@ class ConversationAgent:
             status=ExecutionStatus.COMPLETED,
             current_step=1,
             working_memory={"answer": answer},
+            tokens_used=tokens_used,
+            cost_usd=cost_usd,
         )
         self._state = state
 
@@ -580,3 +698,8 @@ class ConversationAgent:
             run_id=run_id,
             content=answer,
         )
+
+
+def _strip_done_marker(text: str) -> str:
+    """Remove [DONE]/[done] completion markers from LLM output."""
+    return text.replace("[DONE]", "").replace("[done]", "").strip()

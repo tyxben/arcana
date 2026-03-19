@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
-from arcana.contracts.llm import LLMRequest, LLMResponse, ModelConfig
+from arcana.contracts.llm import LLMRequest, LLMResponse, ModelConfig, StreamChunk
 from arcana.contracts.trace import TraceContext
 from arcana.gateway.base import ModelGateway, ProviderError
 
@@ -167,6 +168,37 @@ class ModelGatewayRegistry:
 
             # All providers failed
             raise last_error from last_error
+
+    async def stream(
+        self,
+        request: LLMRequest,
+        config: ModelConfig,
+        trace_ctx: TraceContext | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """Stream response chunks from the specified provider.
+
+        Delegates to the provider's stream() method. Providers that don't
+        override stream() will use the base class fallback (generate()
+        wrapped as a single-chunk stream).
+
+        Note: Fallback chains are not used for streaming.
+        """
+        provider_name = config.provider
+        provider = self._providers.get(provider_name)
+
+        if provider is None and self._default_provider:
+            provider_name = self._default_provider
+            provider = self._providers.get(provider_name)
+
+        if provider is None:
+            registered = self.list_providers()
+            raise KeyError(
+                f"Provider '{config.provider}' is not registered. "
+                f"Registered providers: {registered}."
+            )
+
+        async for chunk in provider.stream(request, config, trace_ctx):
+            yield chunk
 
     async def health_check_all(self) -> dict[str, bool]:
         """

@@ -39,6 +39,17 @@ class StdioTransport(MCPTransport):
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
+
+        # Brief check: if the process exited immediately, fail fast.
+        await asyncio.sleep(0.5)
+        if self._process.returncode is not None:
+            stderr_bytes = await self._process.stderr.read() if self._process.stderr else b""
+            stderr_text = stderr_bytes.decode(errors="replace").strip()
+            raise ConnectionError(
+                f"MCP server process exited immediately (code={self._process.returncode}). "
+                f"stderr: {stderr_text[:500]}"
+            )
+
         self._connected = True
         logger.info("StdioTransport connected: %s", " ".join(cmd))
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -18,22 +19,65 @@ app = typer.Typer(
 console = Console()
 
 
+def _load_yaml_config(path: str) -> dict:
+    """Load a YAML agent config file."""
+    import yaml
+
+    p = Path(path)
+    if not p.exists():
+        typer.echo(f"Error: Config file not found: {path}", err=False)
+        raise typer.Exit(1)
+    with open(p) as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        typer.echo(f"Error: Invalid config: expected a YAML mapping, got {type(data).__name__}", err=False)
+        raise typer.Exit(1)
+    return data
+
+
 @app.command()
 def run(
-    goal: str = typer.Argument(..., help="What you want the agent to accomplish"),
-    provider: str = typer.Option("deepseek", "--provider", "-p", help="LLM provider"),
+    goal: str = typer.Argument(..., help="Goal string or path to .yaml/.yml config file"),
+    provider: str = typer.Option(None, "--provider", "-p", help="LLM provider"),
     model: str = typer.Option(None, "--model", "-m", help="Model ID"),
     api_key: str = typer.Option(None, "--api-key", "-k", help="API key (or set env var)"),
-    max_turns: int = typer.Option(20, "--max-turns", help="Maximum turns"),
-    max_cost: float = typer.Option(1.0, "--max-cost", help="Maximum cost in USD"),
-    engine: str = typer.Option(
-        "conversation", "--engine", "-e", help="Engine: conversation or adaptive"
-    ),
+    max_turns: int = typer.Option(None, "--max-turns", help="Maximum turns"),
+    max_cost: float = typer.Option(None, "--max-cost", help="Maximum cost in USD"),
+    engine: str = typer.Option(None, "--engine", "-e", help="Engine: conversation or adaptive"),
+    override: str = typer.Option(None, "--override", help="Override goal from config file"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """Run an agent task."""
-    # Resolve API key
-    resolved_key = api_key
+    """Run an agent task.
+
+    Usage:
+        arcana run "What is 2+2?"
+        arcana run agent.yaml
+        arcana run agent.yaml --override "Override this goal"
+        arcana run agent.yaml --provider openai
+    """
+    # ── Load YAML config if goal is a config file ────────────────
+    yaml_cfg: dict = {}
+    effective_goal = goal
+
+    if goal.endswith((".yaml", ".yml")):
+        yaml_cfg = _load_yaml_config(goal)
+        effective_goal = override or yaml_cfg.get("goal", "")
+        if not effective_goal:
+            typer.echo("Error: No goal specified in config or command line.", err=False)
+            raise typer.Exit(1)
+
+    # ── Merge: CLI flags override YAML, YAML overrides defaults ──
+    effective_provider = provider or yaml_cfg.get("provider", "deepseek")
+    effective_model = model or yaml_cfg.get("model")
+    effective_max_turns = max_turns if max_turns is not None else yaml_cfg.get("max_turns", 20)
+    effective_max_cost = max_cost if max_cost is not None else yaml_cfg.get("max_cost", 1.0)
+    effective_engine = engine or yaml_cfg.get("engine", "conversation")
+    effective_system_prompt = yaml_cfg.get("system_prompt")
+    effective_memory = yaml_cfg.get("memory", False)
+    effective_trace = yaml_cfg.get("trace", False)
+
+    # ── Resolve API key ──────────────────────────────────────────
+    resolved_key = api_key or yaml_cfg.get("api_key", "")
     if not resolved_key:
         env_map = {
             "deepseek": "DEEPSEEK_API_KEY",
@@ -44,23 +88,26 @@ def run(
             "glm": "GLM_API_KEY",
             "minimax": "MINIMAX_API_KEY",
         }
-        env_var = env_map.get(provider, f"{provider.upper()}_API_KEY")
+        env_var = env_map.get(effective_provider, f"{effective_provider.upper()}_API_KEY")
         resolved_key = os.environ.get(env_var, "")
-        if not resolved_key and provider != "ollama":
+        if not resolved_key and effective_provider != "ollama":
             console.print("[red]Error: API key required.[/red]")
             console.print(f"Pass --api-key or set {env_var}")
             raise typer.Exit(1)
 
     asyncio.run(
         _run_agent(
-            goal=goal,
-            provider=provider,
-            model=model,
+            goal=effective_goal,
+            provider=effective_provider,
+            model=effective_model,
             api_key=resolved_key,
-            max_turns=max_turns,
-            max_cost=max_cost,
-            engine=engine,
+            max_turns=effective_max_turns,
+            max_cost=effective_max_cost,
+            engine=effective_engine,
             json_output=json_output,
+            system_prompt=effective_system_prompt,
+            memory=effective_memory,
+            trace=effective_trace,
         )
     )
 
@@ -74,6 +121,9 @@ async def _run_agent(
     max_cost: float,
     engine: str,
     json_output: bool,
+    system_prompt: str | None = None,
+    memory: bool = False,
+    trace: bool = False,
 ) -> None:
     """Execute the agent task."""
     from arcana.runtime_core import Budget, Runtime, RuntimeConfig
@@ -90,7 +140,10 @@ async def _run_agent(
             default_provider=provider,
             default_model=model,
             max_turns=max_turns,
+            system_prompt=system_prompt,
         ),
+        memory=memory,
+        trace=trace,
     )
 
     try:
@@ -138,15 +191,28 @@ async def _run_agent(
 
 @app.command()
 def trace(
-    action: str = typer.Argument(..., help="Action: list, show"),
+    action: str = typer.Argument(..., help="Action: list, show, serve"),
     run_id: str = typer.Argument(None, help="Run ID for show"),
     trace_dir: str = typer.Option("./traces", "--dir", help="Trace directory"),
+    port: int = typer.Option(8100, "--port", help="Port for serve"),
 ) -> None:
     """View agent execution traces."""
     import datetime
     from pathlib import Path
 
     trace_path = Path(trace_dir)
+
+    if action == "serve":
+        try:
+            from arcana.trace.web import serve_traces
+        except ImportError:
+            console.print("[red]Error: UI dependencies not installed.[/red]")
+            console.print("Install with: pip install arcana-agent[ui]")
+            raise typer.Exit(1) from None
+        console.print(f"[bold]Starting Trace Viewer[/bold] on http://127.0.0.1:{port}")
+        console.print(f"Trace dir: {trace_dir}")
+        serve_traces(trace_dir=trace_dir, port=port)
+        return
 
     if action == "list":
         if not trace_path.exists():

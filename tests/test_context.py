@@ -1,6 +1,5 @@
 """Tests for WorkingSetBuilder and context contracts."""
 
-import pytest
 
 from arcana.context.builder import WorkingSetBuilder, estimate_tokens
 from arcana.contracts.context import (
@@ -8,7 +7,6 @@ from arcana.contracts.context import (
     ContextLayer,
     StepContext,
     TokenBudget,
-    WorkingSet,
 )
 from arcana.contracts.state import AgentState
 

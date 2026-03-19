@@ -1,16 +1,17 @@
 """Tests for Runtime, Session, Budget, and SDK entry points."""
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from arcana.runtime_core import (
-    Runtime,
-    Session,
-    Budget,
-    RuntimeConfig,
     AgentConfig,
-    TeamResult,
+    Budget,
     RunResult,
+    Runtime,
+    RuntimeConfig,
+    Session,
+    TeamResult,
 )
 
 
@@ -140,7 +141,7 @@ class TestRuntimeRun:
     async def test_run_requires_provider(self):
         """No providers registered -> _resolve_model_config should fail."""
         rt = Runtime()
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             await rt.run("test")
 
     @pytest.mark.asyncio
@@ -160,7 +161,7 @@ class TestRuntimeRun:
             tokens_used=10,
         )
 
-        with patch("arcana.runtime_core.ConversationAgent", create=True) as MockAgent:
+        with patch("arcana.runtime_core.ConversationAgent", create=True):
             # Patch the import inside Session.run
             with patch("arcana.runtime.conversation.ConversationAgent") as MockAgent2:
                 instance = MockAgent2.return_value
@@ -259,6 +260,69 @@ class TestRuntimeClose:
         await rt.close()
         mock_mcp.disconnect_all.assert_awaited_once()
         assert rt._mcp_client is None
+
+
+class TestMakeLLMNode:
+    def test_returns_llm_node_with_gateway(self):
+        """make_llm_node returns an LLMNode wired to runtime's gateway."""
+        from arcana.graph.nodes.llm_node import LLMNode
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+        node = rt.make_llm_node()
+        assert isinstance(node, LLMNode)
+        assert node._gateway is rt._gateway
+
+    def test_passes_model_config(self):
+        """make_llm_node resolves model config from runtime."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+        node = rt.make_llm_node()
+        assert node._model_config is not None
+        assert node._model_config.provider == "ollama"
+
+    def test_passes_system_prompt(self):
+        """make_llm_node forwards system_prompt to the node."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+        node = rt.make_llm_node(system_prompt="You are helpful.")
+        assert node._system_prompt == "You are helpful."
+
+    def test_no_system_prompt_by_default(self):
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+        node = rt.make_llm_node()
+        assert node._system_prompt is None
+
+
+class TestMakeToolNode:
+    def test_returns_tool_node_with_gateway(self):
+        """make_tool_node returns a ToolNode wired to runtime's tool gateway."""
+        from arcana.graph.nodes.tool_node import ToolNode
+        from arcana.sdk import tool
+
+        @tool()
+        def my_tool(x: str) -> str:
+            return x
+
+        rt = Runtime(tools=[my_tool])
+        node = rt.make_tool_node()
+        assert isinstance(node, ToolNode)
+        assert node._tool_gateway is rt._tool_gateway
+
+    def test_raises_if_no_tools(self):
+        """make_tool_node raises ValueError when no tools are registered."""
+        rt = Runtime()
+        with pytest.raises(ValueError, match="No tools registered"):
+            rt.make_tool_node()
 
 
 class TestSession:

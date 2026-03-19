@@ -196,12 +196,11 @@ def _create_transport(config: MCPServerConfig) -> MCPTransport:
             f"Use transport='stdio' instead."
         )
     elif config.transport == MCPTransportType.STREAMABLE_HTTP:
-        raise NotImplementedError(
-            f"Streamable HTTP transport not yet implemented for MCP server '{config.name}'. "
-            f"Use transport='stdio' instead."
-        )
+        from arcana.mcp.transport.streamable_http import StreamableHTTPTransport
+
+        return StreamableHTTPTransport(config)
     else:
         raise ValueError(
             f"Unknown transport type '{config.transport}' for MCP server '{config.name}'. "
-            f"Supported transports: stdio. (SSE and Streamable HTTP are planned.)"
+            f"Supported transports: stdio, streamable_http."
         )

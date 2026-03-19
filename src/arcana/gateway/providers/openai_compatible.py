@@ -15,6 +15,7 @@ the OpenAI chat completions format. Most modern LLM providers support this:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,6 +23,7 @@ from arcana.contracts.llm import (
     LLMRequest,
     LLMResponse,
     ModelConfig,
+    StreamChunk,
     TokenUsage,
     ToolCallRequest,
 )
@@ -333,6 +335,96 @@ class OpenAICompatibleProvider(ModelGateway):
             self.trace_writer.write(event)
 
         return llm_response
+
+    async def stream(
+        self,
+        request: LLMRequest,
+        config: ModelConfig,
+        trace_ctx: TraceContext | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """Stream response chunks using the OpenAI streaming API.
+
+        Yields StreamChunk objects as tokens arrive, enabling real-time
+        token-level streaming. Tool call deltas are tracked across chunks
+        so each yielded chunk includes the tool_call_id.
+        """
+        messages = self._convert_messages(request.messages)
+
+        params: dict[str, Any] = {
+            "model": config.model_id,
+            "messages": messages,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+        if config.seed is not None:
+            params["seed"] = config.seed
+        if request.response_schema:
+            params["response_format"] = {"type": "json_object"}
+        if request.tools:
+            params["tools"] = request.tools
+        if config.extra_params:
+            params.update(config.extra_params)
+
+        stream_response = await self.client.chat.completions.create(**params)
+
+        # Track tool call state across incremental deltas
+        tool_call_state: dict[int, dict[str, str]] = {}
+
+        async for chunk in stream_response:
+            # Usage-only chunk (typically the last one with stream_options)
+            if not chunk.choices:
+                if chunk.usage:
+                    yield StreamChunk(
+                        type="usage",
+                        usage=TokenUsage(
+                            prompt_tokens=chunk.usage.prompt_tokens,
+                            completion_tokens=chunk.usage.completion_tokens,
+                            total_tokens=chunk.usage.total_tokens,
+                        ),
+                    )
+                continue
+
+            choice = chunk.choices[0]
+            delta = choice.delta
+
+            # Text content
+            if delta.content:
+                yield StreamChunk(type="text_delta", text=delta.content)
+
+            # Tool call deltas (accumulated by index)
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tool_call_state:
+                        tool_call_state[idx] = {"id": "", "name": ""}
+                    entry = tool_call_state[idx]
+                    if tc_delta.id:
+                        entry["id"] = tc_delta.id
+                    if tc_delta.function and tc_delta.function.name:
+                        entry["name"] = tc_delta.function.name
+                    yield StreamChunk(
+                        type="tool_call_delta",
+                        tool_call_id=entry["id"] or None,
+                        tool_name=entry["name"] or None,
+                        arguments_delta=(
+                            tc_delta.function.arguments
+                            if tc_delta.function and tc_delta.function.arguments
+                            else None
+                        ),
+                    )
+
+            # Finish reason signals end of this choice
+            if choice.finish_reason:
+                yield StreamChunk(
+                    type="done",
+                    metadata={
+                        "finish_reason": choice.finish_reason,
+                        "model": chunk.model or config.model_id,
+                    },
+                )
 
     async def health_check(self) -> bool:
         """Check if the API is accessible."""

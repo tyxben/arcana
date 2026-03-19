@@ -8,6 +8,7 @@ from typing import Any
 
 from arcana.contracts.llm import (
     LLMRequest,
+    LLMResponse,
     Message,
     MessageRole,
     ModelConfig,
@@ -31,7 +32,7 @@ class DirectExecutor:
         config: ModelConfig,
         *,
         system_prompt: str | None = None,
-    ) -> str:
+    ) -> LLMResponse:
         """Answer with a single LLM call, no tools.
 
         Args:
@@ -41,7 +42,7 @@ class DirectExecutor:
             system_prompt: Optional system prompt (includes memory context).
 
         Returns:
-            The LLM's response content.
+            The full LLMResponse (content + usage).
         """
         request = LLMRequest(
             messages=[
@@ -49,8 +50,7 @@ class DirectExecutor:
                 Message(role=MessageRole.USER, content=goal),
             ]
         )
-        response = await gateway.generate(request=request, config=config)
-        return response.content or ""
+        return await gateway.generate(request=request, config=config)
 
     async def single_tool_call(
         self,
