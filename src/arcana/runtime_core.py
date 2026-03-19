@@ -95,6 +95,12 @@ class Runtime:
     - Trace backend
     - Default budget policy
     - Default engine config
+
+    Args:
+        namespace: Optional namespace for tenant isolation. When set,
+            memory and trace are partitioned so that multiple Runtimes
+            sharing the same backing stores don't see each other's data.
+            When ``None`` (the default), behavior is unchanged.
     """
 
     def __init__(
@@ -108,9 +114,11 @@ class Runtime:
         memory: bool = False,
         memory_budget_tokens: int = 800,
         config: RuntimeConfig | None = None,
+        namespace: str | None = None,
     ) -> None:
         self._config = config or RuntimeConfig()
         self._budget_policy = budget or Budget()
+        self._namespace = namespace
 
         # Setup providers (long-lived)
         self._gateway = self._setup_providers(providers or {})
@@ -130,14 +138,20 @@ class Runtime:
         if trace:
             from arcana.trace.writer import TraceWriter
 
-            self._trace_writer = TraceWriter(output_dir=self._config.trace_dir)
+            self._trace_writer = TraceWriter(
+                trace_dir=self._config.trace_dir,
+                namespace=self._namespace,
+            )
 
         # Memory (cross-run context)
         self._memory_store: Any = None
         if memory:
             from arcana.memory.run_memory import RunMemoryStore
 
-            self._memory_store = RunMemoryStore(default_budget_tokens=memory_budget_tokens)
+            self._memory_store = RunMemoryStore(
+                default_budget_tokens=memory_budget_tokens,
+                namespace=self._namespace,
+            )
 
     async def run(
         self,
@@ -534,6 +548,11 @@ class Runtime:
         if self._tool_registry:
             return self._tool_registry.list_tools()
         return []
+
+    @property
+    def namespace(self) -> str | None:
+        """The namespace for tenant isolation, or None."""
+        return self._namespace
 
     @property
     def memory(self) -> Any:

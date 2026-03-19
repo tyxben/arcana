@@ -1,4 +1,9 @@
-"""Default reducer implementation."""
+"""Default reducer implementation.
+
+.. deprecated::
+    Legacy V1 component. V2 ConversationAgent uses TurnFacts/TurnAssessment
+    separation instead of the reducer pattern.
+"""
 
 from __future__ import annotations
 

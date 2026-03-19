@@ -1,4 +1,11 @@
-"""Main Agent class - execution orchestrator."""
+"""Main Agent class - execution orchestrator.
+
+.. deprecated::
+    V1 Agent is legacy. Use ConversationAgent (V2) via Runtime.run() instead.
+    V1 forces JSON strategy declaration which violates the Constitution
+    (Prohibition 1: No Premature Structuring). Kept for backward compatibility
+    with multi-agent and orchestrator systems.
+"""
 
 from __future__ import annotations
 

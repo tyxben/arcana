@@ -37,6 +37,12 @@ class RunMemoryStore:
     2. Recency (newer facts score higher, exponential decay)
     3. Importance (user-assigned or auto-detected)
     4. Access frequency (frequently useful facts score higher)
+
+    Args:
+        namespace: Optional namespace for tenant isolation. When set,
+            facts are prefixed with the namespace so that different
+            tenants sharing one store don't see each other's data.
+            When ``None``, no prefix is applied (backward-compatible).
     """
 
     def __init__(
@@ -45,11 +51,31 @@ class RunMemoryStore:
         max_facts: int = 500,
         default_budget_tokens: int = 800,
         recency_half_life_hours: float = 24.0,
+        namespace: str | None = None,
     ) -> None:
         self._facts: list[MemoryFact] = []
         self._max_facts = max_facts
         self.default_budget_tokens = default_budget_tokens
         self._half_life_seconds = recency_half_life_hours * 3600
+        self._namespace = namespace
+
+    # ------------------------------------------------------------------
+    # Namespace filtering
+    # ------------------------------------------------------------------
+
+    @property
+    def _namespace_facts(self) -> list[MemoryFact]:
+        """Return facts visible to the current namespace.
+
+        - namespace=None  → all facts (backward-compatible)
+        - namespace=X     → only facts tagged with ``_namespace == X``
+        """
+        if self._namespace is None:
+            return self._facts
+        return [
+            f for f in self._facts
+            if f.metadata.get("_namespace") == self._namespace
+        ]
 
     # ------------------------------------------------------------------
     # Store
@@ -65,8 +91,12 @@ class RunMemoryStore:
         **metadata: Any,
     ) -> None:
         """Store a fact."""
+        # Tag fact with namespace for later filtering
+        if self._namespace is not None:
+            metadata["_namespace"] = self._namespace
+
         # Deduplicate: if very similar fact exists, update instead of append
-        for existing in self._facts:
+        for existing in self._namespace_facts:
             if self._similarity(existing.content, content) > 0.85:
                 existing.content = content
                 existing.timestamp = datetime.now(UTC)
@@ -132,14 +162,15 @@ class RunMemoryStore:
         Returns:
             Context string ready for injection into system prompt.
         """
-        if not self._facts:
+        visible = self._namespace_facts
+        if not visible:
             return ""
 
         budget = budget_tokens or self.default_budget_tokens
 
         # Score all facts against the query
         scored = [
-            (fact, self._relevance_score(query, fact)) for fact in self._facts
+            (fact, self._relevance_score(query, fact)) for fact in visible
         ]
         scored.sort(key=lambda x: x[1], reverse=True)
 
@@ -165,9 +196,10 @@ class RunMemoryStore:
 
     def get_context(self, max_facts: int = 10) -> str:
         """Simple retrieval: most recent N facts (backward compat)."""
-        if not self._facts:
+        visible = self._namespace_facts
+        if not visible:
             return ""
-        recent = self._facts[-max_facts:]
+        recent = visible[-max_facts:]
         lines = ["[Memory from previous interactions]"]
         for fact in recent:
             lines.append(f"- {fact.content}")
@@ -207,12 +239,12 @@ class RunMemoryStore:
 
     @property
     def fact_count(self) -> int:
-        return len(self._facts)
+        return len(self._namespace_facts)
 
     @property
     def facts(self) -> list[MemoryFact]:
-        """Read-only access to all facts."""
-        return list(self._facts)
+        """Read-only access to facts visible in the current namespace."""
+        return list(self._namespace_facts)
 
     # ------------------------------------------------------------------
     # Scoring

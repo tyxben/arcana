@@ -23,6 +23,7 @@ class TraceWriter:
         self,
         trace_dir: str | Path = "./traces",
         enabled: bool = True,
+        namespace: str | None = None,
     ):
         """
         Initialize the trace writer.
@@ -30,8 +31,12 @@ class TraceWriter:
         Args:
             trace_dir: Directory to store trace files
             enabled: Whether tracing is enabled
+            namespace: Optional namespace for tenant isolation. When set,
+                trace files are written to ``{trace_dir}/{namespace}/``
+                instead of ``trace_dir`` directly.
         """
-        self.trace_dir = Path(trace_dir)
+        base_dir = Path(trace_dir)
+        self.trace_dir = base_dir / namespace if namespace else base_dir
         self.enabled = enabled
         self._lock = threading.Lock()
 

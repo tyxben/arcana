@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from arcana.gateway.registry import ModelGatewayRegistry
     from arcana.routing.classifier import IntentClassifier
     from arcana.tool_gateway.gateway import ToolGateway
+    from arcana.tool_gateway.lazy_registry import LazyToolRegistry
     from arcana.trace.writer import TraceWriter
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,13 @@ class ConversationAgent:
         self.max_turns = max_turns
         self.system_prompt = system_prompt
 
+        # Lazy tool registry — exposes only relevant tools to the LLM
+        self._lazy_registry: LazyToolRegistry | None = None
+        if tool_gateway is not None:
+            from arcana.tool_gateway.lazy_registry import LazyToolRegistry as _LTR
+
+            self._lazy_registry = _LTR(tool_gateway.registry)
+
         # Context management — unified through WorkingSetBuilder
         from arcana.context.builder import WorkingSetBuilder
         from arcana.contracts.context import TokenBudget
@@ -136,8 +144,15 @@ class ConversationAgent:
             max_steps=self.max_turns,
         )
         messages = self._build_initial_messages(goal)
-        all_tools = self._get_current_tools()
-        tool_token_cost = self._estimate_tool_tokens(all_tools)
+
+        # Tool selection: lazy (subset) or eager (all)
+        if self._lazy_registry:
+            self._lazy_registry.reset()
+            self._lazy_registry.select_initial_tools(goal)
+            active_tools = self._lazy_registry.to_openai_tools() or None
+        else:
+            active_tools = self._get_current_tools()
+        tool_token_cost = self._estimate_tool_tokens(active_tools)
 
         yield StreamEvent(
             event_type=StreamEventType.RUN_START,
@@ -170,7 +185,7 @@ class ConversationAgent:
             # 3. LLM call (streaming when gateway supports it)
             request = LLMRequest(
                 messages=curated,
-                tools=all_tools,
+                tools=active_tools,
             )
             config = self._resolve_model_config()
 
@@ -269,6 +284,14 @@ class ConversationAgent:
 
             # 7a-10a. Tool calls
             if facts.tool_calls:
+                # Expand lazy registry for any tools the LLM requested
+                if self._lazy_registry:
+                    for tc in facts.tool_calls:
+                        self._lazy_registry.get_tool_on_demand(tc.name)
+                    # Refresh active tools and token cost for next turn
+                    active_tools = self._lazy_registry.to_openai_tools() or None
+                    tool_token_cost = self._estimate_tool_tokens(active_tools)
+
                 results = await self._execute_tools(facts.tool_calls)
                 messages = self._add_tool_messages(messages, facts, results)
 

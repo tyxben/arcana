@@ -1,4 +1,9 @@
-"""StepExecutor - executes individual steps."""
+"""StepExecutor - executes individual steps.
+
+.. deprecated::
+    Legacy V1 component. V2 ConversationAgent handles turn execution
+    directly without a separate StepExecutor.
+"""
 
 from __future__ import annotations
 

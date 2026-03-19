@@ -1,4 +1,10 @@
-"""Adaptive policy that delegates strategy decisions to the LLM."""
+"""Adaptive policy that delegates strategy decisions to the LLM.
+
+.. deprecated::
+    Legacy V1 component. AdaptivePolicy forces the LLM to emit structured
+    JSON strategy declarations, which is premature structuring. V2
+    ConversationAgent lets the LLM respond naturally instead.
+"""
 
 from __future__ import annotations
 

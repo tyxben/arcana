@@ -804,3 +804,238 @@ class TestStreamingLLMChunks:
 
         assert state.status.value == "completed"
         assert state.tokens_used == 75
+
+
+# =========================================================================
+# 4. LazyToolRegistry integration tests
+# =========================================================================
+
+
+@needs_conversation
+class TestLazyToolRegistryIntegration:
+    """Test that ConversationAgent uses LazyToolRegistry for tool selection."""
+
+    @staticmethod
+    def _make_tool_gateway_with_tools(
+        tool_names: list[str],
+    ) -> tuple[object, list[object]]:
+        """Create a ToolGateway with multiple mock tools."""
+        from arcana.contracts.tool import ToolCall, ToolResult, ToolSpec
+        from arcana.tool_gateway.gateway import ToolGateway
+        from arcana.tool_gateway.registry import ToolRegistry
+
+        providers = []
+        for name in tool_names:
+
+            class _Provider:
+                def __init__(self, tool_name: str) -> None:
+                    self._name = tool_name
+
+                @property
+                def spec(self) -> ToolSpec:
+                    return ToolSpec(
+                        name=self._name,
+                        description=f"Tool that does {self._name}",
+                        input_schema={
+                            "type": "object",
+                            "properties": {"q": {"type": "string"}},
+                        },
+                    )
+
+                async def execute(self, call: ToolCall) -> ToolResult:
+                    return ToolResult(
+                        tool_call_id=call.id,
+                        name=call.name,
+                        success=True,
+                        output=f"{self._name} result",
+                    )
+
+                async def health_check(self) -> bool:
+                    return True
+
+            providers.append(_Provider(name))
+
+        registry = ToolRegistry()
+        for p in providers:
+            registry.register(p)
+        tool_gw = ToolGateway(registry=registry)
+        return tool_gw, providers
+
+    @staticmethod
+    def _make_agent_with_tools(
+        tool_names: list[str],
+        responses_or_chunks: list | None = None,
+    ) -> tuple[ConversationAgent, object]:
+        """Create a ConversationAgent with LazyToolRegistry and mock gateway."""
+        tool_gw, _ = TestLazyToolRegistryIntegration._make_tool_gateway_with_tools(
+            tool_names,
+        )
+
+        gateway = MagicMock()
+        call_count = 0
+
+        default_response = LLMResponse(
+            content="Done [DONE]",
+            usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            model="mock-model",
+            finish_reason="stop",
+        )
+        responses = responses_or_chunks or [default_response]
+
+        async def mock_stream(request, config, trace_ctx=None):
+            nonlocal call_count
+            idx = min(call_count, len(responses) - 1)
+            call_count += 1
+            resp = responses[idx]
+            if resp.content:
+                yield StreamChunk(type="text_delta", text=resp.content)
+            if resp.tool_calls:
+                for tc in resp.tool_calls:
+                    yield StreamChunk(
+                        type="tool_call_delta",
+                        tool_call_id=tc.id,
+                        tool_name=tc.name,
+                        arguments_delta=tc.arguments,
+                    )
+            yield StreamChunk(
+                type="done",
+                usage=resp.usage,
+                metadata={
+                    "finish_reason": resp.finish_reason,
+                    "model": resp.model,
+                },
+            )
+
+        gateway.stream = mock_stream
+        gateway.default_provider = "mock"
+        gateway.get = MagicMock(return_value=None)
+
+        agent = ConversationAgent(
+            gateway=gateway,
+            model_config=ModelConfig(provider="mock", model_id="mock-model"),
+            max_turns=5,
+            tool_gateway=tool_gw,
+        )
+        return agent, tool_gw
+
+    def test_lazy_registry_created_when_tool_gateway_exists(self) -> None:
+        """ConversationAgent should create a LazyToolRegistry when tool_gateway is set."""
+        agent, _ = self._make_agent_with_tools(["search", "calculator"])
+        assert agent._lazy_registry is not None
+
+    def test_no_lazy_registry_without_tool_gateway(self) -> None:
+        """No LazyToolRegistry when no tool_gateway."""
+        gateway = MagicMock()
+        gateway.default_provider = "mock"
+        agent = ConversationAgent(
+            gateway=gateway,
+            model_config=ModelConfig(provider="mock", model_id="mock-model"),
+        )
+        assert agent._lazy_registry is None
+
+    @pytest.mark.asyncio
+    async def test_initial_selection_uses_goal(self) -> None:
+        """LazyToolRegistry should select tools based on the goal."""
+        many_tools = [
+            "search", "calculator", "file_reader", "web_fetch",
+            "database_query", "shell_exec", "code_runner", "email_sender",
+        ]
+        agent, _ = self._make_agent_with_tools(many_tools)
+        assert agent._lazy_registry is not None
+
+        # Run with a search-related goal
+        state = await agent.run("Search for Python tutorials")
+
+        # The lazy registry should have selected a subset, not all tools
+        assert agent._lazy_registry is not None
+        ws = agent._lazy_registry.working_set
+        # Should have at most max_initial_tools (default 5), not all 8
+        assert len(ws) <= 5
+
+        # Expansion log should have the initial selection
+        log = agent._lazy_registry.expansion_log
+        assert len(log) >= 1
+        assert log[0].trigger == "initial_selection"
+        assert state.status.value == "completed"
+
+    @pytest.mark.asyncio
+    async def test_on_demand_expansion_for_unlisted_tool(self) -> None:
+        """If LLM calls a tool not in the working set, it should be loaded on demand."""
+        # Use enough tools that "zzz_notifier" (alphabetically last) falls outside
+        # the initial top-5 selection for a "Search" goal.
+        many_tools = [
+            "search", "analyzer", "builder", "calculator", "compiler",
+            "debugger", "file_reader", "zzz_notifier",
+        ]
+
+        # LLM calls zzz_notifier which won't be in the initial 5
+        tc = ToolCallRequest(
+            id="tc-1", name="zzz_notifier", arguments='{"q": "test"}',
+        )
+        responses = [
+            LLMResponse(
+                content=None,
+                tool_calls=[tc],
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                model="mock-model",
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(
+                content="Notified [DONE]",
+                usage=TokenUsage(prompt_tokens=20, completion_tokens=10, total_tokens=30),
+                model="mock-model",
+                finish_reason="stop",
+            ),
+        ]
+        agent, _ = self._make_agent_with_tools(many_tools, responses)
+
+        state = await agent.run("Search for something")
+
+        # zzz_notifier should have been loaded on demand
+        assert agent._lazy_registry is not None
+        ws_names = [s.name for s in agent._lazy_registry.working_set]
+        assert "zzz_notifier" in ws_names
+
+        # Should have an explicit_request expansion event
+        log = agent._lazy_registry.expansion_log
+        explicit_events = [e for e in log if e.trigger == "explicit_request"]
+        assert len(explicit_events) >= 1
+
+        assert state.status.value == "completed"
+
+    @pytest.mark.asyncio
+    async def test_tool_token_cost_uses_subset(self) -> None:
+        """Token cost should be based on active (subset) tools, not all tools."""
+        many_tools = [
+            "search", "calculator", "file_reader", "web_fetch",
+            "database_query", "shell_exec", "code_runner", "email_sender",
+        ]
+        agent, _ = self._make_agent_with_tools(many_tools)
+
+        # Compute what all-tools cost would be
+        all_tools_defs = agent._get_current_tools()
+        all_cost = agent._estimate_tool_tokens(all_tools_defs)
+
+        # Run and check working set is smaller
+        await agent.run("Search for something")
+        assert agent._lazy_registry is not None
+        subset_defs = agent._lazy_registry.to_openai_tools()
+        subset_cost = agent._estimate_tool_tokens(subset_defs)
+
+        # Subset cost should be less than all-tools cost
+        assert subset_cost < all_cost
+
+    @pytest.mark.asyncio
+    async def test_lazy_registry_resets_between_runs(self) -> None:
+        """Each run should start with a fresh working set."""
+        agent, _ = self._make_agent_with_tools(["search", "calculator"])
+        assert agent._lazy_registry is not None
+
+        await agent.run("First run")
+        ws_after_first = len(agent._lazy_registry.working_set)
+        assert ws_after_first > 0
+
+        await agent.run("Second run")
+        # Should have reset and re-selected; expansion log should show fresh start
+        log = agent._lazy_registry.expansion_log
+        assert log[0].trigger == "initial_selection"
