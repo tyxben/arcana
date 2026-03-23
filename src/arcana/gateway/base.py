@@ -139,7 +139,15 @@ class ModelGateway(ABC):
 
 
 class ProviderError(Exception):
-    """Base exception for provider errors."""
+    """Base exception for provider errors.
+
+    The ``retryable`` flag indicates **transport-level** errors where the same
+    request may succeed on a subsequent attempt (e.g. rate-limit 429, temporary
+    server errors 502/503).  It must NOT be set for **logic-level** errors
+    (auth failure, model not found, content filter, context length exceeded)
+    where repeating the identical request will always fail.  Logic-level
+    recovery belongs in DiagnosticRecovery, not in the retry loop.
+    """
 
     def __init__(
         self,

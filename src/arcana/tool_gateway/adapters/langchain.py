@@ -26,12 +26,12 @@ if TYPE_CHECKING:
     pass
 
 try:
-    from langchain_core.tools import BaseTool as LCBaseTool
+    from langchain_core.tools import BaseTool as LCBaseTool  # type: ignore[import-not-found]
 
     LANGCHAIN_AVAILABLE = True
 except ImportError:
     LANGCHAIN_AVAILABLE = False
-    LCBaseTool = None  # type: ignore[assignment, misc]
+    LCBaseTool = None
 
 
 class LangChainToolAdapter(ToolProvider):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from arcana.contracts.llm import LLMRequest, Message, ModelConfig
+from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
 
 if TYPE_CHECKING:
     from arcana.gateway.base import ModelGateway
@@ -39,7 +39,7 @@ class LLMNode:
         # Add system prompt if configured
         if self._system_prompt:
             request_messages.append(
-                Message(role="system", content=self._system_prompt)
+                Message(role=MessageRole.SYSTEM, content=self._system_prompt)
             )
 
         # Convert state messages to Message objects
@@ -50,13 +50,11 @@ class LLMNode:
                 request_messages.append(Message(**msg))
 
         # Build request
-        request = LLMRequest(
-            messages=request_messages,
-            config=self._model_config or ModelConfig(),
-        )
+        config = self._model_config or ModelConfig(provider="default", model_id="default")
+        request = LLMRequest(messages=request_messages)
 
         # Call gateway
-        response = await self._gateway.generate(request)
+        response = await self._gateway.generate(request, config)
 
         # Build response message
         response_msg: dict[str, Any] = {

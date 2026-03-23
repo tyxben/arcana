@@ -121,7 +121,7 @@ class TestTurnAssessment:
         assessment = TurnAssessment(
             completed=True,
             answer="Paris is the capital of France",
-            completion_reason="explicit_marker",
+            completion_reason="natural_stop",
             confidence=0.9,
         )
         assert assessment.completed
@@ -150,7 +150,7 @@ class TestTurnAssessment:
         assessment = TurnAssessment(
             completed=True,
             answer="42",
-            completion_reason="done_marker",
+            completion_reason="natural_stop",
             confidence=0.95,
         )
         data = assessment.model_dump()
@@ -164,12 +164,12 @@ class TestTurnOutcome:
     """TurnOutcome keeps facts and assessment visibly separate."""
 
     def test_facts_and_assessment_separate(self) -> None:
-        facts = TurnFacts(assistant_text="Hello [DONE]", finish_reason="stop")
-        assessment = TurnAssessment(completed=True, answer="Hello [DONE]")
+        facts = TurnFacts(assistant_text="Hello", finish_reason="stop")
+        assessment = TurnAssessment(completed=True, answer="Hello")
         outcome = TurnOutcome(facts=facts, assessment=assessment)
 
         # Access through explicit paths
-        assert outcome.facts.assistant_text == "Hello [DONE]"
+        assert outcome.facts.assistant_text == "Hello"
         assert outcome.assessment.completed is True
 
     def test_default_assessment(self) -> None:
@@ -246,7 +246,7 @@ class TestParseTurn:
     def test_never_sets_completed(self) -> None:
         """_parse_turn must NEVER set assessment fields -- it returns TurnFacts only."""
         response = LLMResponse(
-            content="The answer is 42 [DONE]",
+            content="The answer is 42",
             usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
             model="deepseek-chat",
             finish_reason="stop",
@@ -292,25 +292,20 @@ class TestAssessTurn:
         assessment = ConversationAgent._assess_turn(facts, self._make_state(1))
         assert assessment.failed
 
-    def test_done_marker_completes(self) -> None:
-        """Text containing [DONE] -> completed."""
-        facts = TurnFacts(assistant_text="Paris is the capital [DONE]", finish_reason="stop")
+    def test_natural_stop_completes(self) -> None:
+        """finish_reason=stop + text -> completed (natural_stop)."""
+        facts = TurnFacts(assistant_text="Paris is the capital of France.", finish_reason="stop")
         assessment = ConversationAgent._assess_turn(facts, self._make_state(1))
         assert assessment.completed
-        assert assessment.answer is not None
+        assert assessment.answer == "Paris is the capital of France."
+        assert assessment.completion_reason == "natural_stop"
 
-    def test_stop_reason_completes(self) -> None:
-        """Text with stop finish_reason on non-first turn -> completed (heuristic)."""
-        # Heuristic requires: finish_reason=stop, turn > 0, text > 100 chars
-        long_answer = (
-            "The capital of France is Paris. It has been the capital since "
-            "the 10th century and is home to over 2 million residents in "
-            "the city proper, making it one of the most important cities."
-        )
-        facts = TurnFacts(assistant_text=long_answer, finish_reason="stop")
-        assessment = ConversationAgent._assess_turn(facts, self._make_state(2))
-        assert assessment.completed
-        assert assessment.completion_reason == "heuristic_natural_stop"
+    def test_length_finish_not_done(self) -> None:
+        """finish_reason=length -> not completed (LLM was cut off)."""
+        facts = TurnFacts(assistant_text="The capital of France is", finish_reason="length")
+        assessment = ConversationAgent._assess_turn(facts, self._make_state(1))
+        assert not assessment.completed
+        assert not assessment.failed
 
 
 @needs_conversation
@@ -377,7 +372,7 @@ class TestConversationAgentMock:
         """Simple question should complete in 1 turn."""
         responses = [
             LLMResponse(
-                content="Paris [DONE]",
+                content="Paris",
                 usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
                 model="mock-model",
                 finish_reason="stop",
@@ -392,7 +387,7 @@ class TestConversationAgentMock:
     @pytest.mark.asyncio
     async def test_max_turns_stops_execution(self) -> None:
         """Should stop after max_turns even if not completed."""
-        # Gateway always returns text without [DONE] and without stop
+        # Gateway always returns text with finish_reason=length (not stop)
         never_done = LLMResponse(
             content="Still thinking...",
             usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
@@ -405,7 +400,7 @@ class TestConversationAgentMock:
         agent.max_turns = 3
         state = await agent.run("What is the meaning of life?")
         assert state.current_step <= 3
-        # Should not be completed since we never got [DONE]
+        # Should not be completed since finish_reason was always "length"
         assert state.status.value in ("failed", "completed")
 
     @pytest.mark.asyncio
@@ -456,7 +451,7 @@ class TestConversationAgentMock:
                 finish_reason="tool_calls",
             ),
             LLMResponse(
-                content="15 * 37 + 89 = 644 [DONE]",
+                content="15 * 37 + 89 = 644",
                 usage=TokenUsage(prompt_tokens=20, completion_tokens=10, total_tokens=30),
                 model="mock-model",
                 finish_reason="stop",
@@ -474,7 +469,7 @@ class TestConversationAgentMock:
 
         responses = [
             LLMResponse(
-                content="Paris is the capital of France [DONE]",
+                content="Paris is the capital of France",
                 usage=TokenUsage(prompt_tokens=10, completion_tokens=8, total_tokens=18),
                 model="mock-model",
                 finish_reason="stop",
@@ -618,8 +613,7 @@ class TestStreamingLLMChunks:
 
         turn_chunks = [[
             StreamChunk(type="text_delta", text="Hello "),
-            StreamChunk(type="text_delta", text="world! "),
-            StreamChunk(type="text_delta", text="[DONE]"),
+            StreamChunk(type="text_delta", text="world!"),
             StreamChunk(
                 type="done",
                 usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
@@ -636,18 +630,16 @@ class TestStreamingLLMChunks:
         assert StreamEventType.LLM_CHUNK in event_types
 
         chunk_events = [e for e in events if e.event_type == StreamEventType.LLM_CHUNK]
-        assert len(chunk_events) == 3
+        assert len(chunk_events) == 2
         assert chunk_events[0].content == "Hello "
-        assert chunk_events[1].content == "world! "
-        assert chunk_events[2].content == "[DONE]"
+        assert chunk_events[1].content == "world!"
 
     @pytest.mark.asyncio
     async def test_streaming_accumulates_into_completed_state(self) -> None:
         """Streaming chunks should be accumulated into a complete response."""
         turn_chunks = [[
             StreamChunk(type="text_delta", text="The answer "),
-            StreamChunk(type="text_delta", text="is 42 "),
-            StreamChunk(type="text_delta", text="[DONE]"),
+            StreamChunk(type="text_delta", text="is 42"),
             StreamChunk(
                 type="done",
                 usage=TokenUsage(prompt_tokens=10, completion_tokens=8, total_tokens=18),
@@ -714,7 +706,7 @@ class TestStreamingLLMChunks:
             ],
             # Turn 2: final answer
             [
-                StreamChunk(type="text_delta", text="Found results [DONE]"),
+                StreamChunk(type="text_delta", text="Found results"),
                 StreamChunk(
                     type="done",
                     usage=TokenUsage(prompt_tokens=20, completion_tokens=10, total_tokens=30),
@@ -743,7 +735,7 @@ class TestStreamingLLMChunks:
 
         turn_chunks = [[
             StreamChunk(type="thinking_delta", thinking="Let me think..."),
-            StreamChunk(type="text_delta", text="Answer [DONE]"),
+            StreamChunk(type="text_delta", text="Answer"),
             StreamChunk(
                 type="done",
                 usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
@@ -768,7 +760,7 @@ class TestStreamingLLMChunks:
 
         async def mock_generate(request, config, trace_ctx=None):
             return LLMResponse(
-                content="Fallback response [DONE]",
+                content="Fallback response",
                 usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
                 model="mock-model",
                 finish_reason="stop",
@@ -792,7 +784,7 @@ class TestStreamingLLMChunks:
     async def test_usage_from_separate_chunk(self) -> None:
         """Usage sent as a separate 'usage' chunk should be tracked."""
         turn_chunks = [[
-            StreamChunk(type="text_delta", text="Hello [DONE]"),
+            StreamChunk(type="text_delta", text="Hello"),
             StreamChunk(type="done", metadata={"finish_reason": "stop", "model": "mock"}),
             StreamChunk(
                 type="usage",
@@ -875,7 +867,7 @@ class TestLazyToolRegistryIntegration:
         call_count = 0
 
         default_response = LLMResponse(
-            content="Done [DONE]",
+            content="Done",
             usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
             model="mock-model",
             finish_reason="stop",
@@ -981,7 +973,7 @@ class TestLazyToolRegistryIntegration:
                 finish_reason="tool_calls",
             ),
             LLMResponse(
-                content="Notified [DONE]",
+                content="Notified",
                 usage=TokenUsage(prompt_tokens=20, completion_tokens=10, total_tokens=30),
                 model="mock-model",
                 finish_reason="stop",

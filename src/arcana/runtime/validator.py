@@ -209,7 +209,8 @@ Your previous response:
             match = re.search(pattern, content, re.DOTALL)
             if match:
                 try:
-                    return json.loads(match.group(1))
+                    result: dict[str, Any] | None = json.loads(match.group(1))
+                    return result
                 except json.JSONDecodeError:
                     continue
 
@@ -219,7 +220,8 @@ Your previous response:
 
         for match in matches:
             try:
-                return json.loads(match)
+                result = json.loads(match)
+                return result
             except json.JSONDecodeError:
                 continue
 

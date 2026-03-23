@@ -72,6 +72,7 @@ class StreamableHTTPTransport(MCPTransport):
         if self._session_id:
             headers["Mcp-Session-Id"] = self._session_id
 
+        assert self._config.url is not None, "MCP server URL must not be None"
         try:
             response = await self._client.post(
                 self._config.url,

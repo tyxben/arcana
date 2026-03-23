@@ -40,17 +40,17 @@ def create_plan_execute_agent(
     Returns:
         CompiledGraph ready to execute
     """
-    from arcana.contracts.llm import LLMRequest, Message
+    from arcana.contracts.llm import LLMRequest, Message, MessageRole
     from arcana.contracts.llm import ModelConfig as MC
 
-    config = model_config or MC()
+    config = model_config or MC(provider="default", model_id="default")
     replan_count = 0
 
     async def planner(state: dict[str, Any]) -> dict[str, Any]:
         """Generate or revise a plan."""
         messages = state.get("messages", [])
         plan_messages = [
-            Message(role="system", content=planner_prompt),
+            Message(role=MessageRole.SYSTEM, content=planner_prompt),
             *[
                 Message(**m) if isinstance(m, dict) else m
                 for m in messages
@@ -60,14 +60,14 @@ def create_plan_execute_agent(
         if state.get("verification_feedback"):
             plan_messages.append(
                 Message(
-                    role="user",
+                    role=MessageRole.USER,
                     content=f"Previous plan feedback: {state['verification_feedback']}. "
                     "Please revise the plan.",
                 )
             )
 
-        request = LLMRequest(messages=plan_messages, config=config)
-        response = await gateway.generate(request)
+        request = LLMRequest(messages=plan_messages)
+        response = await gateway.generate(request, config)
 
         return {
             "plan": response.content or "",
@@ -81,7 +81,7 @@ def create_plan_execute_agent(
 
         exec_messages = [
             Message(
-                role="system",
+                role=MessageRole.SYSTEM,
                 content=f"Execute the following plan step by step:\n{plan}",
             ),
             *[
@@ -90,8 +90,8 @@ def create_plan_execute_agent(
             ],
         ]
 
-        request = LLMRequest(messages=exec_messages, config=config)
-        response = await gateway.generate(request)
+        request = LLMRequest(messages=exec_messages)
+        response = await gateway.generate(request, config)
 
         result: dict[str, Any] = {
             "messages": [{"role": "assistant", "content": response.content or ""}],
@@ -111,7 +111,7 @@ def create_plan_execute_agent(
 
         verify_messages = [
             Message(
-                role="system",
+                role=MessageRole.SYSTEM,
                 content="Evaluate whether the task has been completed successfully. "
                 "Respond with either 'COMPLETE' if done, or provide specific "
                 "feedback on what needs to be improved.",
@@ -122,8 +122,8 @@ def create_plan_execute_agent(
             ],
         ]
 
-        request = LLMRequest(messages=verify_messages, config=config)
-        response = await gateway.generate(request)
+        request = LLMRequest(messages=verify_messages)
+        response = await gateway.generate(request, config)
 
         content = response.content or ""
         is_complete = "COMPLETE" in content.upper()

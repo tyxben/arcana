@@ -39,18 +39,19 @@ class ReplayCache:
                 # Store LLM response indexed by request digest
                 if event.llm_request_digest and event.llm_response_digest:
                     self._llm_responses[event.llm_request_digest] = {
-                        "content": event.llm_response_content,
+                        "content": event.metadata.get("llm_response_content"),
                         "model": event.model,
-                        "usage": event.llm_usage,
+                        "usage": event.metadata.get("usage"),
                         "response_digest": event.llm_response_digest,
                     }
 
             elif event.event_type == EventType.TOOL_CALL:
                 # Store tool result indexed by tool call digest
-                if event.tool_call and event.tool_result:
-                    call_digest = event.tool_call.get("idempotency_key")
-                    if call_digest:
-                        self._tool_results[call_digest] = event.tool_result
+                if event.tool_call:
+                    call_digest = event.tool_call.idempotency_key
+                    tool_result = event.metadata.get("tool_result")
+                    if call_digest and tool_result:
+                        self._tool_results[call_digest] = tool_result
 
     def get_llm_response(self, request_digest: str) -> LLMResponse | None:
         """
@@ -67,13 +68,14 @@ class ReplayCache:
             return None
 
         usage_data = data.get("usage")
-        usage = None
-        if usage_data:
+        if usage_data and isinstance(usage_data, dict):
             usage = TokenUsage(
                 prompt_tokens=usage_data.get("prompt_tokens", 0),
                 completion_tokens=usage_data.get("completion_tokens", 0),
                 total_tokens=usage_data.get("total_tokens", 0),
             )
+        else:
+            usage = TokenUsage()
 
         return LLMResponse(
             content=data.get("content"),
@@ -356,9 +358,9 @@ class ReplayEngine:
                 state.status = event.metadata["status"]
 
         elif event.event_type == EventType.LLM_CALL:
-            # Update token usage
-            if event.llm_usage:
-                state.tokens_used += event.llm_usage.get("total_tokens", 0)
+            # Update token usage from budget snapshot
+            if event.budgets:
+                state.tokens_used = event.budgets.tokens_used
 
         elif event.event_type == EventType.TOOL_CALL:
             # Track tool calls

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from abc import ABC, abstractmethod
+from typing import Any
 
 from arcana.contracts.intent import IntentClassification, IntentType
 from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
@@ -24,7 +25,7 @@ class IntentClassifier(ABC):
         goal: str,
         *,
         available_tools: list[str] | None = None,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> IntentClassification:
         """Classify user intent into an execution path.
 
@@ -83,7 +84,7 @@ class RuleBasedClassifier(IntentClassifier):
         goal: str,
         *,
         available_tools: list[str] | None = None,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> IntentClassification:
         goal_lower = goal.lower().strip()
 
@@ -214,7 +215,7 @@ class LLMClassifier(IntentClassifier):
         goal: str,
         *,
         available_tools: list[str] | None = None,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> IntentClassification:
         tools_str = ", ".join(available_tools) if available_tools else "none"
         prompt = CLASSIFICATION_PROMPT.format(goal=goal, tools=tools_str)
@@ -271,7 +272,7 @@ class HybridClassifier(IntentClassifier):
         goal: str,
         *,
         available_tools: list[str] | None = None,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> IntentClassification:
         # Try rule-based first (free)
         result = await self.rule_classifier.classify(

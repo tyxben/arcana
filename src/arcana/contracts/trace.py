@@ -45,11 +45,18 @@ class EventType(str, Enum):
     VERIFY = "verify"
     MEMORY_WRITE = "memory_write"
 
+    # Context management
+    CONTEXT_DECISION = "context_decision"
+
     # Orchestrator events
     TASK_SUBMIT = "task_submit"
     TASK_START = "task_start"
     TASK_COMPLETE = "task_complete"
     TASK_FAIL = "task_fail"
+
+    # Turn-level events
+    TURN = "turn"
+    AGENT_TURN = "agent_turn"
 
     # Graph engine events
     GRAPH_NODE_START = "graph_node_start"
@@ -134,6 +141,7 @@ class TraceEvent(BaseModel):
     llm_request_digest: str | None = None
     llm_response_digest: str | None = None
     model: str | None = None
+    llm_latency_ms: int | None = None
 
     # Tool-related
     tool_call: ToolCallRecord | None = None

@@ -331,6 +331,7 @@ class OpenAICompatibleProvider(ModelGateway):
                 llm_request_digest=request_digest,
                 llm_response_digest=response_digest,
                 model=response.model,
+                metadata={"provider": self.provider_name},
             )
             self.trace_writer.write(event)
 

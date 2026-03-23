@@ -95,6 +95,7 @@ class MCPConnection:
         self._config = config
         self._transport = transport
         self._msg_counter = 0
+        self._connected = False
 
     async def connect(self) -> None:
         """Connect and initialize."""
@@ -108,25 +109,35 @@ class MCPConnection:
                 "clientInfo": {"name": "arcana", "version": "0.1.0"},
             },
         )
+        self._connected = True
 
     async def disconnect(self) -> None:
+        self._connected = False
         await self._transport.close()
 
     async def list_tools(self) -> list[MCPToolSpec]:
         """Get available tools from server."""
-        result = await self._send_request("tools/list", {})
+        try:
+            result = await self._send_request("tools/list", {})
+        except ConnectionError:
+            await self._reconnect()
+            result = await self._send_request("tools/list", {})
         tools_data = result.get("tools", []) if isinstance(result, dict) else []
         return [MCPToolSpec.model_validate(t) for t in tools_data]
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """Call a tool and return the result."""
-        result = await self._send_request(
-            "tools/call",
-            {
-                "name": tool_name,
-                "arguments": arguments,
-            },
-        )
+        try:
+            result = await self._send_request(
+                "tools/call",
+                {"name": tool_name, "arguments": arguments},
+            )
+        except ConnectionError:
+            await self._reconnect()
+            result = await self._send_request(
+                "tools/call",
+                {"name": tool_name, "arguments": arguments},
+            )
         # MCP tool results have content array
         if isinstance(result, dict):
             content = result.get("content", [])
@@ -145,9 +156,18 @@ class MCPConnection:
         request = make_request(method, params, msg_id)
         await self._transport.send(request)
 
-        # Read response (skip notifications)
+        # Read response (skip notifications), bounded by server timeout
+        deadline = asyncio.get_event_loop().time() + (self._config.timeout_ms / 1000)
         while True:
-            response = await self._transport.receive()
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"MCP server '{self._config.name}' did not respond to '{method}' "
+                    f"within {self._config.timeout_ms}ms."
+                )
+            response = await asyncio.wait_for(
+                self._transport.receive(), timeout=remaining,
+            )
             if response.id == msg_id:
                 if response.error:
                     raise MCPCallError(response.error.code, response.error.message)
@@ -156,14 +176,34 @@ class MCPConnection:
 
     async def _reconnect(self) -> None:
         """Reconnect with exponential backoff."""
+        if self._connected:
+            # Mark disconnected to avoid re-entrant reconnect loops
+            self._connected = False
+
         for attempt in range(self._config.reconnect_attempts):
             try:
                 await self._transport.close()
                 await self._transport.connect()
-                await self.connect()
+                # Re-initialize (handshake) — sets self._connected = True
+                self._msg_counter = 0
+                await self._send_request(
+                    "initialize",
+                    {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "arcana", "version": "0.1.0"},
+                    },
+                )
+                self._connected = True
+                logger.info("Reconnected to MCP server '%s'", self._config.name)
                 return
             except Exception:
                 delay = self._config.reconnect_delay_ms * (2**attempt) / 1000
+                logger.warning(
+                    "Reconnect attempt %d/%d for '%s' failed, retrying in %.1fs",
+                    attempt + 1, self._config.reconnect_attempts,
+                    self._config.name, delay,
+                )
                 await asyncio.sleep(delay)
         cmd_str = f"{self._config.command} {' '.join(self._config.args)}" if self._config.command else "(no command)"
         raise ConnectionError(

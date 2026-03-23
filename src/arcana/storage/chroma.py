@@ -50,7 +50,7 @@ class ChromaVectorStore(VectorStore):
         _require_chromadb()
         self._persist_directory = persist_directory
         self._collection_name = collection_name
-        self._client: chromadb.ClientAPI | None = None
+        self._client: chromadb.ClientAPI | None = None  # type: ignore[name-defined]
         self._collection: chromadb.Collection | None = None
 
     async def initialize(self) -> None:
@@ -123,10 +123,10 @@ class ChromaVectorStore(VectorStore):
 
         # ChromaDB returns distances; for cosine space: score = 1 - distance
         output: list[VectorSearchResult] = []
-        ids = results.get("ids", [[]])[0]
-        distances = results.get("distances", [[]])[0]
-        metadatas = results.get("metadatas", [[]])[0]
-        documents = results.get("documents", [[]])[0]
+        ids = (results.get("ids") or [[]])[0]
+        distances = (results.get("distances") or [[]])[0]
+        metadatas = (results.get("metadatas") or [[]])[0]
+        documents = (results.get("documents") or [[]])[0]
 
         for i, vec_id in enumerate(ids):
             score = 1.0 - distances[i]
@@ -136,7 +136,7 @@ class ChromaVectorStore(VectorStore):
                 VectorSearchResult(
                     id=vec_id,
                     score=score,
-                    metadata=metadatas[i] if metadatas[i] else {},
+                    metadata=dict(metadatas[i]) if metadatas[i] else {},
                     content=documents[i] if documents else None,
                 )
             )

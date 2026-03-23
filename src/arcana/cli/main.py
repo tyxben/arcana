@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -19,9 +20,9 @@ app = typer.Typer(
 console = Console()
 
 
-def _load_yaml_config(path: str) -> dict:
+def _load_yaml_config(path: str) -> dict[str, Any]:
     """Load a YAML agent config file."""
-    import yaml
+    import yaml  # type: ignore[import-untyped]
 
     p = Path(path)
     if not p.exists():
@@ -56,7 +57,7 @@ def run(
         arcana run agent.yaml --provider openai
     """
     # ── Load YAML config if goal is a config file ────────────────
-    yaml_cfg: dict = {}
+    yaml_cfg: dict[str, Any] = {}
     effective_goal = goal
 
     if goal.endswith((".yaml", ".yml")):
@@ -191,10 +192,15 @@ async def _run_agent(
 
 @app.command()
 def trace(
-    action: str = typer.Argument(..., help="Action: list, show, serve"),
+    action: str = typer.Argument(..., help="Action: list, show, summary, serve"),
     run_id: str = typer.Argument(None, help="Run ID for show"),
     trace_dir: str = typer.Option("./traces", "--dir", help="Trace directory"),
     port: int = typer.Option(8100, "--port", help="Port for serve"),
+    last: int = typer.Option(0, "--last", help="Limit to last N traces (summary)"),
+    errors: bool = typer.Option(False, "--errors", help="Show only error events"),
+    tools: bool = typer.Option(False, "--tools", help="Show only tool call events"),
+    llm: bool = typer.Option(False, "--llm", help="Show only LLM call events"),
+    context: bool = typer.Option(False, "--context", help="Show only context decision events"),
 ) -> None:
     """View agent execution traces."""
     import datetime
@@ -240,20 +246,43 @@ def trace(
             )
         console.print(table)
 
+    elif action == "summary":
+        _trace_summary(trace_path, last)
+
     elif action == "show" and run_id:
         trace_file = trace_path / f"{run_id}.jsonl"
         if not trace_file.exists():
             console.print(f"[red]Trace not found: {trace_file}[/red]")
             raise typer.Exit(1)
 
-        events = []
-        with open(trace_file) as f:
-            for line in f:
+        all_events = []
+        with open(trace_file) as fh:
+            for line in fh:
                 if line.strip():
-                    events.append(json.loads(line))
+                    all_events.append(json.loads(line))
+
+        # Apply filters
+        filter_types: set[str] | None = None
+        if errors or tools or llm or context:
+            filter_types = set()
+            if errors:
+                filter_types.add("error")
+            if tools:
+                filter_types.add("tool_call")
+            if llm:
+                filter_types.add("llm_call")
+            if context:
+                filter_types.add("context_decision")
+
+        events = all_events
+        if filter_types is not None:
+            events = [
+                e for e in all_events
+                if e.get("event_type", "") in filter_types
+            ]
 
         console.print(f"[bold]Trace: {run_id}[/bold]")
-        console.print(f"Events: {len(events)}")
+        console.print(f"Events: {len(events)}" + (f" (filtered from {len(all_events)})" if filter_types else ""))
         console.print()
 
         for i, event in enumerate(events):
@@ -263,6 +292,10 @@ def trace(
 
             if "complete" in event_type:
                 style = "green"
+            elif "error" in event_type:
+                style = "red"
+            elif "context_decision" in event_type:
+                style = "magenta"
             elif "llm" in event_type:
                 style = "cyan"
             elif "tool" in event_type:
@@ -273,8 +306,78 @@ def trace(
                 f"  [{style}]{i + 1:3d}. {event_type:20s}[/{style}] {timestamp} {model}"
             )
 
+            # Show context decision details
+            if event_type == "context_decision" and context:
+                meta = event.get("metadata", {})
+                explanation = meta.get("explanation", "")
+                compressed = meta.get("compressed_count", 0)
+                console.print(f"       [dim]{explanation}[/dim]")
+                if compressed > 0:
+                    msgs_in = meta.get("messages_in", 0)
+                    msgs_out = meta.get("messages_out", 0)
+                    console.print(f"       [dim]messages: {msgs_in} → {msgs_out} ({compressed} compressed)[/dim]")
+
     else:
-        console.print("[red]Usage: arcana trace list  OR  arcana trace show <run_id>[/red]")
+        console.print("[red]Usage: arcana trace list | show <run_id> | summary | serve[/red]")
+
+
+def _trace_summary(trace_path: Path, last: int) -> None:
+    """Display aggregate metrics from trace files."""
+    from arcana.contracts.trace import TraceEvent
+    from arcana.observability.metrics import MetricsCollector
+
+    if not trace_path.exists():
+        console.print(f"[dim]No traces found in {trace_path}[/dim]")
+        return
+
+    files = sorted(trace_path.glob("*.jsonl"), reverse=True)
+    if last > 0:
+        files = files[:last]
+    if not files:
+        console.print("[dim]No trace files found[/dim]")
+        return
+
+    summaries = []
+    for f in files:
+        events = []
+        with open(f) as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                try:
+                    events.append(TraceEvent.model_validate_json(line))
+                except Exception:
+                    pass  # Skip malformed lines
+        if events:
+            summaries.append(MetricsCollector.summarize_run(events))
+
+    if not summaries:
+        console.print("[dim]No valid traces found[/dim]")
+        return
+
+    agg = MetricsCollector.aggregate(summaries)
+
+    console.print(f"[bold]Trace Summary[/bold] ({agg.count} runs)")
+    console.print()
+
+    table = Table(show_header=False)
+    table.add_column("Metric", style="bold")
+    table.add_column("Value")
+
+    table.add_row("Total runs", str(agg.count))
+    table.add_row("Avg tokens", f"{agg.avg_tokens:,.0f}")
+    table.add_row("Avg cost", f"${agg.avg_cost_usd:.4f}")
+    table.add_row("Avg duration", f"{agg.avg_duration_ms:,.0f} ms")
+    table.add_row("P95 duration", f"{agg.p95_duration_ms:,.0f} ms")
+    table.add_row("Success rate", f"{agg.success_rate:.0%}")
+    table.add_row("Error rate", f"{agg.error_rate:.0%}")
+
+    if agg.error_type_counts:
+        table.add_row("Error types", ", ".join(
+            f"{k}: {v}" for k, v in agg.error_type_counts.items()
+        ))
+
+    console.print(table)
 
 
 @app.command()
@@ -311,6 +414,98 @@ def providers() -> None:
         style = "green" if status == "Verified" else "dim"
         table.add_row(name, env, default_model, f"[{style}]{status}[/{style}]")
     console.print(table)
+
+
+@app.command(name="eval")
+def eval_cmd(
+    action: str = typer.Argument("run", help="Action: run"),
+    category: str = typer.Option(None, "--category", "-c", help="Filter by category"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Run the eval gate suite.
+
+    Usage:
+        arcana eval run
+        arcana eval run --category tool_use
+        arcana eval run --json
+    """
+    if action != "run":
+        console.print("[red]Usage: arcana eval run [--category CAT][/red]")
+        raise typer.Exit(1)
+
+    asyncio.run(_run_eval(category=category, json_output=json_output))
+
+
+async def _run_eval(
+    *,
+    category: str | None = None,
+    json_output: bool = False,
+) -> None:
+    """Execute the eval suite with mock provider."""
+    from arcana.eval.baseline import EvalGate, build_baseline_cases
+
+    gate = EvalGate()
+    for case in build_baseline_cases():
+        gate.register(case)
+
+    if not json_output:
+        console.print("[bold]Running eval suite...[/bold]")
+        if category:
+            console.print(f"  Category filter: {category}")
+        console.print()
+
+    report = await gate.run_all(category=category)
+
+    if json_output:
+        import json as json_mod
+
+        print(json_mod.dumps({
+            "total": report.total,
+            "passed": report.passed,
+            "failed": report.failed,
+            "score": report.score,
+            "by_category": report.by_category,
+            "results": [
+                {"name": name, "passed": r.passed, "score": r.score,
+                 "detail": r.detail, "duration_ms": r.duration_ms}
+                for name, r in report.results
+            ],
+        }, ensure_ascii=False, indent=2))
+    else:
+        # Results table
+        table = Table(title="Eval Results")
+        table.add_column("Case", style="bold")
+        table.add_column("Status")
+        table.add_column("Score")
+        table.add_column("Duration")
+        table.add_column("Detail")
+
+        for name, r in report.results:
+            status = "[green]PASS[/green]" if r.passed else "[red]FAIL[/red]"
+            table.add_row(
+                name,
+                status,
+                f"{r.score:.1%}",
+                f"{r.duration_ms}ms",
+                r.detail[:60],
+            )
+        console.print(table)
+        console.print()
+
+        # Category summary
+        for cat, rate in report.by_category.items():
+            style = "green" if rate == 1.0 else "yellow" if rate >= 0.5 else "red"
+            console.print(f"  [{style}]{cat}: {rate:.0%}[/{style}]")
+
+        console.print()
+        style = "green" if report.score >= 0.9 else "yellow" if report.score >= 0.5 else "red"
+        console.print(
+            f"[{style}]Overall: {report.passed}/{report.total} passed "
+            f"({report.score:.0%})[/{style}]"
+        )
+
+        if report.failed > 0:
+            raise typer.Exit(1)
 
 
 if __name__ == "__main__":

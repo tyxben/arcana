@@ -1,47 +1,40 @@
 # Arcana
 
-**Agent Runtime for Production** — Budget, tools, trace, and error recovery. Create once, use everywhere.
-
----
-
-## Quick Start
+**Runtime-first agent framework for context-governed, production-oriented LLM execution.**
 
 ```bash
 pip install arcana-agent
 ```
+
+Arcana is not a toolkit for assembling agents. It is a runtime that manages every LLM call — context, tools, budget, trace — so your agent code stays small and your production stays auditable.
+
+---
+
+## Why Arcana
+
+- **Context management** — Every LLM call, Arcana can explain why it composed the prompt that way. Context blocks are assembled, budgeted, and tracked, not concatenated.
+- **Tool governance** — Dynamic tool exposure per turn, per-tool auth and validation, side-effect declarations, full audit trail. Tools are runtime-managed resources, not loose functions.
+- **Runtime diagnosis** — Structured trace of every decision: which tools were called, what the LLM returned, why the runtime continued or stopped. Not just logs.
+- **Production defaults** — Budget limits, provider fallback, retry, checkpoint, and cost tracking are built in. You opt out of safety, not into it.
+
+---
+
+## Quick Start
 
 ```python
 import arcana
 
 runtime = arcana.Runtime(
     providers={"deepseek": "sk-xxx"},
-    budget=arcana.Budget(max_cost_usd=5.0),
+    budget=arcana.Budget(max_cost_usd=1.0),
 )
 
-result = await runtime.run("Analyze this data")
+result = await runtime.run("Summarize the key trends in quantum computing")
 print(result.output)
-print(f"Cost: ${result.cost_usd:.4f}, Tokens: {result.tokens_used}")
+print(f"Cost: ${result.cost_usd:.4f} | Tokens: {result.tokens_used}")
 ```
 
-Or from CLI:
-
-```bash
-export DEEPSEEK_API_KEY=sk-xxx
-arcana run "What is 2+2?"
-arcana run agent.yaml
-```
-
----
-
-## Why Arcana
-
-- **Runtime, not framework** — Arcana doesn't tell your LLM how to think. It provides budget, tools, trace, and error recovery as managed services.
-- **Create once, use everywhere** — `Runtime` holds provider connections, tool registry, and budget policy. Reuse across requests, workers, and services.
-- **Production defaults** — Every run has budget limits, tool authorization, full trace logging, and structured error diagnosis.
-
----
-
-## Add Tools
+Add tools:
 
 ```python
 @arcana.tool(when_to_use="For math calculations")
@@ -52,102 +45,34 @@ runtime = arcana.Runtime(
     providers={"deepseek": "sk-xxx"},
     tools=[calc],
 )
-
 result = await runtime.run("What is 15 * 37 + 89?")
-# Agent calls calc("15 * 37 + 89") → "644"
 ```
 
----
-
-## Connect MCP Tools
+Or one-shot for scripts:
 
 ```python
-from arcana.contracts.mcp import MCPServerConfig
-
-runtime = arcana.Runtime(
-    providers={"deepseek": "sk-xxx"},
-    mcp_servers=[
-        MCPServerConfig(
-            name="filesystem",
-            command="npx",
-            args=["-y", "@modelcontextprotocol/server-filesystem", "."],
-        ),
-    ],
-)
-# MCP tools auto-discovered and available to the agent
-```
-
-Supports stdio and Streamable HTTP transports.
-
----
-
-## Streaming
-
-```python
-async for event in runtime.stream("Write a poem"):
-    if event.event_type.value == "llm_chunk":
-        print(event.content, end="", flush=True)
-```
-
-Real token-level streaming from any OpenAI-compatible provider.
-
----
-
-## Integrate with Your Service
-
-```python
-from fastapi import FastAPI
-import arcana, os
-
-app = FastAPI()
-runtime = arcana.Runtime(
-    providers={"deepseek": os.environ["DEEPSEEK_API_KEY"]},
-    budget=arcana.Budget(max_cost_usd=1.0),
-    trace=True,
-)
-
-@app.post("/agent")
-async def agent_endpoint(goal: str):
-    result = await runtime.run(goal)
-    return {"answer": result.output, "cost": result.cost_usd}
+result = await arcana.run("Hello", api_key="sk-xxx")
 ```
 
 ---
 
-## What You Get for Free
+## What Arcana is NOT
 
-| Capability | Description |
-|-----------|-------------|
-| Budget Control | Token and cost limits per run |
-| Tool Authorization | Tools need explicit capabilities |
-| Full Trace | Every LLM call and tool invocation logged |
-| Error Diagnosis | Structured feedback on failures |
-| Context Management | Auto-compression for long conversations |
-| Token Streaming | Real-time token output |
-| Multi-Provider | DeepSeek, OpenAI, Anthropic, Kimi, GLM, MiniMax, Gemini, Ollama |
-| MCP Support | stdio + Streamable HTTP transports |
-| YAML Config | `arcana run agent.yaml` |
-| Trace Web UI | `arcana trace serve` for visual debugging |
+- **Not LangChain.** Arcana is not chasing ecosystem breadth. There is one runtime, one tool protocol, one trace format. Depth over surface area.
+- **Not graph-first.** Graph orchestration exists as an advanced capability, but the default path is a single runtime loop. You reach for graphs when you need them, not because the framework demands it.
+- **Not an MCP framework.** MCP is a supported transport for tools (stdio + Streamable HTTP). It is a capability of the tool gateway, not the product.
 
 ---
 
-## Architecture
+## Core Concepts
 
-```
-Runtime Default Path (built-in):
-  SDK           — arcana.run() / Runtime.run() / Runtime.stream()
-  Tool Runtime  — ToolGateway + MCP
-  Context       — WorkingSetBuilder (auto-compression, token budget)
-  Memory        — RunMemoryStore (lightweight cross-run recall)
-  Engine        — ConversationAgent (LLM-native, default)
-
-Advanced Platform Capabilities (composable):
-  Graph Engine    — StateGraph + LLMNode/ToolNode + Interrupt/Resume
-  Multi-Agent     — runtime.team()
-  Advanced Memory — MemoryManager + Governance
-```
-
-Most users stay on the default path. Advanced capabilities activate when needed.
+| Concept | What it does |
+|---------|-------------|
+| **Runtime** | Holds providers, tools, budget, and trace config. Created once, reused across requests. |
+| **Context Management** | Assembles context blocks with token budgets and auto-compression. Every prompt is explainable. |
+| **Tool Gateway** | Registers tools with schemas, auth, validation, and audit. Governs what the LLM can call per turn. |
+| **Trace** | JSONL audit log of every LLM call, tool invocation, and runtime decision. Replayable. |
+| **Budget** | Token and cost limits enforced per run. The runtime stops before you overspend. |
 
 ---
 
@@ -155,37 +80,49 @@ Most users stay on the default path. Advanced capabilities activate when needed.
 
 | Provider | Status |
 |----------|--------|
-| **DeepSeek** | Verified |
-| **OpenAI** | Verified |
-| **Anthropic** | Verified |
-| **Kimi** (Moonshot) | Supported |
-| **GLM** (Zhipu) | Supported |
-| **MiniMax** | Supported |
-| **Google Gemini** | Supported |
-| **Ollama** | Supported |
+| DeepSeek | Verified |
+| OpenAI | Verified |
+| Anthropic | Verified |
+| Kimi (Moonshot) | Supported |
+| GLM (Zhipu) | Supported |
+| MiniMax | Supported |
+| Google Gemini | Supported |
+| Ollama | Supported |
 
-All cloud providers use the OpenAI-compatible adapter. Adding a new provider is one function call.
+All providers use a single OpenAI-compatible adapter. Adding a new provider is one function call.
 
 ---
 
 ## Installation
 
 ```bash
-pip install arcana-agent                     # Core
-pip install arcana-agent[anthropic]          # + Claude
-pip install arcana-agent[all-providers]      # All providers
-pip install arcana-agent[ui]                 # + Trace Web UI
+pip install arcana-agent                   # Core
+pip install arcana-agent[anthropic]        # + Claude support
+pip install arcana-agent[all-providers]    # All providers
+pip install arcana-agent[ui]              # + Trace Web UI
 ```
 
 ---
 
-## The Constitution
+## CLI
 
-> *"The framework provides capabilities, manages risk, and records execution. The LLM understands goals, forms strategies, and adapts. Never reverse this."*
+```bash
+arcana run "What is 2+2?"
+arcana run agent.yaml
+arcana run agent.yaml --provider openai --max-cost 0.50
 
-See [CONSTITUTION.md](./CONSTITUTION.md).
+arcana trace serve                         # Visual trace inspector
+arcana eval run eval_suite.yaml            # Run evaluation suite
+```
 
 ---
+
+## Links
+
+- [Architecture](./docs/architecture.md)
+- [Examples](./examples/)
+- [Constitution](./CONSTITUTION.md)
+- [Changelog](./CHANGELOG.md)
 
 ## License
 

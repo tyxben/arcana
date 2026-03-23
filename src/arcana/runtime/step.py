@@ -238,8 +238,8 @@ class StepExecutor:
                             validation,
                             schema_description=f"Expected schema: {expected_schema.__name__}" if expected_schema else None
                         )
-                        messages.append({"role": "assistant", "content": response.content or ""})
-                        messages.append({"role": "user", "content": retry_prompt})
+                        messages.append(Message(role=MessageRole.ASSISTANT, content=response.content or ""))
+                        messages.append(Message(role=MessageRole.USER, content=retry_prompt))
                         continue
                     # Last attempt failed
                     return StepResult(
@@ -261,8 +261,8 @@ class StepExecutor:
                             validation,
                             schema_description=f"Required fields: {', '.join(required_fields)}"
                         )
-                        messages.append({"role": "assistant", "content": response.content or ""})
-                        messages.append({"role": "user", "content": retry_prompt})
+                        messages.append(Message(role=MessageRole.ASSISTANT, content=response.content or ""))
+                        messages.append(Message(role=MessageRole.USER, content=retry_prompt))
                         continue
                     # Last attempt failed
                     return StepResult(

@@ -438,10 +438,12 @@ class Runtime:
 
                 # Trace
                 if self._trace_writer:
-                    self._trace_writer.write_raw(
-                        f"team-{goal[:32]}",
-                        {
-                            "event": "agent_turn",
+                    from arcana.contracts.trace import EventType, TraceEvent
+
+                    self._trace_writer.write(TraceEvent(
+                        run_id=f"team-{uuid4()}",
+                        event_type=EventType.AGENT_TURN,
+                        metadata={
                             "round": round_num + 1,
                             "agent": agent_config.name,
                             "content_length": len(agent_text),
@@ -451,7 +453,7 @@ class Runtime:
                                 else 0
                             ),
                         },
-                    )
+                    ))
 
                 # Check if done (any agent says [DONE])
                 if "[done]" in agent_text.lower():
@@ -540,13 +542,13 @@ class Runtime:
     @property
     def providers(self) -> list[str]:
         """List registered provider names."""
-        return self._gateway.list_providers()
+        return list(self._gateway.list_providers())
 
     @property
     def tools(self) -> list[str]:
         """List registered tool names."""
         if self._tool_registry:
-            return self._tool_registry.list_tools()
+            return list(self._tool_registry.list_tools())
         return []
 
     @property
@@ -768,7 +770,7 @@ class Session:
             from arcana.runtime.policies.adaptive import AdaptivePolicy
             from arcana.runtime.reducers.default import DefaultReducer
 
-            agent = Agent(
+            v1_agent = Agent(
                 policy=AdaptivePolicy(),
                 reducer=DefaultReducer(),
                 gateway=self._runtime._gateway,
@@ -777,7 +779,7 @@ class Session:
                 budget_tracker=self.budget,
                 trace_writer=self._runtime._trace_writer,
             )
-            self.state = await agent.run(goal)
+            self.state = await v1_agent.run(goal)
 
         raw_output = self.state.working_memory.get(
             "answer", self.state.working_memory.get("result", "")

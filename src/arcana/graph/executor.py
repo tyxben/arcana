@@ -208,7 +208,8 @@ class GraphExecutor:
                 if field_info.default is not None:
                     state[field_name] = field_info.default
                 elif field_info.default_factory is not None:
-                    state[field_name] = field_info.default_factory()
+                    factory = field_info.default_factory
+                    state[field_name] = factory()  # type: ignore[call-arg]
             state.update(initial_state)
             return state
         return dict(initial_state)

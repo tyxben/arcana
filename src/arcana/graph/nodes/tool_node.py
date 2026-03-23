@@ -37,7 +37,7 @@ class ToolNode:
             return {}
 
         # Convert to ToolCall objects
-        tool_calls = []
+        tool_call_objects: list[ToolCall] = []
         for tc in tool_calls_data:
             func_data = tc.get("function", tc)
             arguments = func_data.get("arguments", {})
@@ -47,7 +47,7 @@ class ToolNode:
                     arguments = json.loads(arguments)
                 except (json.JSONDecodeError, TypeError):
                     arguments = {}
-            tool_calls.append(
+            tool_call_objects.append(
                 ToolCall(
                     id=tc.get("id", ""),
                     name=func_data.get("name", ""),
@@ -56,16 +56,16 @@ class ToolNode:
             )
 
         # Execute via gateway
-        results = await self._tool_gateway.call_many(tool_calls)
+        results = await self._tool_gateway.call_many(tool_call_objects)
 
         # Build tool result messages
         result_messages = []
-        for tc, result in zip(tool_calls, results, strict=True):
+        for tool_call, result in zip(tool_call_objects, results, strict=True):
             result_messages.append({
                 "role": "tool",
                 "content": result.output if result.output else str(result.error),
-                "tool_call_id": tc.id,
-                "name": tc.name,
+                "tool_call_id": tool_call.id,
+                "name": tool_call.name,
             })
 
         return {"messages": result_messages}

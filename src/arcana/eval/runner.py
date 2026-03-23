@@ -136,13 +136,13 @@ class EvalRunner:
         expected = case.expected_value
 
         if criterion == OutcomeCriterion.STATUS:
-            return state.status.value == expected
+            return bool(state.status.value == expected)
 
         if criterion == OutcomeCriterion.STOP_REASON:
             # Find stop reason from trace events
             for event in reversed(events):
                 if event.stop_reason:
-                    return event.stop_reason.value == expected
+                    return bool(event.stop_reason.value == expected)
             return expected is None
 
         if criterion == OutcomeCriterion.MAX_STEPS:

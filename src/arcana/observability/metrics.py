@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from arcana.contracts.trace import EventType
 
@@ -27,6 +29,12 @@ class RunSummary(BaseModel):
     duration_ms: int = 0
     stop_reason: str | None = None
 
+    # Enhanced fields (Task 2.1)
+    success: bool = True
+    error_categories: dict[str, int] = Field(default_factory=dict)
+    provider_name: str | None = None
+    model_name: str | None = None
+
 
 class AggregateMetrics(BaseModel):
     """Aggregated metrics across multiple runs."""
@@ -39,6 +47,33 @@ class AggregateMetrics(BaseModel):
     p50_tokens: float = 0.0
     p95_tokens: float = 0.0
     p99_tokens: float = 0.0
+
+    # Duration percentiles (Task 2.2)
+    p50_duration_ms: float = 0.0
+    p95_duration_ms: float = 0.0
+    p99_duration_ms: float = 0.0
+
+    # Cost percentiles
+    p50_cost_usd: float = 0.0
+    p95_cost_usd: float = 0.0
+
+    # Rates
+    success_rate: float = 0.0
+    error_rate: float = 0.0
+
+    # Error distribution
+    error_type_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class ProviderMetrics(BaseModel):
+    """Per-provider cost and performance attribution (Task 2.3)."""
+
+    provider: str
+    call_count: int = 0
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    avg_latency_ms: float = 0.0
+    error_count: int = 0
 
 
 class MetricsCollector:
@@ -65,6 +100,9 @@ class MetricsCollector:
         tokens_used = 0
         cost_usd = 0.0
         stop_reason: str | None = None
+        error_categories: dict[str, int] = defaultdict(int)
+        provider_name: str | None = None
+        model_name: str | None = None
 
         step_ids: set[str] = set()
 
@@ -73,10 +111,18 @@ class MetricsCollector:
 
             if event.event_type == EventType.LLM_CALL:
                 llm_calls += 1
+                # Capture provider/model from first LLM call
+                if model_name is None and event.model:
+                    model_name = event.model
+                if provider_name is None and event.metadata:
+                    provider_name = event.metadata.get("provider")
             elif event.event_type == EventType.TOOL_CALL:
                 tool_calls += 1
             elif event.event_type == EventType.ERROR:
                 errors += 1
+                # Track error categories from metadata
+                cat = (event.metadata or {}).get("error_category", "unknown")
+                error_categories[cat] += 1
 
             # Track budget from latest snapshot
             if event.budgets:
@@ -93,6 +139,9 @@ class MetricsCollector:
             delta = events[-1].timestamp - events[0].timestamp
             duration_ms = int(delta.total_seconds() * 1000)
 
+        # Determine success from stop_reason
+        success = stop_reason != "error" and errors == 0
+
         return RunSummary(
             run_id=run_id,
             total_steps=len(step_ids),
@@ -103,6 +152,10 @@ class MetricsCollector:
             cost_usd=cost_usd,
             duration_ms=duration_ms,
             stop_reason=stop_reason,
+            success=success,
+            error_categories=dict(error_categories),
+            provider_name=provider_name,
+            model_name=model_name,
         )
 
     @staticmethod
@@ -136,6 +189,16 @@ class MetricsCollector:
 
         n = len(summaries)
         token_values = sorted(s.tokens_used for s in summaries)
+        duration_values = sorted(float(s.duration_ms) for s in summaries)
+        cost_values = sorted(s.cost_usd for s in summaries)
+
+        success_count = sum(1 for s in summaries if s.success)
+
+        # Aggregate error categories
+        error_type_counts: dict[str, int] = defaultdict(int)
+        for s in summaries:
+            for cat, count in s.error_categories.items():
+                error_type_counts[cat] += count
 
         return AggregateMetrics(
             count=n,
@@ -146,10 +209,51 @@ class MetricsCollector:
             p50_tokens=_percentile(token_values, 50),
             p95_tokens=_percentile(token_values, 95),
             p99_tokens=_percentile(token_values, 99),
+            # Duration percentiles
+            p50_duration_ms=_percentile(duration_values, 50),
+            p95_duration_ms=_percentile(duration_values, 95),
+            p99_duration_ms=_percentile(duration_values, 99),
+            # Cost percentiles
+            p50_cost_usd=_percentile(cost_values, 50),
+            p95_cost_usd=_percentile(cost_values, 95),
+            # Rates
+            success_rate=success_count / n,
+            error_rate=1.0 - success_count / n,
+            # Error distribution
+            error_type_counts=dict(error_type_counts),
         )
 
+    @staticmethod
+    def by_provider(summaries: list[RunSummary]) -> dict[str, ProviderMetrics]:
+        """Aggregate metrics grouped by provider name.
 
-def _percentile(sorted_values: list[int], p: float) -> float:
+        Args:
+            summaries: List of RunSummary objects.
+
+        Returns:
+            Dict mapping provider name to ProviderMetrics.
+        """
+        groups: dict[str, list[RunSummary]] = defaultdict(list)
+        for s in summaries:
+            key = s.provider_name or "unknown"
+            groups[key].append(s)
+
+        result: dict[str, ProviderMetrics] = {}
+        for provider, runs in groups.items():
+            total_duration = sum(float(r.duration_ms) for r in runs)
+            count = len(runs)
+            result[provider] = ProviderMetrics(
+                provider=provider,
+                call_count=count,
+                total_tokens=sum(r.tokens_used for r in runs),
+                total_cost_usd=sum(r.cost_usd for r in runs),
+                avg_latency_ms=total_duration / count if count else 0.0,
+                error_count=sum(r.errors for r in runs),
+            )
+        return result
+
+
+def _percentile(sorted_values: Sequence[float], p: float) -> float:
     """Calculate percentile from a sorted list using linear interpolation."""
     if not sorted_values:
         return 0.0

@@ -33,19 +33,16 @@ if TYPE_CHECKING:
     from arcana.gateway.budget import BudgetTracker
     from arcana.gateway.registry import ModelGatewayRegistry
     from arcana.routing.classifier import IntentClassifier
+    from arcana.runtime.state_manager import StateManager
     from arcana.tool_gateway.gateway import ToolGateway
     from arcana.tool_gateway.lazy_registry import LazyToolRegistry
     from arcana.trace.writer import TraceWriter
 
 logger = logging.getLogger(__name__)
 
-# Sentinel markers the system prompt asks the LLM to use.
-_COMPLETION_MARKERS = ("[done]", "[complete]", "[finished]")
-
-# Default system prompt includes the [DONE] convention.
+# Default system prompt — no artificial markers. The LLM stops when it's done.
 _DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful assistant. "
-    "When you have fully answered the user's request, end your response with [DONE]."
+    "You are a helpful assistant. Answer the user's request directly and completely."
 )
 
 
@@ -78,6 +75,10 @@ class ConversationAgent:
         system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
         context_window: int = 128_000,
         memory_context: str | None = None,
+        state_manager: StateManager | None = None,
+        checkpoint_interval: int = 5,
+        checkpoint_on_error: bool = True,
+        checkpoint_budget_thresholds: list[float] | None = None,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -87,6 +88,13 @@ class ConversationAgent:
         self.intent_classifier = intent_classifier
         self.max_turns = max_turns
         self.system_prompt = system_prompt
+
+        # Checkpoint configuration
+        self._state_manager = state_manager
+        self._checkpoint_interval = checkpoint_interval
+        self._checkpoint_on_error = checkpoint_on_error
+        self._checkpoint_budget_thresholds = checkpoint_budget_thresholds or [0.5, 0.75, 0.9]
+        self._last_checkpoint_budget_ratio = 0.0
 
         # Lazy tool registry — exposes only relevant tools to the LLM
         self._lazy_registry: LazyToolRegistry | None = None
@@ -102,6 +110,7 @@ class ConversationAgent:
         self._context_builder = WorkingSetBuilder(
             identity=system_prompt,
             token_budget=TokenBudget(total_window=context_window),
+            goal=None,  # Set when run starts
         )
         self._memory_context = memory_context
 
@@ -144,6 +153,7 @@ class ConversationAgent:
             max_steps=self.max_turns,
         )
         messages = self._build_initial_messages(goal)
+        self._context_builder.set_goal(goal)
 
         # Tool selection: lazy (subset) or eager (all)
         if self._lazy_registry:
@@ -177,10 +187,33 @@ class ConversationAgent:
                 messages,
                 memory_context=self._memory_context if _turn == 0 else None,
                 tool_token_estimate=tool_token_cost,
+                turn=_turn,
             )
             # Write back so memory injection persists in messages for future turns
             if _turn == 0 and self._memory_context:
                 messages = curated[:]
+
+            # Trace the context decision
+            if self.trace_writer and self._context_builder.last_decision:
+                from arcana.contracts.trace import EventType, TraceEvent
+
+                decision = self._context_builder.last_decision
+                self.trace_writer.write(TraceEvent(
+                    run_id=state.run_id,
+                    event_type=EventType.CONTEXT_DECISION,
+                    metadata={
+                        "turn": decision.turn,
+                        "budget_total": decision.budget_total,
+                        "budget_used": decision.budget_used,
+                        "budget_tools": decision.budget_tools,
+                        "messages_in": decision.messages_in,
+                        "messages_out": decision.messages_out,
+                        "compressed_count": decision.compressed_count,
+                        "memory_injected": decision.memory_injected,
+                        "history_compressed": decision.history_compressed,
+                        "explanation": decision.explanation,
+                    },
+                ))
 
             # 3. LLM call (streaming when gateway supports it)
             request = LLMRequest(
@@ -317,7 +350,7 @@ class ConversationAgent:
 
             # 7b-9b. Completed
             elif assessment.completed:
-                answer = _strip_done_marker(assessment.answer or facts.assistant_text or "")
+                answer = (assessment.answer or facts.assistant_text or "").strip()
                 state = state.model_copy(
                     update={
                         "status": ExecutionStatus.COMPLETED,
@@ -359,9 +392,23 @@ class ConversationAgent:
                 if self.budget_tracker:
                     self.budget_tracker.add_usage(facts.usage)
 
-            # 13. Checkpoint (placeholder for future persistence)
-            # if self._should_checkpoint(state):
-            #     await self._checkpoint(state)
+            # 13. Checkpoint — persist state for resume on crash/restart
+            if self._state_manager:
+                reason = self._should_checkpoint(state, assessment)
+                if reason:
+                    from arcana.contracts.trace import TraceContext as _TC
+
+                    # Sync conversation messages into state for persistence
+                    state = state.model_copy(
+                        update={"messages": [
+                            {"role": m.role.value if hasattr(m.role, "value") else m.role,
+                             "content": m.content}
+                            for m in messages
+                        ]}
+                    )
+                    await self._state_manager.checkpoint(
+                        state, _TC(run_id=state.run_id), reason=reason
+                    )
 
             # Exit if terminal
             if assessment.completed or assessment.failed:
@@ -431,20 +478,21 @@ class ConversationAgent:
     def _assess_turn(facts: TurnFacts, state: AgentState) -> TurnAssessment:
         """Runtime interprets the facts. Separate step, separate function.
 
-        Five rules, priority ordered:
-        1. Tool calls present -> not done yet
-        2. No text and no tools -> failed
-        3. Explicit [DONE] marker -> completed
-        4. Verifier (future)
-        5. Heuristic: finish_reason=stop + non-first turn + text>100 chars
+        Trust the LLM's natural signals — no artificial markers needed.
+
+        Rules, priority ordered:
+        1. Tool calls present → not done (LLM wants to act)
+        2. No text and no tools → failed
+        3. finish_reason=stop + text → completed (LLM chose to stop)
+        4. finish_reason=length → not done (LLM was cut off)
         """
         assessment = TurnAssessment()
 
-        # Rule 1: tool calls present -> not done yet
+        # Rule 1: tool calls present → LLM wants to use tools, not done
         if facts.tool_calls:
             return assessment
 
-        # Rule 2: no text and no tools -> something went wrong
+        # Rule 2: no output at all → something went wrong
         if not facts.assistant_text:
             assessment.failed = True
             assessment.completion_reason = "empty_response"
@@ -452,31 +500,18 @@ class ConversationAgent:
 
         text = facts.assistant_text.strip()
 
-        # Rule 3: explicit finish markers in text
-        text_lower = text.lower()
-        if any(marker in text_lower for marker in _COMPLETION_MARKERS):
+        # Rule 3: LLM stopped naturally with a response → completed.
+        # The LLM chose to stop generating. It didn't request tools.
+        # Trust its judgment — it said what it wanted to say.
+        if facts.finish_reason == "stop" and text:
             assessment.completed = True
             assessment.answer = text
-            assessment.completion_reason = "explicit_marker"
-            assessment.confidence = 0.9
+            assessment.completion_reason = "natural_stop"
+            assessment.confidence = 0.85
             return assessment
 
-        # Rule 4: verifier (future)
-        # if self.verifier: ...
-
-        # Rule 5: heuristic -- substantial text + natural stop + not first turn
-        if (
-            facts.finish_reason == "stop"
-            and state.current_step > 0
-            and len(text) > 100
-        ):
-            assessment.completed = True
-            assessment.answer = text
-            assessment.completion_reason = "heuristic_natural_stop"
-            assessment.confidence = 0.6
-            return assessment
-
-        # Default: not done, LLM is still thinking
+        # Rule 4: finish_reason=length → LLM was cut off, not done
+        # (Default: not done)
         return assessment
 
     # ------------------------------------------------------------------
@@ -652,6 +687,159 @@ class ConversationAgent:
         return self.tool_gateway.registry.list_tools()
 
     # ------------------------------------------------------------------
+    # Checkpoint / Resume
+    # ------------------------------------------------------------------
+
+    def _should_checkpoint(self, state: AgentState, assessment: TurnAssessment) -> str | None:
+        """Decide whether to checkpoint. Returns reason string or None."""
+        # On error
+        if self._checkpoint_on_error and assessment.failed:
+            return "error"
+
+        # Interval — every N turns
+        if (
+            self._checkpoint_interval > 0
+            and state.current_step > 0
+            and state.current_step % self._checkpoint_interval == 0
+        ):
+            return "interval"
+
+        # Budget threshold crossing
+        if self.budget_tracker:
+            total = self.budget_tracker.max_cost_usd or 0
+            if total > 0:
+                ratio = self.budget_tracker.cost_usd / total
+                for threshold in self._checkpoint_budget_thresholds:
+                    if self._last_checkpoint_budget_ratio < threshold <= ratio:
+                        self._last_checkpoint_budget_ratio = ratio
+                        return "budget"
+
+        return None
+
+    async def resume(
+        self,
+        run_id: str,
+        *,
+        max_turns: int | None = None,
+    ) -> AgentState:
+        """Resume execution from the latest checkpoint for a run.
+
+        Loads the most recent StateSnapshot, restores conversation messages,
+        and continues the conversation loop from where it left off.
+
+        Args:
+            run_id: Run ID to resume.
+            max_turns: Override max turns (defaults to self.max_turns).
+
+        Returns:
+            Final AgentState after resumed execution.
+        """
+        if not self._state_manager:
+            raise RuntimeError("Cannot resume without a state_manager.")
+
+        snapshot = await self._state_manager.load_snapshot(run_id)
+        if snapshot is None:
+            raise ValueError(f"No checkpoint found for run '{run_id}'.")
+
+        self._state_manager.verify_snapshot(snapshot)
+
+        saved_state = snapshot.state
+        goal = saved_state.goal or ""
+
+        logger.info(
+            "Resuming run '%s' from step %d (reason: %s)",
+            run_id, saved_state.current_step, snapshot.checkpoint_reason,
+        )
+
+        # Restore messages from saved state
+        messages: list[Message] = []
+        for m in saved_state.messages:
+            role_str = m.get("role", "user") if isinstance(m, dict) else "user"
+            content = m.get("content", "") if isinstance(m, dict) else str(m)
+            role = MessageRole(role_str) if role_str in MessageRole.__members__.values() else MessageRole.USER
+            messages.append(Message(role=role, content=content))
+
+        if not messages:
+            messages = self._build_initial_messages(goal)
+
+        self._context_builder.set_goal(goal)
+        self._last_checkpoint_budget_ratio = 0.0
+
+        # Continue the conversation loop with remaining turns
+        remaining = (max_turns or self.max_turns) - saved_state.current_step
+        if remaining <= 0:
+            return saved_state
+
+        state = saved_state.model_copy(update={"status": ExecutionStatus.RUNNING})
+
+        # Re-setup tools
+        if self._lazy_registry:
+            self._lazy_registry.reset()
+            self._lazy_registry.select_initial_tools(goal)
+            active_tools = self._lazy_registry.to_openai_tools() or None
+        else:
+            active_tools = self._get_current_tools()
+
+        # Simplified resume loop — reuse the core turn logic
+        for _turn in range(remaining):
+            if self.budget_tracker:
+                self.budget_tracker.check_budget()
+
+            tool_token_cost = self._estimate_tool_tokens(active_tools)
+            curated = self._context_builder.build_conversation_context(
+                messages,
+                tool_token_estimate=tool_token_cost,
+                turn=saved_state.current_step + _turn,
+            )
+
+            request = LLMRequest(messages=curated, tools=active_tools)
+            config = self._resolve_model_config()
+
+            response = await self.gateway.generate(request, config)
+            facts = self._parse_turn(response)
+            assessment = self._assess_turn(facts, state)
+
+            # Append assistant message
+            messages.append(Message(role=MessageRole.ASSISTANT, content=facts.assistant_text or ""))
+
+            # Handle tool calls
+            if facts.tool_calls:
+                results = await self._execute_tools(facts.tool_calls)
+                for tc_req in facts.tool_calls:
+                    messages.append(Message(
+                        role=MessageRole.ASSISTANT,
+                        content=f"[tool_call: {tc_req.name}]",
+                    ))
+                for result in results:
+                    messages.append(Message(
+                        role=MessageRole.TOOL,
+                        content=result.output_str if hasattr(result, "output_str") else str(result.output),
+                        tool_call_id=result.tool_call_id,
+                    ))
+
+            # Update state
+            state = state.increment_step()
+            if facts.usage:
+                state = state.model_copy(update={
+                    "tokens_used": state.tokens_used + facts.usage.total_tokens,
+                    "cost_usd": state.cost_usd + facts.usage.cost_estimate,
+                })
+
+            if assessment.completed:
+                answer = (assessment.answer or facts.assistant_text or "").strip()
+                state = state.model_copy(update={
+                    "status": ExecutionStatus.COMPLETED,
+                    "working_memory": {**state.working_memory, "answer": answer},
+                })
+                break
+            elif assessment.failed:
+                state = state.model_copy(update={"status": ExecutionStatus.FAILED})
+                break
+
+        self._state = state
+        return state
+
+    # ------------------------------------------------------------------
     # Trace recording
     # ------------------------------------------------------------------
 
@@ -665,15 +853,17 @@ class ConversationAgent:
         if not self.trace_writer:
             return
 
-        self.trace_writer.write_raw(
-            state.run_id,
-            {
-                "event": "turn",
+        from arcana.contracts.trace import EventType, TraceEvent
+
+        self.trace_writer.write(TraceEvent(
+            run_id=state.run_id,
+            event_type=EventType.TURN,
+            metadata={
                 "step": state.current_step,
                 "facts": facts.model_dump(),
                 "assessment": assessment.model_dump(),
             },
-        )
+        ))
 
     # ------------------------------------------------------------------
     # Intent routing fast path
@@ -689,7 +879,7 @@ class ConversationAgent:
         response = await executor.direct_answer(
             goal, self.gateway, config, system_prompt=self.system_prompt,
         )
-        answer = _strip_done_marker(response.content or "")
+        answer = (response.content or "").strip()
 
         # Track token usage
         tokens_used = 0
@@ -723,6 +913,3 @@ class ConversationAgent:
         )
 
 
-def _strip_done_marker(text: str) -> str:
-    """Remove [DONE]/[done] completion markers from LLM output."""
-    return text.replace("[DONE]", "").replace("[done]", "").strip()

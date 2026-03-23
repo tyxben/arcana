@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from arcana.storage.base import StorageBackend, VectorSearchResult, VectorStore
 
 if TYPE_CHECKING:
-    import asyncpg
+    import asyncpg  # type: ignore[import-not-found]
 
 
 def _require_asyncpg() -> None:
@@ -228,7 +228,7 @@ class PostgresBackend(StorageBackend):
                 key,
             )
         # asyncpg returns "DELETE N" where N is the number of deleted rows
-        return result == "DELETE 1"
+        return bool(result == "DELETE 1")
 
 
 class PgVectorStore(VectorStore):
@@ -389,7 +389,7 @@ class PgVectorStore(VectorStore):
                 f"DELETE FROM {self._table_name} WHERE id = $1",
                 id,
             )
-        return result == "DELETE 1"
+        return bool(result == "DELETE 1")
 
     async def count(self) -> int:
         """Get the total number of stored vectors."""

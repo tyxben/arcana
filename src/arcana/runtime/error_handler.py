@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from arcana.runtime.exceptions import ErrorSeverity, ErrorType, RuntimeError
 
@@ -213,10 +213,10 @@ class ErrorHandler:
 
     async def execute_with_retry(
         self,
-        func: Callable,
-        *args,
-        **kwargs,
-    ) -> tuple[bool, any, Exception | None]:
+        func: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[bool, Any, Exception | None]:
         """
         Execute a function with retry logic.
 

@@ -114,7 +114,7 @@ def to_anthropic_request(request: LLMRequest, config: ModelConfig) -> dict[str, 
     # Extended thinking
     if thinking_enabled:
         budget = (
-            request.anthropic.thinking.budget_tokens  # type: ignore[union-attr]
+            request.anthropic.thinking.budget_tokens
             if request.anthropic
             and request.anthropic.thinking
             and request.anthropic.thinking.budget_tokens
@@ -272,10 +272,10 @@ def _map_anthropic_error(exc: Exception) -> ProviderError:
     if not ANTHROPIC_AVAILABLE:
         return ProviderError(str(exc), provider="anthropic")
 
-    if isinstance(exc, anthropic.RateLimitError):  # type: ignore[union-attr]
+    if isinstance(exc, anthropic.RateLimitError):
         return RateLimitError(str(exc), provider="anthropic")
 
-    if isinstance(exc, anthropic.AuthenticationError):  # type: ignore[union-attr]
+    if isinstance(exc, anthropic.AuthenticationError):
         return AuthenticationError(
             f"Anthropic authentication failed. Check your API key. "
             f"Pass it directly: Runtime(providers={{'anthropic': 'your-key'}}) "
@@ -284,14 +284,14 @@ def _map_anthropic_error(exc: Exception) -> ProviderError:
             provider="anthropic",
         )
 
-    if isinstance(exc, anthropic.NotFoundError):  # type: ignore[union-attr]
+    if isinstance(exc, anthropic.NotFoundError):
         return ModelNotFoundError(
             f"{exc}. Known Anthropic models: claude-opus-4-20250514, claude-sonnet-4-20250514, claude-haiku-4-20250414. "
             f"Check available models at https://docs.anthropic.com/en/docs/about-claude/models",
             provider="anthropic",
         )
 
-    if isinstance(exc, anthropic.BadRequestError):  # type: ignore[union-attr]
+    if isinstance(exc, anthropic.BadRequestError):
         msg = str(exc).lower()
         if "content" in msg and ("filter" in msg or "safety" in msg or "block" in msg):
             return ContentFilterError(str(exc), provider="anthropic")
@@ -300,11 +300,11 @@ def _map_anthropic_error(exc: Exception) -> ProviderError:
         return ProviderError(str(exc), provider="anthropic", retryable=False, status_code=400)
 
     # Connection / timeout errors are retryable
-    if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):  # type: ignore[union-attr]
+    if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
         return ProviderError(str(exc), provider="anthropic", retryable=True)
 
     # Overloaded (529) is retryable
-    if isinstance(exc, anthropic.APIStatusError):  # type: ignore[union-attr]
+    if isinstance(exc, anthropic.APIStatusError):
         status = getattr(exc, "status_code", None)
         retryable = status in (429, 502, 503, 504, 529) if status else False
         return ProviderError(
@@ -453,7 +453,7 @@ class AnthropicProvider:
                 "anthropic SDK is required for the Anthropic provider but not installed. "
                 "Install with: pip install anthropic  (or: uv add anthropic)"
             )
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)  # type: ignore[union-attr]
+        self._client = anthropic.AsyncAnthropic(api_key=api_key)
         self._trace_writer = trace_writer
 
     # -- BaseProvider protocol properties -----------------------------------

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -25,8 +26,8 @@ class StrategyDecision(BaseModel):
     reasoning: str
     action: str | None = None  # For DIRECT_ANSWER: the answer
     tool_name: str | None = None  # For SINGLE_TOOL
-    tool_arguments: dict | None = None  # For SINGLE_TOOL  # noqa: UP006
-    parallel_actions: list[dict] | None = None  # For PARALLEL: list of tool calls  # noqa: UP006
+    tool_arguments: dict[str, Any] | None = None  # For SINGLE_TOOL
+    parallel_actions: list[dict[str, Any]] | None = None  # For PARALLEL: list of tool calls
     plan: list[str] | None = None  # For PLAN_AND_EXECUTE: step descriptions
     pivot_reason: str | None = None  # For PIVOT: why changing direction
     pivot_new_approach: str | None = None  # For PIVOT: what to try instead
