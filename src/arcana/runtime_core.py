@@ -1047,70 +1047,11 @@ class ChatSession:
                 tools=tool_defs,
             )
 
-            response: LLMResponse
-            try:
-                # Try streaming first for providers that support it
-                from arcana.contracts.llm import TokenUsage
-
-                text_parts: list[str] = []
-                tc_names: dict[str, str] = {}
-                tc_args: dict[str, list[str]] = {}
-                stream_usage: TokenUsage | None = None
-                stream_finish = "stop"
-                stream_model = model_config.model_id
-
-                async for chunk in self._runtime._gateway.stream(
-                    request=request, config=model_config,
-                ):
-                    if chunk.type == "text_delta" and chunk.text:
-                        text_parts.append(chunk.text)
-                    elif chunk.type == "tool_call_delta" and chunk.tool_call_id:
-                        if chunk.tool_call_id not in tc_names:
-                            tc_names[chunk.tool_call_id] = chunk.tool_name or ""
-                        if chunk.tool_name:
-                            tc_names[chunk.tool_call_id] = chunk.tool_name
-                        if chunk.arguments_delta:
-                            tc_args.setdefault(
-                                chunk.tool_call_id, [],
-                            ).append(chunk.arguments_delta)
-                    elif chunk.type == "usage" and chunk.usage:
-                        stream_usage = chunk.usage
-                    elif chunk.type == "done":
-                        if chunk.metadata:
-                            stream_finish = chunk.metadata.get(
-                                "finish_reason", stream_finish,
-                            )
-                            stream_model = chunk.metadata.get(
-                                "model", stream_model,
-                            )
-                        if chunk.usage:
-                            stream_usage = chunk.usage
-
-                full_text = "".join(text_parts) if text_parts else None
-                tool_calls_list = [
-                    ToolCallRequest(
-                        id=tc_id,
-                        name=tc_names.get(tc_id, ""),
-                        arguments="".join(tc_args.get(tc_id, [])),
-                    )
-                    for tc_id in tc_names
-                ] or None
-                response = LLMResponse(
-                    content=full_text,
-                    tool_calls=tool_calls_list,
-                    usage=stream_usage or TokenUsage(
-                        prompt_tokens=0,
-                        completion_tokens=0,
-                        total_tokens=0,
-                    ),
-                    model=stream_model,
-                    finish_reason=stream_finish,
-                )
-            except (AttributeError, TypeError, NotImplementedError):
-                # Gateway doesn't support streaming -- fall back to generate
-                response = await self._runtime._gateway.generate(
-                    request=request, config=model_config,
-                )
+            # Use generate() for send() — reliable usage tracking.
+            # stream() method handles streaming separately.
+            response = await self._runtime._gateway.generate(
+                request=request, config=model_config,
+            )
 
             # Track usage
             if response.usage:
