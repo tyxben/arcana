@@ -36,55 +36,68 @@ Arcana is an Agent Platform following a "contracts-first" design. All modules de
 
 ### V2 Architecture (current)
 
-The V2 engine centers on `ConversationAgent` — no Policy, no Reducer, just LLM turns. Each turn produces `TurnFacts` (raw LLM output) and `TurnAssessment` (runtime interpretation), kept visibly separate.
+The V2 engine centers on `ConversationAgent` -- no Policy, no Reducer, just LLM turns. Each turn produces `TurnFacts` (raw LLM output) and `TurnAssessment` (runtime interpretation, including thinking-informed confidence adjustment), kept visibly separate.
+
+Key capabilities beyond basic turn loop:
+- **Parallel tool execution**: multiple tool calls in one turn run concurrently via `asyncio.gather` with order-preserving results
+- **`ask_user` built-in tool**: LLM can ask clarifying questions mid-execution; intercepted at runtime level (bypasses ToolGateway); graceful fallback when no handler provided
+- **Prompt caching**: transparent, provider-level -- Anthropic `cache_control` tags on system/tools, OpenAI `cached_tokens` tracked
+- **Thinking-informed assessment**: `_assess_turn` analyzes extended thinking blocks for uncertainty/verification/incomplete signals, adjusts confidence
+- **Structured output**: `response_format` passes a Pydantic model's JSON Schema to the provider; tools are disabled when active
+- **Multimodal input**: `images` parameter accepts URLs, file paths, data URIs; auto-converts between OpenAI and Anthropic content block formats
+- **LLM-driven context compression**: `WorkingSetBuilder.abuild_conversation_context()` uses a cheap LLM call for semantic summarization when history exceeds budget; falls back to keyword-based compression
+- **Multi-turn chat**: `runtime.chat()` returns a `ChatSession` with persistent history, shared budget, and streaming
 
 ```
-Request → Intent Router (routing/)
-           → Direct Answer (1 LLM call)
-           → ConversationAgent (runtime/conversation.py)
-                LLM Turn → TurnFacts → TurnAssessment → State
-                Runtime OS: Budget | Trace | Tools | Diagnostics
+Request -> Intent Router (routing/)
+            -> Direct Answer (1 LLM call)
+            -> ConversationAgent (runtime/conversation.py)
+                 LLM Turn -> TurnFacts -> TurnAssessment -> State
+                 Runtime OS: Budget | Trace | Tools | Diagnostics | ask_user
+
+Multi-turn: runtime.chat() -> ChatSession -> send() / stream()
 
 V1 path (still compatible):
-           → Agent + AdaptivePolicy (runtime/agent.py)
+            -> Agent + AdaptivePolicy (runtime/agent.py)
 ```
 
 ### Layer Structure
 
 ```
-┌─────────────────────────────────────────────────┐
-│              Application (Agents)                │
-│   runtime/conversation.py  (V2 ConversationAgent)│
-│   runtime/agent.py         (V1 Agent)            │
-├─────────────────────────────────────────────────┤
-│  Routing │ Gateway │ Tool Gateway │ Context      │  ← Platform Services
-│  Eval    │ Memory  │ Streaming    │ Diagnosis    │
-├─────────────────────────────────────────────────┤
-│           Contracts (Pydantic Schemas)           │  ← Data Models
-│   turn, routing, context, diagnosis, llm, tool   │
-├─────────────────────────────────────────────────┤
-│              Trace (JSONL Audit Log)             │  ← Observability
-└─────────────────────────────────────────────────┘
++-------------------------------------------------+
+|              Application (Agents)                |
+|   runtime/conversation.py  (V2 ConversationAgent)|
+|   runtime/agent.py         (V1 Agent)            |
+|-------------------------------------------------|
+|  Routing | Gateway | Tool Gateway | Context      |  <- Platform Services
+|  Eval    | Memory  | Streaming    | Diagnosis    |
+|-------------------------------------------------|
+|           Contracts (Pydantic Schemas)           |  <- Data Models
+|   turn, routing, context, diagnosis, llm, tool   |
+|-------------------------------------------------|
+|              Trace (JSONL Audit Log)             |  <- Observability
++-------------------------------------------------+
 ```
 
 ### Core Modules
 
 **contracts/** - All data models:
-- `turn.py`: `TurnFacts`, `TurnAssessment` — the V2 separation principle
-- `routing.py`: `RoutingDecision`, `IntentCategory` — intent classification
-- `context.py`: `ContextBlock`, `ContextBudget` — working set context
-- `diagnosis.py`: `DiagnosticBrief`, `ErrorCategory` — structured error recovery
-- `llm.py`: `LLMRequest`, `LLMResponse`, `ModelConfig` — unified LLM interface
-- `tool.py`: `ToolSpec`, `ToolCall`, `ToolResult` — tool execution contracts
-- `state.py`: `AgentState` — execution state with budget tracking
+- `turn.py`: `TurnFacts`, `TurnAssessment` -- the V2 separation principle
+- `routing.py`: `RoutingDecision`, `IntentCategory` -- intent classification
+- `context.py`: `ContextBlock`, `ContextBudget`, `ContextDecision` -- working set context
+- `diagnosis.py`: `DiagnosticBrief`, `ErrorCategory` -- structured error recovery
+- `llm.py`: `LLMRequest`, `LLMResponse`, `ModelConfig`, `ContentBlock` -- unified LLM interface
+- `tool.py`: `ToolSpec`, `ToolCall`, `ToolResult`, `ASK_USER_TOOL_NAME` -- tool execution contracts
+- `state.py`: `AgentState` -- execution state with budget tracking
 - `runtime.py`: Runtime configuration and turn state
 - `eval.py`: Evaluation framework contracts
-- `streaming.py`: Streaming response contracts
+- `streaming.py`: Streaming response contracts (`StreamEvent`, `StreamEventType`)
 - `multi_agent.py`: Multi-agent coordination contracts
 - `plan.py`, `strategy.py`, `intent.py`, `graph.py`, `orchestrator.py`, `memory.py`, `rag.py`
 
 **runtime/** - Agent execution engines:
-- `conversation.py`: `ConversationAgent` — the V2 engine (recommended)
+- `conversation.py`: `ConversationAgent` -- V2 engine with parallel tools, thinking assessment, ask_user interception
+- `ask_user.py`: `AskUserHandler`, `ASK_USER_SPEC` -- built-in tool for LLM-to-user clarification
 - `agent.py`: V1 agent with AdaptivePolicy
 - `state_manager.py`: State lifecycle management
 - `step.py`: Single-step execution
@@ -94,19 +107,26 @@ V1 path (still compatible):
 - `replay.py`: Trace replay for debugging
 - `progress.py`: Progress tracking
 
+**runtime_core.py** - `Runtime`, `Session`, `ChatSession`, `ChatResponse`, `Budget`, `AgentConfig`:
+- `Runtime`: Long-lived resource container (providers, tools, budget, trace)
+- `Runtime.run()`: Single-shot task execution
+- `Runtime.chat()`: Multi-turn conversational sessions (`ChatSession.send()` / `ChatSession.stream()`)
+- `Runtime.session()`: Manual session control for advanced usage
+
 **routing/** - Intent classification and routing:
 - `classifier.py`: Rule-based + LLM fallback intent classifier
 - `executor.py`: Route execution (direct answer vs agent loop)
 
 **context/** - Working set context management:
-- `builder.py`: Context block assembly and budget enforcement
+- `builder.py`: `WorkingSetBuilder` -- context block assembly, budget enforcement, LLM-driven compression (`abuild_conversation_context`)
 
 **gateway/** - Model Gateway with provider abstraction:
 - `ModelGatewayRegistry`: Multi-provider routing with fallback chains
-- `OpenAICompatibleProvider`: Universal adapter for OpenAI-format APIs
+- `OpenAICompatibleProvider`: Universal adapter for OpenAI-format APIs, with prompt caching support
 - Provider factories: DeepSeek, OpenAI, Anthropic, Kimi, GLM, MiniMax, Gemini, Ollama
 
-**tool_gateway/** - Tool execution with auth, validation, audit
+**tool_gateway/** - Tool execution with auth, validation, audit:
+- `gateway.py`: `ToolGateway` with `call_many_concurrent()` for parallel execution via `asyncio.gather`
 
 **eval/** - Evaluation framework for agent quality
 
@@ -118,7 +138,7 @@ V1 path (still compatible):
 
 ### Key Design Patterns
 
-1. **TurnFacts / TurnAssessment Separation**: The LLM produces facts (what it said, what tools it called). The runtime produces assessment (should we continue, is budget exceeded, did a tool fail). Never mix the two — the LLM does not judge its own output; the runtime does not generate content.
+1. **TurnFacts / TurnAssessment Separation**: The LLM produces facts (what it said, what tools it called). The runtime produces assessment (should we continue, is budget exceeded, did a tool fail). Never mix the two -- the LLM does not judge its own output; the runtime does not generate content.
 
 2. **Canonical Hashing**: All digests use SHA-256 on sorted JSON, truncated to 16 chars. See `utils/hashing.py`.
 
@@ -128,12 +148,32 @@ V1 path (still compatible):
 
 5. **Contracts First**: All data flows through Pydantic models defined in `contracts/`. Implementation never invents ad-hoc dicts.
 
+6. **Ask User as Capability**: `ask_user` is a tool the LLM can call, not a forced interaction step. Intercepted at runtime level (bypasses ToolGateway). When no `input_handler` is provided, the LLM gets a fallback message and proceeds with best judgment. The user is never forced to interact.
+
+7. **Thinking as Signal**: The runtime listens to extended thinking blocks (Anthropic, Gemini) for uncertainty, verification intent, and incomplete information signals. It adjusts confidence and completion decisions accordingly. It never constrains what the LLM thinks.
+
+8. **Prompt Caching**: Transparent, provider-level optimization. Anthropic system prompts and tool schemas get `cache_control` tags automatically. OpenAI `cached_tokens` are tracked in usage. No application-level changes needed.
+
 ## Configuration
 
-Pass `api_key` directly to `arcana.run()` — no `.env` file required:
+Pass `api_key` directly to `arcana.run()` -- no `.env` file required:
 
 ```python
 result = await arcana.run("Hello", api_key="sk-xxx")
+```
+
+For multi-turn sessions, use `runtime.chat()`:
+
+```python
+runtime = arcana.Runtime(
+    providers={"deepseek": "sk-xxx"},
+    tools=[my_tool],
+    budget=arcana.Budget(max_cost_usd=5.0),
+)
+async with runtime.chat() as c:
+    r = await c.send("Hello")
+    r = await c.send("Tell me more")
+    print(c.total_cost_usd)
 ```
 
 Environment variables are still supported as a fallback:
@@ -145,9 +185,9 @@ Environment variables are still supported as a fallback:
 ## Verified Providers
 
 These providers have been tested with real API keys:
-- DeepSeek (deepseek-chat) — direct answer + tools + multi-step
-- OpenAI (gpt-4o-mini) — direct answer + tools
-- Anthropic (claude-sonnet-4) — direct answer
+- DeepSeek (deepseek-chat) -- direct answer + tools + multi-step
+- OpenAI (gpt-4o-mini) -- direct answer + tools
+- Anthropic (claude-sonnet-4) -- direct answer
 
 ## SDK Interface (`sdk.py`)
 
@@ -155,14 +195,22 @@ Key parameters for `arcana.run()`:
 - `api_key`: API key string (preferred over env vars)
 - `provider`: Provider name (`"deepseek"`, `"openai"`, `"anthropic"`, etc.)
 - `engine`: `"conversation"` (default, V2 ConversationAgent) or `"adaptive"` (V1)
-- `max_turns`: Maximum number of agent turns (renamed from `max_steps`)
+- `max_turns`: Maximum number of agent turns (default: 20)
 - `tools`: List of tools decorated with `@arcana.tool`
+- `response_format`: Pydantic `BaseModel` class for structured output (disables tools when set)
+- `images`: List of image URLs, file paths, or data URIs for multimodal input
+- `input_handler`: Sync or async callback for the `ask_user` built-in tool (None = graceful fallback)
+
+## Constitution
+
+`CONSTITUTION.md` -- v2, 8 principles (was 7). Defines the four prohibitions, the division of responsibility (LLM vs runtime vs user), and the contributor compact. Key additions in v2: Principle 8 (agent autonomy in collaboration), expanded Chapter IV (user role, user optionality rules).
 
 ## Project Status
 
-Current: v0.1.0-alpha.2 — `arcana.run()` accepts `api_key`, default engine is ConversationAgent (V2).
+Current: v0.1.0b7 -- 1045 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output, multimodal input, LLM context compression, ask_user, multi-turn chat.
 
 ## Learning Resources
 
 See `docs/architecture.md` for the full system architecture.
+See `docs/guide/` for quickstart, configuration, providers, and API reference.
 Legacy v1 learning docs are archived in `docs/legacy/`.
