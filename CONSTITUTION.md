@@ -84,6 +84,8 @@ Four layers, strict discipline:
 
 Only the Working layer is actively managed per step. Tool schemas, memory, conversation history -- all External until needed.
 
+Context is modality-agnostic. Text, images, structured data, and tool results all follow the same working set discipline: include what the current step needs, exclude what it does not.
+
 ### Principle 3: Tools as Capabilities, Not Interfaces
 
 A tool is not an API wrapper. A tool is a capability the LLM can reason about.
@@ -97,6 +99,8 @@ The LLM does not owe us a step-by-step trace of its reasoning.
 If the LLM can solve a three-step problem in one step, let it. If the LLM realizes mid-plan that the plan is wrong, let it pivot. If the LLM determines the answer is "I cannot do this," let it say so without forcing it through N more steps.
 
 Policy asks "what do you want to do next?" It does not say "here is what you must do next."
+
+**Corollary -- Thinking as Signal, Not Contract:** When the LLM voluntarily exposes its reasoning (through extended thinking, chain-of-thought, or similar mechanisms), the runtime may listen to those signals to improve its assessment -- but never to constrain the LLM's strategy. Detecting uncertainty in thinking to lower confidence is listening. Forcing the LLM to "think step by step" before every response is constraining. The distinction is absolute.
 
 ### Principle 5: Structured, Actionable Feedback
 
@@ -130,6 +134,14 @@ Metrics that do not matter:
 - Did it use all planned steps?
 - Did it produce pretty logs?
 
+### Principle 8: Agent Autonomy in Collaboration
+
+When multiple agents collaborate, the framework provides coordination infrastructure -- communication channels, budget allocation, turn scheduling -- but never dictates hierarchy or strategy.
+
+No agent is subordinate to another by framework decree. If a planner-executor pattern emerges, it is because the agents' prompts define those roles, not because the framework enforces a topology.
+
+The framework's role: ensure every agent gets its turn, stays within budget, and can see what others have said. The agents' role: decide what to say, when to agree, when to disagree, and when to declare the task complete.
+
 ---
 
 ## Chapter IV: The Division of Responsibility
@@ -141,6 +153,7 @@ Metrics that do not matter:
 - **Recording execution**: traces, metrics, diagnostics
 - **Organizing context**: working set management, compression, retrieval
 - **Classifying errors**: structured diagnostics, recovery options
+- **Enabling interaction**: providing mechanisms for the LLM to communicate with the user mid-execution
 
 ### The LLM Is Responsible For:
 
@@ -149,12 +162,23 @@ Metrics that do not matter:
 - **Making decisions**: which tools, which order, when to stop
 - **Adapting dynamically**: pivoting when things change or fail
 - **Judging completion**: knowing when the goal is met
+- **Deciding when to ask**: choosing whether and when to involve the user
 
-### The Inviolable Rule:
+### The User Is Responsible For:
+
+- **Defining intent**: what they want, not how to get it
+- **Providing information**: when asked, at their discretion
+- **Judging outcomes**: accepting, rejecting, or refining results
+
+### The Inviolable Rules:
 
 These responsibilities never reverse.
 
 The framework never decides strategy. The LLM never enforces budgets. The framework never tells the LLM "you must use tool X next." The LLM never decides its own token limit.
+
+**The user is never forced to interact mid-execution.** If no input handler is provided, the LLM proceeds with its best judgment. Interaction is a capability, not a dependency.
+
+**The LLM may ask but must never block on an answer.** A question without a response is a signal to adapt, not a reason to halt. The LLM must always be able to make progress without user input -- asking is an optimization, not a prerequisite.
 
 When you find yourself writing code where the framework makes a judgment call that belongs to the LLM, stop. Refactor. That is a constitutional violation.
 
@@ -173,6 +197,8 @@ Before submitting, answer these:
 5. **Actionable feedback?** If this can fail, does the failure produce something the LLM can act on?
 6. **OS, not workflow?** Is this a service the LLM can call, or a step the LLM is forced through?
 7. **Outcome-oriented?** Does this improve result quality, or just process visibility?
+8. **Agent autonomy?** If this involves multiple agents, does it preserve each agent's freedom to decide its own approach?
+9. **User optionality?** If this involves user interaction, can execution continue without it?
 
 ### The Fundamental Question
 

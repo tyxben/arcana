@@ -20,12 +20,16 @@ With tools:
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
+import mimetypes
+import os
 from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel
 
+from arcana.contracts.llm import ContentBlock
 from arcana.contracts.tool import (
     ErrorType,
     SideEffect,
@@ -133,12 +137,72 @@ class RunResult(BaseModel):
     run_id: str = ""
 
 
+# --- Image helpers ---
+
+
+_MIME_FALLBACK = "image/png"
+
+
+def _detect_mime(path: str) -> str:
+    """Detect MIME type from a file path, falling back to image/png."""
+    mime, _ = mimetypes.guess_type(path)
+    return mime or _MIME_FALLBACK
+
+
+def build_content_blocks(
+    text: str,
+    images: list[str] | None = None,
+) -> str | list[ContentBlock]:
+    """Build message content from text and optional images.
+
+    When *images* is empty or ``None``, returns plain ``str`` for maximum
+    backward compatibility.  Otherwise returns a ``list[ContentBlock]``
+    with one text block followed by one ``image_url`` block per image.
+
+    Each image string can be:
+
+    * An HTTP(S) URL -- used directly.
+    * A local file path -- read, base64-encoded, MIME-type detected.
+    * Raw data (anything else) -- assumed to be a ``data:`` URI or base64.
+
+    The output uses the **OpenAI-compatible** ``image_url`` block format
+    which is the canonical multimodal format in Arcana.  Provider-specific
+    gateways (e.g. Anthropic) convert internally.
+    """
+    if not images:
+        return text
+
+    blocks: list[ContentBlock] = [ContentBlock(type="text", text=text)]
+
+    for img in images:
+        if img.startswith(("http://", "https://")):
+            blocks.append(
+                ContentBlock(type="image_url", image_url={"url": img})
+            )
+        elif os.path.isfile(img):
+            mime = _detect_mime(img)
+            with open(img, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+            data_uri = f"data:{mime};base64,{b64}"
+            blocks.append(
+                ContentBlock(type="image_url", image_url={"url": data_uri})
+            )
+        else:
+            # Assume it's already a data URI or raw base64
+            blocks.append(
+                ContentBlock(type="image_url", image_url={"url": img})
+            )
+
+    return blocks
+
+
 # --- Run Function ---
 
 
 async def run(
     goal: str,
     *,
+    images: list[str] | None = None,
     tools: list[Callable] | None = None,  # type: ignore[type-arg]
     provider: str = "deepseek",
     model: str | None = None,
@@ -148,6 +212,8 @@ async def run(
     auto_route: bool = True,
     engine: str = "conversation",
     stream: bool = False,
+    response_format: type[BaseModel] | None = None,
+    input_handler: Callable | None = None,  # type: ignore[type-arg]
 ) -> RunResult:
     """
     Run an agent to accomplish a goal.
@@ -159,6 +225,8 @@ async def run(
 
     Args:
         goal: What you want the agent to accomplish
+        images: Optional list of image inputs. Each can be a URL, local file
+            path, or ``data:`` URI / raw base64 string.
         tools: Optional list of @arcana.tool decorated functions
         provider: LLM provider name (default: "deepseek")
         model: Model ID (auto-selected if None)
@@ -168,6 +236,14 @@ async def run(
         auto_route: Enable intent routing (default: True)
         engine: Execution engine - "conversation" (V2, default) or "adaptive" (V1)
         stream: Enable streaming output (reserved for future use)
+        response_format: Pydantic BaseModel class for structured output.
+            When provided, the LLM is instructed to return JSON matching
+            the model's schema, and ``result.output`` will be a validated
+            instance of the model rather than a plain string. Tool use is
+            disabled when ``response_format`` is set.
+        input_handler: Optional callback for the ask_user built-in tool.
+            Can be sync or async. When None, the LLM receives a fallback
+            message and proceeds with best judgment.
 
     Returns:
         RunResult with output and execution metadata
@@ -175,6 +251,14 @@ async def run(
     Examples:
         # Simplest usage
         result = await arcana.run("What is 2+2?", api_key="sk-xxx")
+
+        # With an image
+        result = await arcana.run(
+            "Describe this image",
+            images=["https://example.com/photo.jpg"],
+            provider="openai",
+            api_key="sk-proj-xxx",
+        )
 
         # With tools
         @arcana.tool(when_to_use="For math")
@@ -197,7 +281,14 @@ async def run(
         budget=RuntimeBudget(max_cost_usd=max_cost_usd),
         config=config,
     )
-    result = await rt.run(goal, engine=engine, max_turns=max_turns)
+    result = await rt.run(
+        goal,
+        engine=engine,
+        max_turns=max_turns,
+        images=images,
+        response_format=response_format,
+        input_handler=input_handler,
+    )
 
     # Convert to sdk.RunResult (keep backward compat)
     return RunResult(

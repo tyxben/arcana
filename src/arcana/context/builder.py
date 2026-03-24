@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from arcana.contracts.context import (
     ContextBlock,
@@ -14,10 +14,17 @@ from arcana.contracts.context import (
     TokenBudget,
     WorkingSet,
 )
-from arcana.contracts.llm import Message, MessageRole
+from arcana.contracts.llm import Message, MessageRole, ModelConfig
 from arcana.contracts.state import AgentState
 
+if TYPE_CHECKING:
+    from arcana.gateway.registry import ModelGatewayRegistry
+
 logger = logging.getLogger(__name__)
+
+# Minimum token count in the middle section to justify an LLM compression call.
+# Below this threshold, keyword-based compression is sufficient.
+_LLM_COMPRESSION_THRESHOLD = 2000
 
 
 def _content_text(content: str | list[Any] | None) -> str:
@@ -68,10 +75,15 @@ class WorkingSetBuilder:
         identity: str,
         token_budget: TokenBudget | None = None,
         goal: str | None = None,
+        gateway: ModelGatewayRegistry | None = None,
+        compression_model: ModelConfig | None = None,
     ) -> None:
         self._identity = identity
         self._budget = token_budget or TokenBudget()
+        self._goal = goal
         self._goal_keywords = _extract_keywords(goal) if goal else set()
+        self._gateway = gateway
+        self._compression_model = compression_model
 
         # Pre-compute identity block
         self._identity_block = ContextBlock(
@@ -92,6 +104,7 @@ class WorkingSetBuilder:
 
     def set_goal(self, goal: str) -> None:
         """Update goal keywords for relevance scoring."""
+        self._goal = goal
         self._goal_keywords = _extract_keywords(goal)
 
     # ------------------------------------------------------------------
@@ -294,6 +307,250 @@ class WorkingSetBuilder:
             ),
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Async conversation mode — uses LLM compression when available
+    # ------------------------------------------------------------------
+
+    async def abuild_conversation_context(
+        self,
+        messages: list[Message],
+        *,
+        memory_context: str | None = None,
+        tool_token_estimate: int = 0,
+        turn: int = 0,
+    ) -> list[Message]:
+        """Async version of build_conversation_context.
+
+        When a gateway is configured and the middle section is large enough,
+        uses LLM-based semantic compression instead of keyword truncation.
+        Falls back to sync compression if no gateway is set or on failure.
+        """
+        # Apply per-layer budget caps (identical to sync version)
+        effective_tool_tokens = tool_token_estimate
+        if self._budget.tool_budget is not None:
+            effective_tool_tokens = min(tool_token_estimate, self._budget.tool_budget)
+
+        budget = self._budget.total_window - self._budget.response_reserve - effective_tool_tokens
+
+        # Apply memory budget cap
+        memory_injected = False
+        if memory_context:
+            mem_tokens = estimate_tokens(memory_context)
+            if self._budget.memory_budget is not None and mem_tokens > self._budget.memory_budget:
+                ratio = self._budget.memory_budget / max(mem_tokens, 1)
+                char_limit = int(len(memory_context) * ratio)
+                memory_context = memory_context[:char_limit] + "\n[memory truncated]"
+
+        total = sum(estimate_tokens(_content_text(m.content)) for m in messages)
+        messages_in = len(messages)
+
+        # Inject memory into system prompt if provided and not already there
+        if memory_context and messages and messages[0].role in (MessageRole.SYSTEM, "system"):
+            sys_content = _content_text(messages[0].content)
+            if memory_context not in sys_content:
+                messages = [
+                    Message(role=MessageRole.SYSTEM, content=sys_content + "\n\n" + memory_context),
+                    *messages[1:],
+                ]
+                total = sum(estimate_tokens(_content_text(m.content)) for m in messages)
+                memory_injected = True
+
+        # Check if history budget cap forces compression
+        effective_budget = budget
+        if self._budget.history_budget is not None and messages:
+            sys_tokens = estimate_tokens(_content_text(messages[0].content))
+            history_tokens = total - sys_tokens
+            if history_tokens > self._budget.history_budget:
+                effective_budget = sys_tokens + self._budget.history_budget
+
+        # Under budget — pass through
+        if total <= effective_budget:
+            self.last_decision = ContextDecision(
+                turn=turn,
+                budget_total=budget,
+                budget_used=total,
+                budget_tools=effective_tool_tokens,
+                budget_reserve=self._budget.response_reserve,
+                messages_in=messages_in,
+                messages_out=len(messages),
+                memory_injected=memory_injected,
+                explanation=f"Under budget ({total}/{budget} tokens), all {len(messages)} messages kept",
+            )
+            return messages
+
+        # Over budget — try async compression with LLM
+        return await self._acompress_with_relevance(
+            messages,
+            budget=effective_budget,
+            turn=turn,
+            messages_in=messages_in,
+            effective_tool_tokens=effective_tool_tokens,
+            memory_injected=memory_injected,
+        )
+
+    async def _acompress_with_relevance(
+        self,
+        messages: list[Message],
+        *,
+        budget: int,
+        turn: int,
+        messages_in: int,
+        effective_tool_tokens: int,
+        memory_injected: bool,
+    ) -> list[Message]:
+        """Async compression: uses LLM when available, falls back to keyword-based."""
+        keep_head = 1
+        keep_tail = min(len(messages) - keep_head, 6)
+
+        head = messages[:keep_head]
+        tail = messages[-keep_tail:] if keep_tail > 0 else []
+        middle = messages[keep_head: len(messages) - keep_tail] if keep_tail > 0 else messages[keep_head:]
+
+        head_tokens = sum(estimate_tokens(_content_text(m.content)) for m in head)
+        tail_tokens = sum(estimate_tokens(_content_text(m.content)) for m in tail)
+        summary_budget = budget - head_tokens - tail_tokens - 100
+
+        middle_tokens = sum(estimate_tokens(_content_text(m.content)) for m in middle)
+
+        # Try LLM compression if gateway is available and middle section is large enough
+        if (
+            self._gateway is not None
+            and middle
+            and middle_tokens > _LLM_COMPRESSION_THRESHOLD
+            and summary_budget > 0
+        ):
+            try:
+                summary_text = await self._compress_with_llm(middle, summary_budget)
+                summary_msg = Message(role=MessageRole.USER, content=summary_text)
+                result = head + [summary_msg] + tail
+
+                used_tokens = sum(estimate_tokens(_content_text(m.content)) for m in result)
+                compressed_tokens = estimate_tokens(summary_text)
+                ratio = middle_tokens / max(compressed_tokens, 1)
+
+                compressed_descs: list[str] = []
+                for msg in middle:
+                    role = msg.role if isinstance(msg.role, str) else msg.role.value
+                    content = _content_text(msg.content)
+                    trunc = content[:80] + "..." if len(content) > 80 else content
+                    compressed_descs.append(f"{role}:{trunc}")
+
+                self.last_decision = ContextDecision(
+                    turn=turn,
+                    budget_total=budget,
+                    budget_used=used_tokens,
+                    budget_tools=effective_tool_tokens,
+                    budget_reserve=self._budget.response_reserve,
+                    messages_in=messages_in,
+                    messages_out=len(result),
+                    compressed_count=len(middle),
+                    memory_injected=memory_injected,
+                    history_compressed=True,
+                    compressed_messages=compressed_descs,
+                    explanation=(
+                        f"{len(middle)} messages LLM-compressed ({ratio:.1f}x), "
+                        f"budget {used_tokens}/{budget} tokens ({used_tokens * 100 // budget}% full)"
+                        if budget > 0
+                        else f"{len(middle)} messages LLM-compressed ({ratio:.1f}x), budget exhausted"
+                    ),
+                )
+                return result
+            except Exception:
+                logger.warning(
+                    "LLM compression failed, falling back to keyword-based compression",
+                    exc_info=True,
+                )
+
+        # Fall back to sync keyword-based compression
+        return self._compress_with_relevance(
+            messages,
+            budget=budget,
+            turn=turn,
+            messages_in=messages_in,
+            effective_tool_tokens=effective_tool_tokens,
+            memory_injected=memory_injected,
+        )
+
+    async def _compress_with_llm(self, messages: list[Message], budget_tokens: int) -> str:
+        """Use a cheap LLM to summarize middle messages semantically.
+
+        Args:
+            messages: The middle messages to compress.
+            budget_tokens: Maximum token count for the resulting summary.
+
+        Returns:
+            A summary string that fits within budget_tokens.
+        """
+        assert self._gateway is not None  # Caller must check
+
+        # Build conversation text for the summarizer
+        conversation_lines: list[str] = []
+        for msg in messages:
+            role = msg.role if isinstance(msg.role, str) else msg.role.value
+            content = _content_text(msg.content)
+            # Truncate very long individual messages to avoid blowing up the summarizer input
+            if len(content) > 1000:
+                content = content[:1000] + "..."
+            conversation_lines.append(f"[{role}] {content}")
+        conversation_text = "\n".join(conversation_lines)
+
+        # Estimate max_tokens for the summary response (~4 chars per token)
+        max_summary_tokens = min(budget_tokens, 500)
+
+        goal_instruction = ""
+        if self._goal:
+            goal_instruction = f"\nThe user's current goal is: {self._goal}\nPreserve details relevant to this goal."
+
+        from arcana.contracts.llm import LLMRequest
+
+        prompt = (
+            "Summarize the following conversation excerpt concisely. "
+            "Keep key facts, decisions, tool results, and errors. "
+            "Drop filler and repetition. "
+            f"Use at most {max_summary_tokens * 4} characters."
+            f"{goal_instruction}\n\n"
+            f"---\n{conversation_text}\n---"
+        )
+
+        request = LLMRequest(
+            messages=[
+                Message(role=MessageRole.SYSTEM, content="You are a conversation summarizer. Be concise."),
+                Message(role=MessageRole.USER, content=prompt),
+            ],
+        )
+
+        # Use compression_model if configured, otherwise build a cheap default
+        config = self._compression_model
+        if config is None:
+            # Derive a cheap config from the gateway's default provider
+            provider_name = self._gateway.default_provider
+            if provider_name is None:
+                providers = self._gateway.list_providers()
+                if not providers:
+                    raise RuntimeError("No providers registered in gateway")
+                provider_name = providers[0]
+            config = ModelConfig(
+                provider=provider_name,
+                model_id="",  # Will be resolved by provider's default_model
+                temperature=0.0,
+                max_tokens=max_summary_tokens,
+            )
+            # Try to get the provider's default model
+            provider = self._gateway.get(provider_name)
+            if provider and hasattr(provider, "default_model"):
+                dm = provider.default_model
+                if isinstance(dm, str) and dm:
+                    config = config.model_copy(update={"model_id": dm})
+
+        response = await self._gateway.generate(request, config)
+        summary = response.content or ""
+
+        # Truncate if it somehow exceeds budget
+        while estimate_tokens(summary) > budget_tokens and len(summary) > 10:
+            summary = summary[: int(len(summary) * 0.8)]
+
+        return f"[Earlier conversation — LLM summary]\n{summary}"
 
     def _relevance_score(self, msg: Message) -> float:
         """Score a message's relevance to the current goal.

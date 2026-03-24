@@ -183,6 +183,46 @@ class ToolGateway:
 
         return result
 
+    async def call_many_concurrent(
+        self,
+        tool_calls: list[ToolCall],
+        *,
+        trace_ctx: TraceContext | None = None,
+    ) -> list[ToolResult]:
+        """
+        Execute ALL tool calls concurrently via asyncio.gather.
+
+        Every call runs in parallel regardless of side effect type.
+        Individual failures are caught gracefully — one failing tool
+        does not block or cancel the others.  Result order matches
+        the input ``tool_calls`` order.
+        """
+        if not tool_calls:
+            return []
+
+        tasks = [self.call(tc, trace_ctx=trace_ctx) for tc in tool_calls]
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        results: list[ToolResult] = []
+        for tc, raw in zip(tool_calls, raw_results, strict=True):
+            if isinstance(raw, BaseException):
+                results.append(
+                    ToolResult(
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                        success=False,
+                        error=ToolError(
+                            error_type=ErrorType.NON_RETRYABLE,
+                            message=f"Unexpected error executing '{tc.name}': {raw}",
+                            code="GATHER_EXCEPTION",
+                        ),
+                    )
+                )
+            else:
+                results.append(raw)
+
+        return results
+
     async def call_many(
         self,
         tool_calls: list[ToolCall],

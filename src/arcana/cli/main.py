@@ -381,6 +381,150 @@ def _trace_summary(trace_path: Path, last: int) -> None:
 
 
 @app.command()
+def chat(
+    provider: str = typer.Option("deepseek", "--provider", "-p", help="LLM provider"),
+    model: str = typer.Option(None, "--model", "-m", help="Model override"),
+    api_key: str = typer.Option(None, "--api-key", "-k", help="API key (or set env var)"),
+    system: str = typer.Option(None, "--system", "-s", help="System prompt"),
+    budget: float = typer.Option(10.0, "--budget", help="Max cost in USD"),
+    trace: bool = typer.Option(False, "--trace", help="Enable tracing"),
+) -> None:
+    """Start an interactive chat session with an Arcana agent.
+
+    Usage:
+        arcana chat
+        arcana chat --provider openai --model gpt-4o
+        arcana chat --system "You are a math tutor"
+        arcana chat --budget 5.0 --trace
+    """
+    asyncio.run(_chat_session(
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        system_prompt=system,
+        budget=budget,
+        trace=trace,
+    ))
+
+
+async def _chat_session(
+    provider: str,
+    model: str | None,
+    api_key: str | None,
+    system_prompt: str | None,
+    budget: float,
+    trace: bool,
+) -> None:
+    """Run an interactive chat loop."""
+    from arcana.runtime_core import Budget, Runtime, RuntimeConfig
+
+    # Resolve API key
+    resolved_key = api_key or ""
+    if not resolved_key:
+        env_map = {
+            "deepseek": "DEEPSEEK_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY",
+            "gemini": "GEMINI_API_KEY",
+            "kimi": "KIMI_API_KEY",
+            "glm": "GLM_API_KEY",
+            "minimax": "MINIMAX_API_KEY",
+        }
+        env_var = env_map.get(provider, f"{provider.upper()}_API_KEY")
+        resolved_key = os.environ.get(env_var, "")
+        if not resolved_key and provider != "ollama":
+            console.print("[red]Error: API key required.[/red]")
+            console.print(f"Pass --api-key or set {env_var}")
+            raise typer.Exit(1)
+
+    rt = Runtime(
+        providers={provider: resolved_key},
+        budget=Budget(max_cost_usd=budget),
+        config=RuntimeConfig(
+            default_provider=provider,
+            default_model=model,
+        ),
+        trace=trace,
+    )
+
+    console.print(Panel(
+        f"Provider: [bold]{provider}[/bold] | Budget: [bold]${budget:.2f}[/bold]"
+        + (f" | System: [dim]{system_prompt[:60]}...[/dim]" if system_prompt and len(system_prompt) > 60 else f" | System: [dim]{system_prompt}[/dim]" if system_prompt else ""),
+        title="[bold]Arcana Chat[/bold]",
+        subtitle="Type 'exit' or Ctrl-C to end",
+    ))
+    console.print()
+
+    # Chat state: accumulate messages for multi-turn context
+    from arcana.contracts.llm import (
+        LLMRequest,
+        Message,
+        MessageRole,
+    )
+
+    model_config = rt._resolve_model_config()
+    messages: list[Message] = []
+    if system_prompt:
+        messages.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
+
+    total_tokens = 0
+    total_cost = 0.0
+    turn_count = 0
+
+    while True:
+        try:
+            user_input = console.input("[bold blue]You:[/bold blue] ")
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            break
+
+        if user_input.strip().lower() in ("exit", "quit", "q"):
+            break
+
+        if not user_input.strip():
+            continue
+
+        messages.append(Message(role=MessageRole.USER, content=user_input))
+
+        try:
+            request = LLMRequest(messages=messages)
+            response = await rt._gateway.generate(
+                request=request,
+                config=model_config,
+            )
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+            # Remove the failed user message so conversation stays consistent
+            messages.pop()
+            continue
+
+        assistant_text = response.content or ""
+        messages.append(Message(role=MessageRole.ASSISTANT, content=assistant_text))
+
+        tokens = response.usage.total_tokens if response.usage else 0
+        cost = response.usage.cost_estimate if response.usage else 0.0
+        total_tokens += tokens
+        total_cost += cost
+        turn_count += 1
+
+        console.print(f"[bold green]Agent:[/bold green] {assistant_text}")
+        console.print(f"[dim]({tokens} tokens, ${cost:.4f})[/dim]")
+        console.print()
+
+        # Budget check
+        if total_cost >= budget:
+            console.print("[yellow]Budget limit reached.[/yellow]")
+            break
+
+    console.print(Panel(
+        f"Turns: {turn_count} | Tokens: {total_tokens:,} | Cost: ${total_cost:.4f}",
+        title="Session Summary",
+    ))
+
+    await rt.close()
+
+
+@app.command()
 def version() -> None:
     """Show Arcana version."""
     from importlib.metadata import version as get_version

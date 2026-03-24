@@ -38,17 +38,28 @@ class ImageSource(BaseModel):
 class ContentBlock(BaseModel):
     """A typed content block within a message.
 
-    Supports text, image, tool_use, tool_result, thinking, and document types.
-    All type-specific fields are optional to allow flexible construction.
+    Supports text, image, image_url, tool_use, tool_result, thinking, and
+    document types.  All type-specific fields are optional to allow flexible
+    construction.
+
+    For images there are two canonical representations:
+
+    * **``image``** -- Anthropic-native format using ``source`` (base64 / URL).
+    * **``image_url``** -- OpenAI-compatible format using ``image_url`` dict.
+
+    Both are first-class; the gateway providers convert as needed.
     """
 
-    type: Literal["text", "image", "tool_use", "tool_result", "thinking", "document"]
+    type: Literal["text", "image", "image_url", "tool_use", "tool_result", "thinking", "document"]
 
     # text
     text: str | None = None
 
-    # image
+    # image (Anthropic-native)
     source: ImageSource | None = None
+
+    # image_url (OpenAI-compatible: {"url": "data:image/png;base64,..."})
+    image_url: dict[str, str] | None = None
 
     # tool_use
     tool_use_id: str | None = None
@@ -82,6 +93,8 @@ class Message(BaseModel):
     tool_call_id: str | None = None
     # For assistant messages that contain tool calls (OpenAI native format)
     tool_calls: list[ToolCallRequest] | None = None
+    # Provider-specific cache control (e.g. Anthropic prompt caching)
+    cache_control: dict[str, str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +108,10 @@ class TokenUsage(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    # Prompt caching metrics (provider-specific)
+    cache_creation_input_tokens: int | None = None  # Anthropic: tokens written to cache
+    cache_read_input_tokens: int | None = None  # Anthropic: tokens read from cache
+    cached_tokens: int | None = None  # OpenAI: cached prompt tokens
 
     @property
     def cost_estimate(self) -> float:
@@ -218,7 +235,8 @@ class LLMRequest(BaseModel):
     """Request to an LLM."""
 
     messages: list[Message]
-    response_schema: dict[str, Any] | None = None  # JSON Schema for structured output
+    response_schema: dict[str, Any] | None = None  # JSON Schema for structured output (json_object mode)
+    response_format: dict[str, Any] | None = None  # JSON Schema for structured output (json_schema mode)
     tools: list[dict[str, Any]] | None = None  # Tool definitions
     budget: Budget | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

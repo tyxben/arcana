@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+ASK_USER_TOOL_NAME = "ask_user"
+
 
 class SideEffect(str, Enum):
     """Type of side effect a tool may have."""

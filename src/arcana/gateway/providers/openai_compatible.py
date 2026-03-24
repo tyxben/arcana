@@ -48,6 +48,66 @@ except ImportError:
     RateLimitError = None  # type: ignore
 
 
+# ---------------------------------------------------------------------------
+# Content block conversion helpers
+# ---------------------------------------------------------------------------
+
+
+def _convert_content_blocks_openai(blocks: list[Any]) -> list[dict[str, Any]]:
+    """Convert Arcana ContentBlock dicts/objects to OpenAI content block format.
+
+    Handles both serialized dicts (from ``model_dump()``) and live
+    ``ContentBlock`` instances.
+
+    OpenAI content blocks look like:
+
+    * ``{"type": "text", "text": "..."}``
+    * ``{"type": "image_url", "image_url": {"url": "..."}}``
+    """
+    result: list[dict[str, Any]] = []
+    for block in blocks:
+        if isinstance(block, dict):
+            btype = block.get("type", "text")
+        else:
+            btype = getattr(block, "type", "text")
+
+        if btype == "text":
+            text = block.get("text", "") if isinstance(block, dict) else (getattr(block, "text", "") or "")
+            result.append({"type": "text", "text": text})
+
+        elif btype == "image_url":
+            if isinstance(block, dict):
+                image_url = block.get("image_url") or {}
+            else:
+                image_url = getattr(block, "image_url", None) or {}
+            result.append({"type": "image_url", "image_url": image_url})
+
+        elif btype == "image":
+            # Anthropic-native image -> convert to OpenAI image_url format
+            if isinstance(block, dict):
+                source = block.get("source") or {}
+            else:
+                source = getattr(block, "source", None)
+                source = source.model_dump() if hasattr(source, "model_dump") else (source or {})
+
+            source_type = source.get("type", "base64") if isinstance(source, dict) else "base64"
+            if source_type == "base64":
+                media_type = (source.get("media_type") or "image/png") if isinstance(source, dict) else "image/png"
+                data = (source.get("data") or "") if isinstance(source, dict) else ""
+                url = f"data:{media_type};base64,{data}"
+            else:
+                url = (source.get("url") or "") if isinstance(source, dict) else ""
+            result.append({"type": "image_url", "image_url": {"url": url}})
+
+        else:
+            # Fallback: pass as text with whatever text is available
+            text = block.get("text", "") if isinstance(block, dict) else (getattr(block, "text", "") or "")
+            if text:
+                result.append({"type": "text", "text": text})
+
+    return result
+
+
 class OpenAICompatibleProvider(ModelGateway):
     """
     Universal provider for OpenAI-compatible APIs.
@@ -146,9 +206,16 @@ class OpenAICompatibleProvider(ModelGateway):
             if hasattr(role, "value"):  # Enum
                 role = role.value
 
+            # Convert content -- may be str, list[ContentBlock dict], or None
+            raw_content = msg.get("content", "")
+            if isinstance(raw_content, list):
+                content: Any = _convert_content_blocks_openai(raw_content)
+            else:
+                content = raw_content
+
             converted: dict[str, Any] = {
                 "role": role,
-                "content": msg.get("content", ""),
+                "content": content,
             }
 
             # Tool messages require tool_call_id (OpenAI format)
@@ -216,11 +283,19 @@ class OpenAICompatibleProvider(ModelGateway):
                 params["seed"] = config.seed
 
             # Add response format if schema specified
-            if request.response_schema:
+            if request.response_format:
+                params["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "response",
+                        "schema": request.response_format,
+                    },
+                }
+            elif request.response_schema:
                 params["response_format"] = {"type": "json_object"}
 
-            # Add tools if specified
-            if request.tools:
+            # Add tools if specified (mutually exclusive with response_format)
+            if request.tools and not request.response_format:
                 params["tools"] = request.tools
 
             # Add any extra params from config
@@ -299,11 +374,19 @@ class OpenAICompatibleProvider(ModelGateway):
                 for tc in choice.message.tool_calls
             ]
 
-        # Get usage
+        # Get usage -- including OpenAI cached prompt tokens when available
+        cached_tokens: int | None = None
+        if response.usage:
+            # OpenAI returns cached_tokens inside prompt_tokens_details
+            details = getattr(response.usage, "prompt_tokens_details", None)
+            if details:
+                cached_tokens = getattr(details, "cached_tokens", None)
+
         usage = TokenUsage(
             prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
             completion_tokens=response.usage.completion_tokens if response.usage else 0,
             total_tokens=response.usage.total_tokens if response.usage else 0,
+            cached_tokens=cached_tokens,
         )
 
         # Create response
@@ -362,9 +445,17 @@ class OpenAICompatibleProvider(ModelGateway):
 
         if config.seed is not None:
             params["seed"] = config.seed
-        if request.response_schema:
+        if request.response_format:
+            params["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": request.response_format,
+                },
+            }
+        elif request.response_schema:
             params["response_format"] = {"type": "json_object"}
-        if request.tools:
+        if request.tools and not request.response_format:
             params["tools"] = request.tools
         if config.extra_params:
             params.update(config.extra_params)

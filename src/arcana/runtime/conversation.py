@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -26,7 +26,7 @@ from arcana.contracts.llm import (
 )
 from arcana.contracts.state import AgentState, ExecutionStatus
 from arcana.contracts.streaming import StreamEvent, StreamEventType
-from arcana.contracts.tool import ToolCall, ToolResult
+from arcana.contracts.tool import ASK_USER_TOOL_NAME, ToolCall, ToolResult
 from arcana.contracts.turn import TurnAssessment, TurnFacts
 
 if TYPE_CHECKING:
@@ -79,6 +79,9 @@ class ConversationAgent:
         checkpoint_interval: int = 5,
         checkpoint_on_error: bool = True,
         checkpoint_budget_thresholds: list[float] | None = None,
+        response_format_schema: dict | None = None,
+        initial_user_content: list | None = None,
+        input_handler: Callable | None = None,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -88,6 +91,19 @@ class ConversationAgent:
         self.intent_classifier = intent_classifier
         self.max_turns = max_turns
         self.system_prompt = system_prompt
+
+        # Built-in ask_user tool handler
+        from arcana.runtime.ask_user import AskUserHandler
+
+        self._ask_user_handler = AskUserHandler(input_handler)
+
+        # Structured output schema (JSON Schema dict from Pydantic model)
+        self._response_format_schema = response_format_schema
+
+        # Multimodal: pre-built content blocks for the initial user message
+        # (e.g. text + images). When set, _build_initial_messages uses this
+        # instead of the plain goal string.
+        self._initial_user_content: list | None = initial_user_content
 
         # Checkpoint configuration
         self._state_manager = state_manager
@@ -111,6 +127,7 @@ class ConversationAgent:
             identity=system_prompt,
             token_budget=TokenBudget(total_window=context_window),
             goal=None,  # Set when run starts
+            gateway=gateway,  # Pass gateway for LLM-based context compression
         )
         self._memory_context = memory_context
 
@@ -156,10 +173,12 @@ class ConversationAgent:
         self._context_builder.set_goal(goal)
 
         # Tool selection: lazy (subset) or eager (all)
+        # ask_user is always injected regardless of path.
         if self._lazy_registry:
             self._lazy_registry.reset()
             self._lazy_registry.select_initial_tools(goal)
-            active_tools = self._lazy_registry.to_openai_tools() or None
+            active_tools = self._lazy_registry.to_openai_tools() or []
+            active_tools.append(self._ask_user_tool_schema())
         else:
             active_tools = self._get_current_tools()
         tool_token_cost = self._estimate_tool_tokens(active_tools)
@@ -183,7 +202,8 @@ class ConversationAgent:
             # 2. Context rebuild — delegate to WorkingSetBuilder
             #    Always include tools. Token optimization for tools belongs in
             #    LazyToolRegistry (dynamic tool selection), not here.
-            curated = self._context_builder.build_conversation_context(
+            #    Use async version for LLM-based compression when available.
+            curated = await self._context_builder.abuild_conversation_context(
                 messages,
                 memory_context=self._memory_context if _turn == 0 else None,
                 tool_token_estimate=tool_token_cost,
@@ -218,7 +238,8 @@ class ConversationAgent:
             # 3. LLM call (streaming when gateway supports it)
             request = LLMRequest(
                 messages=curated,
-                tools=active_tools,
+                tools=active_tools if not self._response_format_schema else None,
+                response_format=self._response_format_schema,
             )
             config = self._resolve_model_config()
 
@@ -318,14 +339,24 @@ class ConversationAgent:
             # 7a-10a. Tool calls
             if facts.tool_calls:
                 # Expand lazy registry for any tools the LLM requested
+                # (skip ask_user -- it's a built-in, not in the registry)
                 if self._lazy_registry:
                     for tc in facts.tool_calls:
-                        self._lazy_registry.get_tool_on_demand(tc.name)
+                        if tc.name != ASK_USER_TOOL_NAME:
+                            self._lazy_registry.get_tool_on_demand(tc.name)
                     # Refresh active tools and token cost for next turn
-                    active_tools = self._lazy_registry.to_openai_tools() or None
+                    active_tools = self._lazy_registry.to_openai_tools() or []
+                    active_tools.append(self._ask_user_tool_schema())
                     tool_token_cost = self._estimate_tool_tokens(active_tools)
 
-                results = await self._execute_tools(facts.tool_calls)
+                results, ask_user_events = await self._execute_tools(
+                    facts.tool_calls, run_id=run_id,
+                )
+
+                # Yield INPUT_NEEDED events from ask_user calls
+                for ev in ask_user_events:
+                    yield ev
+
                 messages = self._add_tool_messages(messages, facts, results)
 
                 for result in results:
@@ -508,6 +539,40 @@ class ConversationAgent:
             assessment.answer = text
             assessment.completion_reason = "natural_stop"
             assessment.confidence = 0.85
+
+            # Thinking-informed confidence adjustment
+            if facts.thinking:
+                thinking_lower = facts.thinking.lower()
+
+                # Uncertainty signals → lower confidence
+                uncertainty_patterns = [
+                    "not sure", "uncertain", "might be wrong", "i'm guessing",
+                    "hard to say", "unclear", "don't know", "not confident",
+                    "不确定", "可能不对", "不太确定",
+                ]
+                if any(p in thinking_lower for p in uncertainty_patterns):
+                    assessment.confidence *= 0.6
+
+                # Verification intent → should NOT mark as complete yet
+                verify_patterns = [
+                    "need to verify", "should check", "let me confirm",
+                    "i should validate", "need to double-check",
+                    "需要验证", "应该确认",
+                ]
+                if any(p in thinking_lower for p in verify_patterns):
+                    assessment.completed = False
+                    assessment.completion_reason = "thinking_wants_verification"
+                    return assessment
+
+                # Incomplete information signals
+                incomplete_patterns = [
+                    "need more information", "missing data", "not enough context",
+                    "i don't have", "would need to know",
+                    "信息不足", "需要更多",
+                ]
+                if any(p in thinking_lower for p in incomplete_patterns):
+                    assessment.confidence *= 0.5
+
             return assessment
 
         # Rule 4: finish_reason=length → LLM was cut off, not done
@@ -521,35 +586,78 @@ class ConversationAgent:
     async def _execute_tools(
         self,
         tool_calls: list[ToolCallRequest],
-    ) -> list[ToolResult]:
-        """Execute tool calls via ToolGateway."""
-        if not self.tool_gateway:
-            # No tool gateway -- return synthetic errors
-            return [
-                ToolResult(
-                    tool_call_id=tc.id,
-                    name=tc.name,
-                    success=False,
-                    output=(
-                        f"Tool '{tc.name}' cannot be executed: no tools are registered. "
-                        f"Register tools with: Runtime(tools=[your_tool_function]) "
-                        f"or @arcana.tool decorator."
-                    ),
-                )
-                for tc in tool_calls
-            ]
+        run_id: str = "",
+    ) -> tuple[list[ToolResult], list[StreamEvent]]:
+        """Execute tool calls via ToolGateway, intercepting ask_user.
 
-        gateway_calls: list[ToolCall] = []
+        Returns a tuple of (results, extra_events) where extra_events
+        contains any INPUT_NEEDED events that should be yielded.
+        """
+        results: list[ToolResult] = []
+        extra_events: list[StreamEvent] = []
+
+        # Separate ask_user calls from gateway calls
+        ask_user_calls: list[ToolCallRequest] = []
+        gateway_tool_calls: list[ToolCallRequest] = []
+
         for tc in tool_calls:
+            if tc.name == ASK_USER_TOOL_NAME:
+                ask_user_calls.append(tc)
+            else:
+                gateway_tool_calls.append(tc)
+
+        # Handle ask_user calls directly (bypass ToolGateway)
+        for tc in ask_user_calls:
             try:
                 args = json.loads(tc.arguments) if tc.arguments else {}
             except json.JSONDecodeError:
-                args = {"_raw": tc.arguments}
-            gateway_calls.append(
-                ToolCall(id=tc.id, name=tc.name, arguments=args)
-            )
+                args = {}
+            question = args.get("question", "")
 
-        return await self.tool_gateway.call_many(gateway_calls)
+            # Emit INPUT_NEEDED event before awaiting
+            extra_events.append(StreamEvent(
+                event_type=StreamEventType.INPUT_NEEDED,
+                run_id=run_id,
+                content=question,
+            ))
+
+            answer = await self._ask_user_handler.handle(question)
+            results.append(ToolResult(
+                tool_call_id=tc.id,
+                name=ASK_USER_TOOL_NAME,
+                success=True,
+                output=answer,
+            ))
+
+        # Handle regular tool calls via ToolGateway
+        if gateway_tool_calls:
+            if not self.tool_gateway:
+                # No tool gateway -- return synthetic errors for non-ask_user tools
+                for tc in gateway_tool_calls:
+                    results.append(ToolResult(
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                        success=False,
+                        output=(
+                            f"Tool '{tc.name}' cannot be executed: no tools are registered. "
+                            f"Register tools with: Runtime(tools=[your_tool_function]) "
+                            f"or @arcana.tool decorator."
+                        ),
+                    ))
+            else:
+                gw_calls: list[ToolCall] = []
+                for tc in gateway_tool_calls:
+                    try:
+                        args = json.loads(tc.arguments) if tc.arguments else {}
+                    except json.JSONDecodeError:
+                        args = {"_raw": tc.arguments}
+                    gw_calls.append(
+                        ToolCall(id=tc.id, name=tc.name, arguments=args)
+                    )
+                gw_results = await self.tool_gateway.call_many_concurrent(gw_calls)
+                results.extend(gw_results)
+
+        return results, extra_events
 
     @staticmethod
     def _add_tool_messages(
@@ -600,19 +708,49 @@ class ConversationAgent:
     # ------------------------------------------------------------------
 
     def _build_initial_messages(self, goal: str) -> list[Message]:
-        """Build the initial message list: system + user goal."""
+        """Build the initial message list: system + user goal.
+
+        When ``_initial_user_content`` is set (multimodal input), the user
+        message uses the pre-built content blocks instead of the plain
+        goal string.  This allows images and other content types to be
+        included in the first user message.
+        """
         msgs: list[Message] = []
         if self.system_prompt:
             msgs.append(Message(role=MessageRole.SYSTEM, content=self.system_prompt))
-        msgs.append(Message(role=MessageRole.USER, content=goal))
+        # Use multimodal content blocks when available, otherwise plain text
+        user_content: str | list = self._initial_user_content if self._initial_user_content else goal
+        msgs.append(Message(role=MessageRole.USER, content=user_content))
         return msgs
 
     def _get_current_tools(self) -> list[dict[str, object]] | None:
-        """Get tool schemas in OpenAI format from ToolGateway."""
-        if not self.tool_gateway:
-            return None
-        tool_defs = self.tool_gateway.registry.to_openai_tools()
+        """Get tool schemas in OpenAI format from ToolGateway.
+
+        Always includes the built-in ask_user tool, even when no
+        other tools are registered.
+        """
+        tool_defs: list[dict[str, object]] = []
+        if self.tool_gateway:
+            tool_defs = self.tool_gateway.registry.to_openai_tools()
+
+        # Always inject ask_user
+        tool_defs.append(self._ask_user_tool_schema())
         return tool_defs if tool_defs else None
+
+    @staticmethod
+    def _ask_user_tool_schema() -> dict[str, object]:
+        """Return the ask_user tool definition in OpenAI function calling format."""
+        from arcana.runtime.ask_user import ASK_USER_SPEC
+        from arcana.tool_gateway.formatter import format_tool_for_llm
+
+        return {
+            "type": "function",
+            "function": {
+                "name": ASK_USER_SPEC.name,
+                "description": format_tool_for_llm(ASK_USER_SPEC),
+                "parameters": ASK_USER_SPEC.input_schema,
+            },
+        }
 
     @staticmethod
     def _estimate_tool_tokens(tools: list[dict[str, object]] | None) -> int:
@@ -776,7 +914,8 @@ class ConversationAgent:
         if self._lazy_registry:
             self._lazy_registry.reset()
             self._lazy_registry.select_initial_tools(goal)
-            active_tools = self._lazy_registry.to_openai_tools() or None
+            active_tools = self._lazy_registry.to_openai_tools() or []
+            active_tools.append(self._ask_user_tool_schema())
         else:
             active_tools = self._get_current_tools()
 
@@ -792,7 +931,11 @@ class ConversationAgent:
                 turn=saved_state.current_step + _turn,
             )
 
-            request = LLMRequest(messages=curated, tools=active_tools)
+            request = LLMRequest(
+                messages=curated,
+                tools=active_tools if not self._response_format_schema else None,
+                response_format=self._response_format_schema,
+            )
             config = self._resolve_model_config()
 
             response = await self.gateway.generate(request, config)
@@ -804,7 +947,7 @@ class ConversationAgent:
 
             # Handle tool calls
             if facts.tool_calls:
-                results = await self._execute_tools(facts.tool_calls)
+                results, _resume_events = await self._execute_tools(facts.tool_calls)
                 for tc_req in facts.tool_calls:
                     messages.append(Message(
                         role=MessageRole.ASSISTANT,

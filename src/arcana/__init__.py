@@ -1,6 +1,6 @@
 """Arcana Agent Platform - A controllable, reproducible, and evaluable Agent Platform."""
 
-__version__ = "0.1.0b5"
+__version__ = "0.1.0b7"
 
 from arcana.contracts.mcp import MCPServerConfig as MCPServerConfig
 from arcana.contracts.streaming import StreamEvent as StreamEvent
@@ -9,6 +9,8 @@ from arcana.graph import START as START
 from arcana.graph import StateGraph as StateGraph
 from arcana.runtime_core import AgentConfig as AgentConfig
 from arcana.runtime_core import Budget as Budget
+from arcana.runtime_core import ChatResponse as ChatResponse
+from arcana.runtime_core import ChatSession as ChatSession
 from arcana.runtime_core import RunResult as RuntimeResult  # noqa: F401
 from arcana.runtime_core import Runtime as Runtime
 from arcana.runtime_core import Session as Session

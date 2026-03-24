@@ -99,7 +99,23 @@ def to_anthropic_request(request: LLMRequest, config: ModelConfig) -> dict[str, 
     }
 
     if system_text:
-        params["system"] = system_text
+        # Prompt caching: convert system to content block list with cache_control
+        # on the last block. This tells Anthropic to cache the system prompt prefix,
+        # saving ~90% of input tokens on subsequent turns.
+        prompt_caching = (
+            request.anthropic
+            and request.anthropic.prompt_caching is not False
+        ) or (request.anthropic is None)
+        if prompt_caching:
+            params["system"] = [
+                {
+                    "type": "text",
+                    "text": system_text,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        else:
+            params["system"] = system_text
 
     # Temperature -- but NOT when extended thinking is enabled
     thinking_enabled = (
@@ -127,7 +143,16 @@ def to_anthropic_request(request: LLMRequest, config: ModelConfig) -> dict[str, 
 
     # Tools
     if request.tools:
-        params["tools"] = [_convert_tool_def(t) for t in request.tools]
+        converted_tools = [_convert_tool_def(t) for t in request.tools]
+        # Prompt caching: mark the last tool definition with cache_control
+        # so that the entire tool schema prefix is cached across turns.
+        prompt_caching = (
+            request.anthropic
+            and request.anthropic.prompt_caching is not False
+        ) or (request.anthropic is None)
+        if prompt_caching and converted_tools:
+            converted_tools[-1]["cache_control"] = {"type": "ephemeral"}
+        params["tools"] = converted_tools
 
     # Seed
     if config.seed is not None:
@@ -173,11 +198,16 @@ def from_anthropic_response(raw: Any) -> LLMResponse:
                 )
             )
 
-    # Usage
+    # Usage -- including prompt caching metrics when available
+    cache_creation = getattr(raw.usage, "cache_creation_input_tokens", None)
+    cache_read = getattr(raw.usage, "cache_read_input_tokens", None)
+
     usage = TokenUsage(
         prompt_tokens=raw.usage.input_tokens,
         completion_tokens=raw.usage.output_tokens,
         total_tokens=raw.usage.input_tokens + raw.usage.output_tokens,
+        cache_creation_input_tokens=cache_creation if cache_creation else None,
+        cache_read_input_tokens=cache_read if cache_read else None,
     )
 
     # stop_reason mapping
@@ -192,6 +222,8 @@ def from_anthropic_response(raw: Any) -> LLMResponse:
     # Build response extensions
     anthropic_ext = AnthropicResponseExt(
         thinking_blocks=thinking_blocks if thinking_blocks else None,
+        cache_creation_input_tokens=cache_creation if cache_creation else None,
+        cache_read_input_tokens=cache_read if cache_read else None,
         stop_reason=raw.stop_reason,
     )
 
@@ -373,6 +405,37 @@ def _convert_content_block(block: Any) -> dict[str, Any]:
                 "source": {
                     "type": "url",
                     "url": source.url or "",
+                },
+            }
+        return {"type": "text", "text": "[image]"}
+
+    if block_type == "image_url":
+        # OpenAI-compatible image_url -> Anthropic image format
+        image_url = getattr(block, "image_url", None) or {}
+        url = image_url.get("url", "") if isinstance(image_url, dict) else ""
+        if url.startswith("data:"):
+            # Parse data URI: data:<mime>;base64,<data>
+            # Format: "data:image/png;base64,iVBOR..."
+            try:
+                header, data = url.split(",", 1)
+                mime = header.split(":")[1].split(";")[0]
+            except (ValueError, IndexError):
+                mime = "image/png"
+                data = ""
+            return {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mime,
+                    "data": data,
+                },
+            }
+        if url.startswith(("http://", "https://")):
+            return {
+                "type": "image",
+                "source": {
+                    "type": "url",
+                    "url": url,
                 },
             }
         return {"type": "text", "text": "[image]"}

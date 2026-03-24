@@ -30,6 +30,8 @@ class StreamEventType(str, Enum):
     CHECKPOINT = "checkpoint"
     # Errors
     ERROR = "error"
+    # User interaction
+    INPUT_NEEDED = "input_needed"
     # Graph-specific (for compatibility)
     NODE_START = "node_start"
     NODE_COMPLETE = "node_complete"
