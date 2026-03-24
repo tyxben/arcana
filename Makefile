@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test test-cov clean all
+.PHONY: install lint format typecheck test test-cov clean all release
 
 install:
 	pip install -e ".[dev]"
@@ -26,3 +26,7 @@ clean:
 	rm -rf build/ dist/ *.egg-info
 
 all: lint typecheck test
+
+release:
+	@test -n "$(V)" || (echo "Usage: make release V=0.1.0b8" && exit 1)
+	./scripts/release.sh $(V)
