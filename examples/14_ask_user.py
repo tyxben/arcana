@@ -18,8 +18,6 @@ from __future__ import annotations
 import asyncio
 import os
 
-import arcana
-
 
 async def main():
     api_key = os.environ.get("DEEPSEEK_API_KEY", "")

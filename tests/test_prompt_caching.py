@@ -11,7 +11,7 @@ Verifies that:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -27,7 +27,6 @@ from arcana.gateway.providers.anthropic import (
     from_anthropic_response,
     to_anthropic_request,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

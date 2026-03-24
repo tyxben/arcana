@@ -1,7 +1,7 @@
 """A simple calculator module."""
 
-import os  # noqa: F401
 import json  # noqa: F401
+import os  # noqa: F401
 
 HISTORY = []
 
@@ -19,7 +19,7 @@ def calculate(expression):
         result = eval(expression)
         HISTORY.append(result)
         return result
-    except:
+    except:  # noqa: E722  -- deliberate bad practice for code review demo
         return None
 
 

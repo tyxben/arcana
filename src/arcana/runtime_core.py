@@ -987,10 +987,8 @@ class ChatSession:
 
         from arcana.contracts.llm import (
             LLMRequest,
-            LLMResponse,
             Message,
             MessageRole,
-            ToolCallRequest,
         )
         from arcana.contracts.tool import ToolCall
 
