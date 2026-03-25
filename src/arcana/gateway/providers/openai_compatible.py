@@ -88,7 +88,7 @@ def _convert_content_blocks_openai(blocks: list[Any]) -> list[dict[str, Any]]:
                 source = block.get("source") or {}
             else:
                 source = getattr(block, "source", None)
-                source = source.model_dump() if hasattr(source, "model_dump") else (source or {})
+                source = source.model_dump() if source is not None and hasattr(source, "model_dump") else (source or {})
 
             source_type = source.get("type", "base64") if isinstance(source, dict) else "base64"
             if source_type == "base64":

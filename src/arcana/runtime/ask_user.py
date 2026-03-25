@@ -61,5 +61,5 @@ class AskUserHandler:
             return _FALLBACK_MESSAGE
         result = self._handler(question)
         if asyncio.iscoroutine(result):
-            return await result
+            return str(await result)
         return str(result)

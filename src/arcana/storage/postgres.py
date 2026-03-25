@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from arcana.storage.base import StorageBackend, VectorSearchResult, VectorStore
 
 if TYPE_CHECKING:
-    import asyncpg  # type: ignore[import-not-found]
+    import asyncpg  # type: ignore[import-untyped]
 
 
 def _require_asyncpg() -> None:

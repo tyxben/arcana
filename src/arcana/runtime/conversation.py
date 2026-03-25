@@ -11,11 +11,12 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from arcana.contracts.intent import IntentType
 from arcana.contracts.llm import (
+    ContentBlock,
     LLMRequest,
     LLMResponse,
     Message,
@@ -79,9 +80,9 @@ class ConversationAgent:
         checkpoint_interval: int = 5,
         checkpoint_on_error: bool = True,
         checkpoint_budget_thresholds: list[float] | None = None,
-        response_format_schema: dict | None = None,
-        initial_user_content: list | None = None,
-        input_handler: Callable | None = None,
+        response_format_schema: dict[str, Any] | None = None,
+        initial_user_content: list[ContentBlock] | None = None,
+        input_handler: Callable[..., Any] | None = None,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -103,7 +104,7 @@ class ConversationAgent:
         # Multimodal: pre-built content blocks for the initial user message
         # (e.g. text + images). When set, _build_initial_messages uses this
         # instead of the plain goal string.
-        self._initial_user_content: list | None = initial_user_content
+        self._initial_user_content: list[ContentBlock] | None = initial_user_content
 
         # Checkpoint configuration
         self._state_manager = state_manager
@@ -174,6 +175,7 @@ class ConversationAgent:
 
         # Tool selection: lazy (subset) or eager (all)
         # ask_user is always injected regardless of path.
+        active_tools: list[dict[str, Any]] | None
         if self._lazy_registry:
             self._lazy_registry.reset()
             self._lazy_registry.select_initial_tools(goal)
@@ -719,17 +721,17 @@ class ConversationAgent:
         if self.system_prompt:
             msgs.append(Message(role=MessageRole.SYSTEM, content=self.system_prompt))
         # Use multimodal content blocks when available, otherwise plain text
-        user_content: str | list = self._initial_user_content if self._initial_user_content else goal
+        user_content: str | list[ContentBlock] = self._initial_user_content if self._initial_user_content else goal
         msgs.append(Message(role=MessageRole.USER, content=user_content))
         return msgs
 
-    def _get_current_tools(self) -> list[dict[str, object]] | None:
+    def _get_current_tools(self) -> list[dict[str, Any]] | None:
         """Get tool schemas in OpenAI format from ToolGateway.
 
         Always includes the built-in ask_user tool, even when no
         other tools are registered.
         """
-        tool_defs: list[dict[str, object]] = []
+        tool_defs: list[dict[str, Any]] = []
         if self.tool_gateway:
             tool_defs = self.tool_gateway.registry.to_openai_tools()
 
@@ -911,6 +913,7 @@ class ConversationAgent:
         state = saved_state.model_copy(update={"status": ExecutionStatus.RUNNING})
 
         # Re-setup tools
+        active_tools: list[dict[str, Any]] | None
         if self._lazy_registry:
             self._lazy_registry.reset()
             self._lazy_registry.select_initial_tools(goal)
