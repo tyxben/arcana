@@ -1032,6 +1032,55 @@ class TestRuntimeBudgetQuery:
         assert rt.budget_remaining_usd == pytest.approx(9.55)
 
 
+class TestExtendedProviderConfig:
+    """Tests for extended provider config format (dict values)."""
+
+    def test_extended_provider_config_dict(self):
+        """Verify dict config sets api_key and overrides default_model."""
+        rt = Runtime(
+            providers={"deepseek": {"api_key": "sk-xxx", "model": "deepseek-reasoner"}},
+            config=RuntimeConfig(default_provider="deepseek"),
+        )
+        assert "deepseek" in rt.providers
+        # Verify the model was overridden on the provider instance
+        provider = rt._gateway.get("deepseek")
+        assert provider.default_model == "deepseek-reasoner"
+
+    def test_extended_provider_config_string(self):
+        """Verify string config still works (backward compat)."""
+        rt = Runtime(
+            providers={"deepseek": "sk-xxx"},
+            config=RuntimeConfig(default_provider="deepseek"),
+        )
+        assert "deepseek" in rt.providers
+        # Default model should be the factory default
+        provider = rt._gateway.get("deepseek")
+        assert provider.default_model == "deepseek-chat"
+
+    def test_extended_provider_config_dict_no_model(self):
+        """Dict config without model key keeps the factory default."""
+        rt = Runtime(
+            providers={"deepseek": {"api_key": "sk-xxx"}},
+            config=RuntimeConfig(default_provider="deepseek"),
+        )
+        provider = rt._gateway.get("deepseek")
+        assert provider.default_model == "deepseek-chat"
+
+    def test_extended_provider_config_mixed(self):
+        """Mix of string and dict configs in the same providers dict."""
+        rt = Runtime(
+            providers={
+                "deepseek": {"api_key": "sk-xxx", "model": "deepseek-reasoner"},
+                "openai": "sk-yyy",
+            },
+            config=RuntimeConfig(default_provider="deepseek"),
+        )
+        ds_provider = rt._gateway.get("deepseek")
+        assert ds_provider.default_model == "deepseek-reasoner"
+        oai_provider = rt._gateway.get("openai")
+        assert oai_provider.default_model == "gpt-4o-mini"
+
+
 class TestRuntimeFallbackOrder:
     def test_single_provider(self):
         rt = Runtime(

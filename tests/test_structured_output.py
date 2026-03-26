@@ -714,3 +714,336 @@ class TestOnParseErrorCallback:
         assert "error" in received_args
         assert received_args["raw"] == malformed_json
         assert isinstance(received_args["error"], Exception)
+
+    @pytest.mark.asyncio
+    async def test_on_parse_error_receives_validation_error_not_provider_error(
+        self,
+    ) -> None:
+        """Callback receives ValidationError for schema mismatch, never ProviderError.
+
+        on_parse_error fires only on json.JSONDecodeError or
+        pydantic.ValidationError -- not on provider-level rejections.
+        """
+        from arcana.gateway.base import ProviderError
+
+        # Valid JSON but wrong types -> triggers pydantic.ValidationError
+        malformed_json = '{"name": "Alice", "age": "thirty"}'
+        received_error: Exception | None = None
+
+        def fixer(raw: str, error: Exception) -> None:
+            nonlocal received_error
+            received_error = error
+            return None
+
+        rt = self._build_runtime()
+        fake_state = _make_fake_state(malformed_json)
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=fake_state)
+            MockAgent.return_value = mock_agent_instance
+
+            await rt.run(
+                "extract person",
+                response_format=Person,
+                on_parse_error=fixer,
+            )
+
+        assert received_error is not None
+        assert isinstance(received_error, (json.JSONDecodeError, ValidationError))
+        assert not isinstance(received_error, ProviderError)
+
+    @pytest.mark.asyncio
+    async def test_on_parse_error_receives_json_decode_error(self) -> None:
+        """Callback receives JSONDecodeError for completely invalid JSON."""
+        from arcana.gateway.base import ProviderError
+
+        invalid_json = "this is not json at all"
+        received_error: Exception | None = None
+
+        def fixer(raw: str, error: Exception) -> None:
+            nonlocal received_error
+            received_error = error
+            return None
+
+        rt = self._build_runtime()
+        fake_state = _make_fake_state(invalid_json)
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=fake_state)
+            MockAgent.return_value = mock_agent_instance
+
+            await rt.run(
+                "extract person",
+                response_format=Person,
+                on_parse_error=fixer,
+            )
+
+        assert received_error is not None
+        assert isinstance(received_error, json.JSONDecodeError)
+        assert not isinstance(received_error, ProviderError)
+
+
+# =========================================================================
+# 11. Provider response_format auto-downgrade
+# =========================================================================
+
+
+class TestProviderResponseFormatDowngrade:
+    """Verify provider auto-downgrades json_schema to json_object."""
+
+    def test_deepseek_provider_downgrades_json_schema(self) -> None:
+        """DeepSeek provider should use json_object instead of json_schema."""
+        from arcana.gateway.providers.openai_compatible import (
+            create_deepseek_provider,
+        )
+
+        provider = create_deepseek_provider(api_key="sk-test")
+        assert provider._supports_json_schema is False
+
+        # Build params with response_format and verify downgrade
+        from arcana.contracts.llm import Message, MessageRole
+
+        schema = Person.model_json_schema()
+        request = LLMRequest(
+            messages=[
+                Message(role=MessageRole.SYSTEM, content="You are helpful."),
+                Message(role=MessageRole.USER, content="Extract person"),
+            ],
+            response_format=schema,
+        )
+        messages = provider._convert_messages(request.messages)
+        params: dict[str, Any] = {
+            "model": "deepseek-chat",
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        }
+        provider._apply_response_format(params, request)
+
+        # Should be json_object, not json_schema
+        assert params["response_format"]["type"] == "json_object"
+        assert "json_schema" not in params["response_format"]
+
+        # Schema should be injected into the system message
+        system_msg = params["messages"][0]
+        assert "You MUST respond with valid JSON" in system_msg["content"]
+        assert '"name"' in system_msg["content"]
+
+    def test_openai_provider_uses_json_schema(self) -> None:
+        """OpenAI provider should use json_schema directly."""
+        from arcana.gateway.providers.openai_compatible import (
+            OpenAICompatibleProvider,
+        )
+
+        provider = OpenAICompatibleProvider(
+            provider_name="openai",
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+            default_model="gpt-4o-mini",
+            supports_json_schema=True,
+        )
+        assert provider._supports_json_schema is True
+
+        from arcana.contracts.llm import Message, MessageRole
+
+        schema = Person.model_json_schema()
+        request = LLMRequest(
+            messages=[
+                Message(role=MessageRole.SYSTEM, content="You are helpful."),
+                Message(role=MessageRole.USER, content="Extract person"),
+            ],
+            response_format=schema,
+        )
+        messages = provider._convert_messages(request.messages)
+        params: dict[str, Any] = {
+            "model": "gpt-4o-mini",
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        }
+        provider._apply_response_format(params, request)
+
+        # Should be json_schema, not json_object
+        assert params["response_format"]["type"] == "json_schema"
+        assert "json_schema" in params["response_format"]
+        assert params["response_format"]["json_schema"]["name"] == "response"
+        assert params["response_format"]["json_schema"]["schema"] == schema
+
+        # System message should NOT have schema injected
+        system_msg = params["messages"][0]
+        assert "You MUST respond with valid JSON" not in system_msg["content"]
+
+    def test_ollama_provider_downgrades(self) -> None:
+        """Ollama provider should downgrade to json_object."""
+        from arcana.gateway.providers.openai_compatible import (
+            create_ollama_provider,
+        )
+
+        provider = create_ollama_provider()
+        assert provider._supports_json_schema is False
+
+    def test_kimi_provider_downgrades(self) -> None:
+        """Kimi provider should downgrade to json_object."""
+        from arcana.gateway.providers.openai_compatible import (
+            create_kimi_provider,
+        )
+
+        provider = create_kimi_provider(api_key="sk-test")
+        assert provider._supports_json_schema is False
+
+    def test_glm_provider_downgrades(self) -> None:
+        """GLM provider should downgrade to json_object."""
+        from arcana.gateway.providers.openai_compatible import (
+            create_glm_provider,
+        )
+
+        provider = create_glm_provider(api_key="sk-test")
+        assert provider._supports_json_schema is False
+
+    def test_minimax_provider_downgrades(self) -> None:
+        """MiniMax provider should downgrade to json_object."""
+        from arcana.gateway.providers.openai_compatible import (
+            create_minimax_provider,
+        )
+
+        provider = create_minimax_provider(api_key="sk-test")
+        assert provider._supports_json_schema is False
+
+    def test_gemini_provider_supports_json_schema(self) -> None:
+        """Gemini provider should support json_schema (default True)."""
+        from arcana.gateway.providers.openai_compatible import (
+            create_gemini_provider,
+        )
+
+        provider = create_gemini_provider(api_key="AIza-test")
+        assert provider._supports_json_schema is True
+
+    def test_downgrade_without_system_message(self) -> None:
+        """When no system message exists, json_object is still used."""
+        from arcana.gateway.providers.openai_compatible import (
+            OpenAICompatibleProvider,
+        )
+
+        provider = OpenAICompatibleProvider(
+            provider_name="test",
+            api_key="sk-test",
+            base_url="http://localhost",
+            supports_json_schema=False,
+        )
+
+        from arcana.contracts.llm import Message, MessageRole
+
+        schema = Person.model_json_schema()
+        request = LLMRequest(
+            messages=[
+                Message(role=MessageRole.USER, content="Extract person"),
+            ],
+            response_format=schema,
+        )
+        messages = provider._convert_messages(request.messages)
+        params: dict[str, Any] = {
+            "model": "test-model",
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        }
+        provider._apply_response_format(params, request)
+
+        # json_object should still be set
+        assert params["response_format"]["type"] == "json_object"
+        # No system message to inject into -- user message unchanged
+        assert "You MUST respond with valid JSON" not in params["messages"][0]["content"]
+
+
+# =========================================================================
+# 12. Structured output skips streaming
+# =========================================================================
+
+
+class TestStructuredOutputSkipsStreaming:
+    """Verify that when response_format is set, generate() is used."""
+
+    @pytest.mark.asyncio
+    async def test_structured_output_skips_streaming(self) -> None:
+        """When response_format is set, ConversationAgent should use
+        gateway.generate() instead of gateway.stream().
+        """
+        from arcana.contracts.llm import LLMResponse, ModelConfig, TokenUsage
+        from arcana.runtime.conversation import ConversationAgent
+
+        # Build mock gateway
+        mock_gateway = MagicMock()
+        mock_gateway.generate = AsyncMock(return_value=LLMResponse(
+            content='{"name": "Alice", "age": 30}',
+            tool_calls=None,
+            usage=TokenUsage(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+            model="test-model",
+            finish_reason="stop",
+        ))
+        mock_gateway.stream = AsyncMock(side_effect=AssertionError(
+            "stream() should NOT be called when response_format is set"
+        ))
+
+        schema = Person.model_json_schema()
+        agent = ConversationAgent(
+            gateway=mock_gateway,
+            model_config=ModelConfig(model_id="test-model", provider="test"),
+            max_turns=1,
+            response_format_schema=schema,
+        )
+
+        state = await agent.run("Extract person info from: Alice is 30")
+
+        # generate() should have been called
+        mock_gateway.generate.assert_called_once()
+        # stream() should NOT have been called
+        mock_gateway.stream.assert_not_called()
+        # Agent should still complete successfully
+        assert state.status.value == "completed"
+
+    @pytest.mark.asyncio
+    async def test_without_response_format_uses_streaming(self) -> None:
+        """Without response_format, ConversationAgent should try streaming."""
+        from arcana.contracts.llm import ModelConfig, StreamChunk, TokenUsage
+        from arcana.runtime.conversation import ConversationAgent
+
+        # Build mock gateway that streams successfully
+        mock_gateway = MagicMock()
+
+        async def mock_stream(*args: Any, **kwargs: Any):
+            yield StreamChunk(type="text_delta", text="Hello world")
+            yield StreamChunk(
+                type="usage",
+                usage=TokenUsage(prompt_tokens=5, completion_tokens=10, total_tokens=15),
+            )
+            yield StreamChunk(
+                type="done",
+                metadata={"finish_reason": "stop", "model": "test-model"},
+            )
+
+        mock_gateway.stream = mock_stream
+        mock_gateway.generate = AsyncMock(side_effect=AssertionError(
+            "generate() should NOT be called when streaming works"
+        ))
+
+        agent = ConversationAgent(
+            gateway=mock_gateway,
+            model_config=ModelConfig(model_id="test-model", provider="test"),
+            max_turns=1,
+        )
+
+        state = await agent.run("Say hello")
+
+        # stream() was used (generate should not have been called)
+        mock_gateway.generate.assert_not_called()
+        assert state.status.value == "completed"

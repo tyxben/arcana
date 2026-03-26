@@ -151,6 +151,7 @@ class OpenAICompatibleProvider(ModelGateway):
         supported_models: list[str] | None = None,
         trace_writer: TraceWriter | None = None,
         extra_headers: dict[str, str] | None = None,
+        supports_json_schema: bool = True,
     ):
         """
         Initialize the OpenAI-compatible provider.
@@ -163,6 +164,9 @@ class OpenAICompatibleProvider(ModelGateway):
             supported_models: List of supported model IDs (for documentation)
             trace_writer: Optional trace writer for logging
             extra_headers: Optional extra headers to include in requests
+            supports_json_schema: Whether the provider supports json_schema
+                response format. When False, falls back to json_object mode
+                with schema instructions injected into the system prompt.
         """
         if not OPENAI_AVAILABLE:
             raise ImportError(
@@ -173,6 +177,7 @@ class OpenAICompatibleProvider(ModelGateway):
         self._provider_name = provider_name
         self._default_model = default_model
         self._supported_models = supported_models or []
+        self._supports_json_schema = supports_json_schema
         self.trace_writer = trace_writer
 
         # Create AsyncOpenAI client
@@ -253,6 +258,44 @@ class OpenAICompatibleProvider(ModelGateway):
             result.append(converted)
         return result
 
+    def _apply_response_format(
+        self,
+        params: dict[str, Any],
+        request: LLMRequest,
+    ) -> None:
+        """Apply response_format to API params, auto-downgrading if needed.
+
+        When ``_supports_json_schema`` is True (OpenAI, Gemini), send the full
+        ``json_schema`` response format.  When False (DeepSeek, Ollama, Kimi,
+        GLM, MiniMax), fall back to ``json_object`` and inject the schema
+        instruction into the system message so the model still knows the
+        expected shape.
+        """
+        if request.response_format:
+            if self._supports_json_schema:
+                params["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "response",
+                        "schema": request.response_format,
+                    },
+                }
+            else:
+                import json as _json
+
+                params["response_format"] = {"type": "json_object"}
+                schema_instruction = (
+                    "\n\nYou MUST respond with valid JSON matching this exact schema:\n"
+                    f"```json\n{_json.dumps(request.response_format, indent=2)}\n```"
+                )
+                # Messages are already serialized to dicts by _convert_messages
+                for msg in params.get("messages", []):
+                    if isinstance(msg, dict) and msg.get("role") == "system":
+                        msg["content"] = msg["content"] + schema_instruction
+                        break
+        elif request.response_schema:
+            params["response_format"] = {"type": "json_object"}
+
     async def generate(
         self,
         request: LLMRequest,
@@ -283,16 +326,7 @@ class OpenAICompatibleProvider(ModelGateway):
                 params["seed"] = config.seed
 
             # Add response format if schema specified
-            if request.response_format:
-                params["response_format"] = {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "response",
-                        "schema": request.response_format,
-                    },
-                }
-            elif request.response_schema:
-                params["response_format"] = {"type": "json_object"}
+            self._apply_response_format(params, request)
 
             # Add tools if specified
             if request.tools:
@@ -445,16 +479,7 @@ class OpenAICompatibleProvider(ModelGateway):
 
         if config.seed is not None:
             params["seed"] = config.seed
-        if request.response_format:
-            params["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "schema": request.response_format,
-                },
-            }
-        elif request.response_schema:
-            params["response_format"] = {"type": "json_object"}
+        self._apply_response_format(params, request)
         if request.tools:
             params["tools"] = request.tools
         if config.extra_params:
@@ -550,6 +575,7 @@ def create_deepseek_provider(
         default_model="deepseek-chat",
         supported_models=["deepseek-chat", "deepseek-coder", "deepseek-reasoner"],
         trace_writer=trace_writer,
+        supports_json_schema=False,
     )
 
 
@@ -586,6 +612,7 @@ def create_ollama_provider(
         base_url=base_url,
         default_model=default_model,
         trace_writer=trace_writer,
+        supports_json_schema=False,
     )
 
 
@@ -606,6 +633,7 @@ def create_kimi_provider(
         default_model="moonshot-v1-8k",
         supported_models=["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
         trace_writer=trace_writer,
+        supports_json_schema=False,
     )
 
 
@@ -621,6 +649,7 @@ def create_glm_provider(
         default_model="glm-4-flash",
         supported_models=["glm-4", "glm-4-flash", "glm-4v", "glm-4-long"],
         trace_writer=trace_writer,
+        supports_json_schema=False,
     )
 
 
@@ -636,4 +665,5 @@ def create_minimax_provider(
         default_model="abab6.5s-chat",
         supported_models=["abab6.5s-chat", "abab6.5-chat", "abab5.5-chat"],
         trace_writer=trace_writer,
+        supports_json_schema=False,
     )

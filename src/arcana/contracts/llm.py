@@ -115,9 +115,12 @@ class TokenUsage(BaseModel):
 
     @property
     def cost_estimate(self) -> float:
-        """Estimate cost based on typical pricing (placeholder)."""
-        # This is a rough estimate; actual costs vary by provider/model
-        return (self.prompt_tokens * 0.001 + self.completion_tokens * 0.002) / 1000
+        """Estimate cost based on typical mid-range pricing.
+
+        Uses ~$0.15/M input tokens, ~$0.60/M output tokens as a reasonable
+        middle ground across providers (actual costs vary by provider/model).
+        """
+        return (self.prompt_tokens * 0.15 + self.completion_tokens * 0.60) / 1_000_000
 
 
 class Budget(BaseModel):

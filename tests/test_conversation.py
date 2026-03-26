@@ -1031,3 +1031,282 @@ class TestLazyToolRegistryIntegration:
         # Should have reset and re-selected; expansion log should show fresh start
         log = agent._lazy_registry.expansion_log
         assert log[0].trigger == "initial_selection"
+
+
+# =========================================================================
+# 6. Zero-token usage estimation
+# =========================================================================
+
+
+@needs_conversation
+class TestZeroTokenEstimation:
+    """Test that zero-token usage from providers triggers estimation."""
+
+    def _make_agent(
+        self,
+        responses: list[LLMResponse],
+    ) -> ConversationAgent:
+        """Create agent with mock gateway returning preset responses via stream."""
+        gateway = MagicMock()
+        call_count = 0
+
+        def _next_response():
+            nonlocal call_count
+            idx = min(call_count, len(responses) - 1)
+            call_count += 1
+            return responses[idx]
+
+        async def mock_stream(request, config, trace_ctx=None):
+            response = _next_response()
+            if response.content:
+                yield StreamChunk(type="text_delta", text=response.content)
+            if response.tool_calls:
+                for tc in response.tool_calls:
+                    yield StreamChunk(
+                        type="tool_call_delta",
+                        tool_call_id=tc.id,
+                        tool_name=tc.name,
+                        arguments_delta=tc.arguments,
+                    )
+            yield StreamChunk(
+                type="done",
+                usage=response.usage,
+                metadata={
+                    "finish_reason": response.finish_reason,
+                    "model": response.model,
+                },
+            )
+
+        gateway.generate = AsyncMock(side_effect=lambda *a, **kw: _next_response())
+        gateway.stream = mock_stream
+        gateway.default_provider = "mock"
+        gateway.get = MagicMock(return_value=None)
+
+        return ConversationAgent(
+            gateway=gateway,
+            model_config=ModelConfig(provider="mock", model_id="mock-model"),
+            max_turns=5,
+        )
+
+    @pytest.mark.asyncio
+    async def test_zero_tokens_estimated_from_content(self) -> None:
+        """When provider reports 0 tokens but has content, tokens should be estimated."""
+        responses = [
+            LLMResponse(
+                content="Hello, world! This is a test response.",
+                usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+                model="mock-model",
+                finish_reason="stop",
+            ),
+        ]
+        agent = self._make_agent(responses)
+        state = await agent.run("Say hello")
+        # Estimated completion tokens = len("Hello, world! This is a test response.") // 4 = 9
+        assert state.tokens_used > 0
+        assert state.cost_usd > 0.0
+
+    @pytest.mark.asyncio
+    async def test_zero_tokens_warning_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Warning should be logged when provider reports 0 tokens."""
+        import logging
+
+        responses = [
+            LLMResponse(
+                content="Some content here",
+                usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+                model="mock-model",
+                finish_reason="stop",
+            ),
+        ]
+        agent = self._make_agent(responses)
+        with caplog.at_level(logging.WARNING, logger="arcana.runtime.conversation"):
+            await agent.run("Test")
+        assert any("estimated" in r.message.lower() for r in caplog.records)
+        assert any("0 tokens" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_nonzero_tokens_not_estimated(self) -> None:
+        """When provider reports real tokens, no estimation should occur."""
+        responses = [
+            LLMResponse(
+                content="Hello",
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                model="mock-model",
+                finish_reason="stop",
+            ),
+        ]
+        agent = self._make_agent(responses)
+        state = await agent.run("Say hello")
+        assert state.tokens_used == 15
+
+    @pytest.mark.asyncio
+    async def test_zero_tokens_no_content_not_estimated(self) -> None:
+        """When there's no content, don't estimate even if tokens are 0."""
+        responses = [
+            LLMResponse(
+                content=None,
+                usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+                model="mock-model",
+                finish_reason="stop",
+            ),
+        ]
+        agent = self._make_agent(responses)
+        state = await agent.run("Test")
+        # No content means estimation shouldn't kick in
+        assert state.tokens_used == 0
+
+
+class TestCostEstimate:
+    """Test that cost_estimate returns reasonable values."""
+
+    def test_cost_estimate_nonzero_for_typical_usage(self) -> None:
+        """cost_estimate should return a meaningful value for typical token counts."""
+        usage = TokenUsage(prompt_tokens=1000, completion_tokens=500, total_tokens=1500)
+        cost = usage.cost_estimate
+        # With $0.15/M input + $0.60/M output:
+        # 1000 * 0.15 / 1_000_000 + 500 * 0.60 / 1_000_000
+        # = 0.00015 + 0.0003 = 0.00045
+        assert cost > 0.0
+        assert abs(cost - 0.00045) < 1e-10
+
+    def test_cost_estimate_zero_for_zero_tokens(self) -> None:
+        """cost_estimate should be 0 when no tokens used."""
+        usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        assert usage.cost_estimate == 0.0
+
+    def test_cost_estimate_reasonable_for_large_usage(self) -> None:
+        """For 1M tokens, cost should be in reasonable dollar range."""
+        usage = TokenUsage(
+            prompt_tokens=500_000, completion_tokens=500_000, total_tokens=1_000_000,
+        )
+        cost = usage.cost_estimate
+        # 500k * 0.15/1M + 500k * 0.60/1M = 0.075 + 0.3 = 0.375
+        assert 0.1 < cost < 1.0
+        assert abs(cost - 0.375) < 1e-10
+
+
+@needs_conversation
+class TestToolCallLogging:
+    """Verify that tool call debug logging is emitted."""
+
+    @pytest.mark.asyncio
+    async def test_tool_call_logging(self) -> None:
+        """logger.debug should be called when tools are executed."""
+        import logging
+
+        from arcana.contracts.tool import ToolCall, ToolResult, ToolSpec
+        from arcana.tool_gateway.gateway import ToolGateway
+        from arcana.tool_gateway.registry import ToolRegistry
+
+        # Setup a mock tool
+        class MockSearchProvider:
+            @property
+            def spec(self) -> ToolSpec:
+                return ToolSpec(
+                    name="search",
+                    description="Search the web",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                        "required": ["query"],
+                    },
+                )
+
+            async def execute(self, call: ToolCall) -> ToolResult:
+                return ToolResult(
+                    tool_call_id=call.id,
+                    name=call.name,
+                    success=True,
+                    output="result for: " + call.arguments.get("query", ""),
+                )
+
+            async def health_check(self) -> bool:
+                return True
+
+        registry = ToolRegistry()
+        registry.register(MockSearchProvider())
+        tool_gw = ToolGateway(registry=registry)
+
+        # LLM calls tool, then gives final answer
+        tc = ToolCallRequest(
+            id="tc-1", name="search", arguments='{"query": "hello"}'
+        )
+        responses = [
+            LLMResponse(
+                content=None,
+                tool_calls=[tc],
+                usage=TokenUsage(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
+                model="mock-model",
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(
+                content="Found it!",
+                usage=TokenUsage(
+                    prompt_tokens=20, completion_tokens=10, total_tokens=30
+                ),
+                model="mock-model",
+                finish_reason="stop",
+            ),
+        ]
+
+        gateway = MagicMock()
+        call_count = 0
+
+        def _next_response():
+            nonlocal call_count
+            idx = min(call_count, len(responses) - 1)
+            call_count += 1
+            return responses[idx]
+
+        async def mock_generate(request, config, trace_ctx=None):
+            return _next_response()
+
+        gateway.generate = AsyncMock(side_effect=mock_generate)
+        # Force fallback from streaming to generate
+        gateway.stream = MagicMock(side_effect=NotImplementedError)
+        gateway.default_provider = "mock"
+        gateway.get = MagicMock(return_value=None)
+
+        agent = ConversationAgent(
+            gateway=gateway,
+            model_config=ModelConfig(provider="mock", model_id="mock-model"),
+            max_turns=5,
+            tool_gateway=tool_gw,
+        )
+
+        # Capture debug log messages from the conversation module
+        conv_logger = logging.getLogger("arcana.runtime.conversation")
+        original_level = conv_logger.level
+        conv_logger.setLevel(logging.DEBUG)
+
+        debug_messages: list[str] = []
+
+        class CaptureHandler(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                debug_messages.append(self.format(record))
+
+        handler = CaptureHandler()
+        handler.setLevel(logging.DEBUG)
+        conv_logger.addHandler(handler)
+        try:
+            await agent.run("Search for hello")
+        finally:
+            conv_logger.removeHandler(handler)
+            conv_logger.setLevel(original_level)
+
+        # Verify tool call logging
+        tool_call_msgs = [m for m in debug_messages if "Tool call:" in m]
+        assert len(tool_call_msgs) >= 1
+        assert "search" in tool_call_msgs[0]
+
+        # Verify tool result logging
+        tool_result_msgs = [m for m in debug_messages if "Tool result:" in m]
+        assert len(tool_result_msgs) >= 1
+        assert "search" in tool_result_msgs[0]
+
+        # Verify LLM tool request logging
+        llm_request_msgs = [m for m in debug_messages if "tool call(s)" in m]
+        assert len(llm_request_msgs) >= 1
+        assert "search" in llm_request_msgs[0]

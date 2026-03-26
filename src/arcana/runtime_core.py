@@ -225,7 +225,7 @@ class Runtime:
     def __init__(
         self,
         *,
-        providers: dict[str, str] | None = None,  # {"deepseek": "sk-xxx"}
+        providers: dict[str, str | dict[str, str]] | None = None,  # {"deepseek": "sk-xxx"} or {"deepseek": {"api_key": "sk-xxx", "model": "deepseek-reasoner"}}
         tools: list[Callable] | None = None,  # type: ignore[type-arg]
         mcp_servers: list[MCPServerConfig] | None = None,
         budget: Budget | None = None,
@@ -322,9 +322,17 @@ class Runtime:
                 outputs or external data.
             provider: Override the default provider for this run only.
             model: Override the default model for this run only.
-            on_parse_error: Callback invoked when structured output parsing
-                fails. Receives ``(raw_string, error)`` and may return a
-                fixed ``BaseModel`` instance or ``None``. Supports async.
+            on_parse_error: Optional callback invoked when the LLM returns
+                text that cannot be parsed into the ``response_format``
+                model.  Receives ``(raw_string, error)`` where *error* is
+                a ``json.JSONDecodeError`` or ``pydantic.ValidationError``.
+                Return a fixed ``BaseModel`` instance to recover, or
+                ``None`` to preserve the failure.  Supports async.
+
+                Does NOT fire for provider-level rejections (e.g. the
+                provider does not support ``json_schema`` mode) -- those
+                surface as ``ProviderError`` and are handled by provider
+                capability detection / auto-downgrade.
         """
         import json as _json
 
@@ -968,8 +976,8 @@ class Runtime:
     # Internal
     # ------------------------------------------------------------------
 
-    def _setup_providers(self, providers: dict[str, str]) -> Any:
-        """Setup provider registry from {name: api_key} dict."""
+    def _setup_providers(self, providers: dict[str, str | dict[str, str]]) -> Any:
+        """Setup provider registry from {name: api_key} or {name: {api_key, model}} dict."""
         from arcana.gateway.providers.openai_compatible import (
             OpenAICompatibleProvider,
             create_deepseek_provider,
@@ -1006,14 +1014,25 @@ class Runtime:
 
         factory_map["anthropic"] = _create_anthropic
 
-        for name, api_key in providers.items():
+        for name, config_value in providers.items():
+            if isinstance(config_value, dict):
+                api_key = config_value.get("api_key", "")
+                model_override = config_value.get("model")
+            else:
+                api_key = config_value
+                model_override = None
+
             # Resolve from env if empty
             if not api_key:
                 env_var = f"{name.upper()}_API_KEY"
                 api_key = os.environ.get(env_var, "")
 
             if name in factory_map:
-                gateway.register(name, factory_map[name](api_key))
+                provider_instance = factory_map[name](api_key)
+                # Override default model if specified
+                if model_override and hasattr(provider_instance, "_default_model"):
+                    provider_instance._default_model = model_override
+                gateway.register(name, provider_instance)
             else:
                 raise ValueError(
                     f"Unknown provider '{name}'. "

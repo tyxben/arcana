@@ -206,6 +206,7 @@ Key parameters for `arcana.run()`:
 - `input_handler`: Sync or async callback for the `ask_user` built-in tool (None = graceful fallback)
 - `system`: System prompt for the run (overrides `RuntimeConfig.system_prompt`)
 - `context`: Additional context (dict or string) injected into the goal
+- `on_parse_error`: Callback `(raw_string, error) -> BaseModel | None` for structured output parse failures. **Scope**: fires only on `json.JSONDecodeError` or `pydantic.ValidationError` (LLM returned text that doesn't match the schema). Does NOT fire on provider-level format rejection (`ProviderError`) -- those are handled by provider capability detection / auto-downgrade.
 
 ## Constitution
 
@@ -213,7 +214,7 @@ Key parameters for `arcana.run()`:
 
 ## Project Status
 
-Current: v0.1.0b11 -- 1105 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback), multimodal input, LLM context compression, ask_user, multi-turn chat, pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping, system prompt on run().
+Current: v0.1.0b12 -- 1129 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback), multimodal input, LLM context compression, ask_user, multi-turn chat, pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping, system prompt on run().
 
 ## Learning Resources
 

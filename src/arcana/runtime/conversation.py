@@ -237,7 +237,7 @@ class ConversationAgent:
                     },
                 ))
 
-            # 3. LLM call (streaming when gateway supports it)
+            # 3. LLM call
             request = LLMRequest(
                 messages=curated,
                 tools=active_tools,
@@ -246,78 +246,119 @@ class ConversationAgent:
             config = self._resolve_model_config()
 
             response: LLMResponse
-            try:
-                text_parts: list[str] = []
-                tc_names: dict[str, str] = {}
-                tc_args: dict[str, list[str]] = {}
-                stream_usage: TokenUsage | None = None
-                stream_finish = "stop"
-                stream_model = config.model_id
-
-                async for chunk in self.gateway.stream(
-                    request=request, config=config,
-                ):
-                    if chunk.type == "text_delta" and chunk.text:
-                        text_parts.append(chunk.text)
-                        yield StreamEvent(
-                            event_type=StreamEventType.LLM_CHUNK,
-                            run_id=run_id,
-                            step_id=str(state.current_step),
-                            content=chunk.text,
-                        )
-                    elif chunk.type == "thinking_delta" and chunk.thinking:
-                        yield StreamEvent(
-                            event_type=StreamEventType.LLM_THINKING,
-                            run_id=run_id,
-                            step_id=str(state.current_step),
-                            thinking=chunk.thinking,
-                        )
-                    elif chunk.type == "tool_call_delta" and chunk.tool_call_id:
-                        if chunk.tool_call_id not in tc_names:
-                            tc_names[chunk.tool_call_id] = chunk.tool_name or ""
-                        if chunk.tool_name:
-                            tc_names[chunk.tool_call_id] = chunk.tool_name
-                        if chunk.arguments_delta:
-                            tc_args.setdefault(
-                                chunk.tool_call_id, [],
-                            ).append(chunk.arguments_delta)
-                    elif chunk.type == "usage" and chunk.usage:
-                        stream_usage = chunk.usage
-                    elif chunk.type == "done":
-                        if chunk.metadata:
-                            stream_finish = chunk.metadata.get(
-                                "finish_reason", stream_finish,
-                            )
-                            stream_model = chunk.metadata.get(
-                                "model", stream_model,
-                            )
-                        if chunk.usage:
-                            stream_usage = chunk.usage
-
-                full_text = "".join(text_parts) if text_parts else None
-                tool_calls_list = [
-                    ToolCallRequest(
-                        id=tc_id,
-                        name=tc_names.get(tc_id, ""),
-                        arguments="".join(tc_args.get(tc_id, [])),
-                    )
-                    for tc_id in tc_names
-                ] or None
-                response = LLMResponse(
-                    content=full_text,
-                    tool_calls=tool_calls_list,
-                    usage=stream_usage or TokenUsage(
-                        prompt_tokens=0,
-                        completion_tokens=0,
-                        total_tokens=0,
-                    ),
-                    model=stream_model,
-                    finish_reason=stream_finish,
-                )
-            except (AttributeError, TypeError, NotImplementedError):
-                # Gateway doesn't support streaming — fall back to generate
+            if self._response_format_schema:
+                # Structured output: use non-streaming for reliable usage
+                # tracking and because we need complete JSON anyway
                 response = await self.gateway.generate(
                     request=request, config=config,
+                )
+                # Still emit a chunk event for the complete text
+                if response.content:
+                    yield StreamEvent(
+                        event_type=StreamEventType.LLM_CHUNK,
+                        run_id=run_id,
+                        step_id=str(state.current_step),
+                        content=response.content,
+                    )
+            else:
+                # Normal: try streaming, fall back to generate
+                try:
+                    text_parts: list[str] = []
+                    tc_names: dict[str, str] = {}
+                    tc_args: dict[str, list[str]] = {}
+                    stream_usage: TokenUsage | None = None
+                    stream_finish = "stop"
+                    stream_model = config.model_id
+
+                    async for chunk in self.gateway.stream(
+                        request=request, config=config,
+                    ):
+                        if chunk.type == "text_delta" and chunk.text:
+                            text_parts.append(chunk.text)
+                            yield StreamEvent(
+                                event_type=StreamEventType.LLM_CHUNK,
+                                run_id=run_id,
+                                step_id=str(state.current_step),
+                                content=chunk.text,
+                            )
+                        elif chunk.type == "thinking_delta" and chunk.thinking:
+                            yield StreamEvent(
+                                event_type=StreamEventType.LLM_THINKING,
+                                run_id=run_id,
+                                step_id=str(state.current_step),
+                                thinking=chunk.thinking,
+                            )
+                        elif chunk.type == "tool_call_delta" and chunk.tool_call_id:
+                            if chunk.tool_call_id not in tc_names:
+                                tc_names[chunk.tool_call_id] = chunk.tool_name or ""
+                            if chunk.tool_name:
+                                tc_names[chunk.tool_call_id] = chunk.tool_name
+                            if chunk.arguments_delta:
+                                tc_args.setdefault(
+                                    chunk.tool_call_id, [],
+                                ).append(chunk.arguments_delta)
+                        elif chunk.type == "usage" and chunk.usage:
+                            stream_usage = chunk.usage
+                        elif chunk.type == "done":
+                            if chunk.metadata:
+                                stream_finish = chunk.metadata.get(
+                                    "finish_reason", stream_finish,
+                                )
+                                stream_model = chunk.metadata.get(
+                                    "model", stream_model,
+                                )
+                            if chunk.usage:
+                                stream_usage = chunk.usage
+
+                    full_text = "".join(text_parts) if text_parts else None
+                    tool_calls_list = [
+                        ToolCallRequest(
+                            id=tc_id,
+                            name=tc_names.get(tc_id, ""),
+                            arguments="".join(tc_args.get(tc_id, [])),
+                        )
+                        for tc_id in tc_names
+                    ] or None
+                    response = LLMResponse(
+                        content=full_text,
+                        tool_calls=tool_calls_list,
+                        usage=stream_usage or TokenUsage(
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            total_tokens=0,
+                        ),
+                        model=stream_model,
+                        finish_reason=stream_finish,
+                    )
+                except (AttributeError, TypeError, NotImplementedError):
+                    # Gateway doesn't support streaming — fall back to generate
+                    response = await self.gateway.generate(
+                        request=request, config=config,
+                    )
+
+            # Warn and estimate tokens if provider reported 0 usage
+            if response.usage and response.usage.total_tokens == 0 and response.content:
+                estimated_completion = len(response.content) // 4
+                response = LLMResponse(
+                    content=response.content,
+                    tool_calls=response.tool_calls,
+                    usage=TokenUsage(
+                        prompt_tokens=0,
+                        completion_tokens=estimated_completion,
+                        total_tokens=estimated_completion,
+                    ),
+                    model=response.model,
+                    finish_reason=response.finish_reason,
+                    raw_response=response.raw_response,
+                    anthropic=response.anthropic,
+                    gemini=response.gemini,
+                    openai=response.openai,
+                    ollama=response.ollama,
+                )
+                logger.warning(
+                    "Provider reported 0 tokens; estimated %d from response length. "
+                    "Cost tracking is approximate.",
+                    estimated_completion,
                 )
 
             # 4. Parse: response -> raw facts (NO interpretation)
@@ -340,6 +381,11 @@ class ConversationAgent:
 
             # 7a-10a. Tool calls
             if facts.tool_calls:
+                logger.debug(
+                    "LLM requested %d tool call(s): %s",
+                    len(facts.tool_calls),
+                    [tc.name for tc in facts.tool_calls],
+                )
                 # Expand lazy registry for any tools the LLM requested
                 # (skip ask_user -- it's a built-in, not in the registry)
                 if self._lazy_registry:
@@ -598,6 +644,14 @@ class ConversationAgent:
         results: list[ToolResult] = []
         extra_events: list[StreamEvent] = []
 
+        # Log incoming tool calls
+        for tc in tool_calls:
+            logger.debug(
+                "Tool call: %s(%s)",
+                tc.name,
+                tc.arguments[:200] if tc.arguments else "",
+            )
+
         # Separate ask_user calls from gateway calls
         ask_user_calls: list[ToolCallRequest] = []
         gateway_tool_calls: list[ToolCallRequest] = []
@@ -658,6 +712,21 @@ class ConversationAgent:
                     )
                 gw_results = await self.tool_gateway.call_many_concurrent(gw_calls)
                 results.extend(gw_results)
+
+        # Log tool results
+        for result in results:
+            if result.success:
+                logger.debug(
+                    "Tool result: %s -> %s",
+                    result.name,
+                    result.output_str[:200] if result.output_str else "",
+                )
+            else:
+                logger.debug(
+                    "Tool failed: %s -> %s",
+                    result.name,
+                    result.output_str[:200] if result.output_str else "",
+                )
 
         return results, extra_events
 
@@ -1025,6 +1094,32 @@ class ConversationAgent:
         response = await executor.direct_answer(
             goal, self.gateway, config, system_prompt=self.system_prompt,
         )
+
+        # Warn and estimate tokens if provider reported 0 usage
+        if response.usage and response.usage.total_tokens == 0 and response.content:
+            estimated_completion = len(response.content) // 4
+            response = LLMResponse(
+                content=response.content,
+                tool_calls=response.tool_calls,
+                usage=TokenUsage(
+                    prompt_tokens=0,
+                    completion_tokens=estimated_completion,
+                    total_tokens=estimated_completion,
+                ),
+                model=response.model,
+                finish_reason=response.finish_reason,
+                raw_response=response.raw_response,
+                anthropic=response.anthropic,
+                gemini=response.gemini,
+                openai=response.openai,
+                ollama=response.ollama,
+            )
+            logger.warning(
+                "Provider reported 0 tokens; estimated %d from response length. "
+                "Cost tracking is approximate.",
+                estimated_completion,
+            )
+
         answer = (response.content or "").strip()
 
         # Track token usage

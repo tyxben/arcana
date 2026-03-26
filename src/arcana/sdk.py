@@ -311,6 +311,17 @@ async def run(
         context: Additional context for the agent. A dict is serialized
             as JSON; a string is used as-is. Injected as a ``<context>``
             block so the agent can reference prior outputs or external data.
+        on_parse_error: Optional callback invoked when the LLM returns
+            text that cannot be parsed into the ``response_format`` model.
+            Receives ``(raw_string, error)`` where *error* is a
+            ``json.JSONDecodeError`` or ``pydantic.ValidationError``.
+            Return a fixed ``BaseModel`` instance to recover, or ``None``
+            to preserve the failure.  Supports async.
+
+            Does NOT fire for provider-level rejections (e.g. the provider
+            does not support ``json_schema`` mode) -- those surface as
+            ``ProviderError`` and are handled by provider capability
+            detection / auto-downgrade.
 
     Returns:
         RunResult with output and execution metadata
