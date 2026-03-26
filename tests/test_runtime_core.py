@@ -257,6 +257,203 @@ class TestRuntimeTeam:
         assert len(result.conversation_log) == 2
 
 
+class TestRuntimeTeamSession:
+    @pytest.mark.asyncio
+    async def test_team_session_independent_context(self):
+        """Session mode: each agent gets independent conversation history."""
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        call_count = 0
+        messages_seen: list[list] = []
+
+        async def mock_generate(request, config, trace_ctx=None):
+            nonlocal call_count
+            call_count += 1
+            # Record what messages each agent saw
+            messages_seen.append([
+                (m.role.value if hasattr(m.role, "value") else m.role, m.content[:80])
+                for m in request.messages
+            ])
+            return LLMResponse(
+                content=f"Response from agent {call_count} [DONE]",
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
+                model="test",
+                finish_reason="stop",
+            )
+
+        rt._gateway.generate = mock_generate
+
+        result = await rt.team(
+            goal="test goal",
+            agents=[
+                AgentConfig(name="a", prompt="agent a"),
+                AgentConfig(name="b", prompt="agent b"),
+            ],
+            mode="session",
+            max_rounds=1,
+        )
+
+        assert result.success
+        # Agent A saw: system + user(goal) — no messages from B yet
+        a_msgs = messages_seen[0]
+        assert a_msgs[0][0] == "system"
+        assert "agent a" in a_msgs[0][1]
+        assert a_msgs[1][0] == "user"
+        assert "test goal" in a_msgs[1][1]
+        assert len(a_msgs) == 2  # Only system + goal, no shared history
+
+    @pytest.mark.asyncio
+    async def test_team_session_message_delivery(self):
+        """Session mode: agent A's response is delivered to agent B's inbox."""
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        call_count = 0
+        messages_seen: list[list] = []
+
+        async def mock_generate(request, config, trace_ctx=None):
+            nonlocal call_count
+            call_count += 1
+            messages_seen.append([
+                (m.role.value if hasattr(m.role, "value") else m.role, m.content)
+                for m in request.messages
+            ])
+            if call_count >= 3:
+                return LLMResponse(
+                    content="Done [DONE]",
+                    usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+                    model="test", finish_reason="stop",
+                )
+            return LLMResponse(
+                content=f"Hello from call {call_count}",
+                usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+                model="test", finish_reason="stop",
+            )
+
+        rt._gateway.generate = mock_generate
+
+        await rt.team(
+            goal="test",
+            agents=[
+                AgentConfig(name="alpha", prompt="agent alpha"),
+                AgentConfig(name="beta", prompt="agent beta"),
+            ],
+            mode="session",
+            max_rounds=3,
+        )
+
+        # Round 1: alpha speaks (call 1), beta speaks (call 2)
+        # Round 2: alpha speaks (call 3) — should see beta's round-1 message
+        # Call 3 = alpha's second turn
+        if len(messages_seen) >= 3:
+            alpha_r2_msgs = messages_seen[2]
+            # Should have: system, user(goal), assistant(alpha r1), user(from beta)
+            contents = [m[1] for m in alpha_r2_msgs]
+            assert any("Message from beta" in c for c in contents)
+
+    @pytest.mark.asyncio
+    async def test_team_session_done_detection(self):
+        """Session mode: [DONE] ends collaboration."""
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        mock_response = LLMResponse(
+            content="All done [DONE]",
+            usage=TokenUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
+            model="test", finish_reason="stop",
+        )
+        rt._gateway.generate = AsyncMock(return_value=mock_response)
+
+        result = await rt.team(
+            goal="test",
+            agents=[AgentConfig(name="a", prompt="a"), AgentConfig(name="b", prompt="b")],
+            mode="session",
+            max_rounds=5,
+        )
+
+        assert result.success
+        assert result.rounds == 1
+
+    @pytest.mark.asyncio
+    async def test_team_session_max_rounds(self):
+        """Session mode: max_rounds reached returns success=False."""
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        mock_response = LLMResponse(
+            content="Still working...",
+            usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+            model="test", finish_reason="stop",
+        )
+        rt._gateway.generate = AsyncMock(return_value=mock_response)
+
+        result = await rt.team(
+            goal="test",
+            agents=[AgentConfig(name="a", prompt="a")],
+            mode="session",
+            max_rounds=2,
+        )
+
+        assert not result.success
+        assert result.rounds == 2
+
+    @pytest.mark.asyncio
+    async def test_team_mode_invalid_raises(self):
+        """Invalid mode raises ValueError."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        with pytest.raises(ValueError, match="Invalid team mode"):
+            await rt.team("test", [AgentConfig(name="a", prompt="a")], mode="invalid")
+
+    @pytest.mark.asyncio
+    async def test_team_mode_shared_unchanged(self):
+        """Default mode='shared' preserves existing behavior."""
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        mock_response = LLMResponse(
+            content="Great work! [DONE]",
+            usage=TokenUsage(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+            model="test", finish_reason="stop",
+        )
+        rt._gateway.generate = AsyncMock(return_value=mock_response)
+
+        result = await rt.team(
+            goal="test",
+            agents=[
+                AgentConfig(name="a", prompt="agent a"),
+                AgentConfig(name="b", prompt="agent b"),
+            ],
+            max_rounds=1,
+        )
+        assert result.success
+        assert result.rounds == 1
+
+
 class TestRuntimeChain:
     @pytest.mark.asyncio
     async def test_chain_sequential_execution(self):

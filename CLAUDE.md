@@ -58,6 +58,7 @@ Request -> Intent Router (routing/)
                  Runtime OS: Budget | Trace | Tools | Diagnostics | ask_user
 
 Multi-turn: runtime.chat() -> ChatSession -> send() / stream()
+Team:       runtime.team(mode="shared"|"session") -> shared conversation or independent sessions
 Pipeline:   runtime.chain([ChainStep, ...]) -> sequential run() with auto context
 
 V1 path (still compatible):
@@ -214,7 +215,7 @@ Key parameters for `arcana.run()`:
 
 ## Project Status
 
-Current: v0.1.0b12 -- 1129 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback), multimodal input, LLM context compression, ask_user, multi-turn chat, pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping, system prompt on run().
+Current: v0.1.0b13 -- 1135 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback), multimodal input, LLM context compression, ask_user, multi-turn chat, pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping, system prompt on run().
 
 ## Learning Resources
 

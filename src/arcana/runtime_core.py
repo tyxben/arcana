@@ -565,21 +565,31 @@ class Runtime:
         *,
         max_rounds: int = 3,
         budget: Budget | None = None,
+        mode: str = "shared",
     ) -> TeamResult:
         """
         Run a team of agents on a shared goal.
 
-        Each agent gets its own system prompt and takes turns responding
-        to a shared conversation. Runtime manages: resource isolation,
-        communication, budget, trace. Runtime does NOT: decide strategy,
-        assign roles, parse outputs for orchestration decisions.
+        Two collaboration modes:
+
+        - ``"shared"`` (default): All agents share one conversation
+          history. Each agent sees everything every other agent said.
+          Best for open discussion.
+
+        - ``"session"``: Each agent has an independent conversation
+          context. Other agents' messages arrive as user messages in
+          the recipient's history. Best for focused, role-based work.
 
         Args:
             goal: The shared objective
             agents: List of agent configurations
             max_rounds: Maximum conversation rounds (each agent speaks once per round)
             budget: Budget for the entire team run
+            mode: Collaboration mode — ``"shared"`` or ``"session"``
         """
+        if mode not in ("shared", "session"):
+            raise ValueError(f"Invalid team mode '{mode}'. Use 'shared' or 'session'.")
+
         from arcana.contracts.llm import (
             LLMRequest,
             Message,
@@ -593,35 +603,61 @@ class Runtime:
             max_tokens=team_budget.max_tokens,
         )
 
-        # Shared conversation history -- all agents see what others said
-        shared_messages: list[Message] = [
-            Message(role=MessageRole.USER, content=f"Team goal: {goal}"),
-        ]
-
         conversation_log: list[dict[str, Any]] = []
         agent_outputs: dict[str, str] = {}
         total_tokens = 0
+
+        # --- Mode-specific state ---
+        if mode == "shared":
+            shared_messages: list[Message] = [
+                Message(role=MessageRole.USER, content=f"Team goal: {goal}"),
+            ]
+        else:
+            # Session mode: per-agent independent histories + inboxes
+            agent_histories: dict[str, list[Message]] = {}
+            agent_inboxes: dict[str, list[Message]] = {}
+            for ac in agents:
+                agent_histories[ac.name] = [
+                    Message(
+                        role=MessageRole.SYSTEM,
+                        content=(
+                            f"{ac.prompt}\n\n"
+                            f"You are '{ac.name}' in a team. "
+                            f"Other agents will send you messages. "
+                            f"When the team has fully addressed the goal, "
+                            f"end your response with [DONE]."
+                        ),
+                    ),
+                    Message(role=MessageRole.USER, content=f"Team goal: {goal}"),
+                ]
+                agent_inboxes[ac.name] = []
 
         for round_num in range(max_rounds):
             for agent_config in agents:
                 # Budget check before each agent's turn
                 budget_tracker.check_budget()
 
-                # Build this agent's messages:
-                # System prompt (agent identity) + shared conversation
-                agent_messages = [
-                    Message(
-                        role=MessageRole.SYSTEM,
-                        content=(
-                            f"{agent_config.prompt}\n\n"
-                            f"You are '{agent_config.name}' in a team discussion. "
-                            f"Other agents can see your response. "
-                            f"When the team has fully addressed the goal, "
-                            f"the last agent should end with [DONE]."
+                # --- Build messages per mode ---
+                if mode == "shared":
+                    agent_messages = [
+                        Message(
+                            role=MessageRole.SYSTEM,
+                            content=(
+                                f"{agent_config.prompt}\n\n"
+                                f"You are '{agent_config.name}' in a team discussion. "
+                                f"Other agents can see your response. "
+                                f"When the team has fully addressed the goal, "
+                                f"the last agent should end with [DONE]."
+                            ),
                         ),
-                    ),
-                    *shared_messages,
-                ]
+                        *shared_messages,
+                    ]
+                else:
+                    # Session: deliver inbox then use agent's own history
+                    for inbox_msg in agent_inboxes[agent_config.name]:
+                        agent_histories[agent_config.name].append(inbox_msg)
+                    agent_inboxes[agent_config.name] = []
+                    agent_messages = agent_histories[agent_config.name]
 
                 # Resolve model config for this agent
                 provider = agent_config.provider or self._config.default_provider
@@ -654,14 +690,30 @@ class Runtime:
                     budget_tracker.add_usage(response.usage)
                     total_tokens += response.usage.total_tokens
 
-                # Add to shared conversation
                 agent_text = response.content or ""
-                shared_messages.append(
-                    Message(
-                        role=MessageRole.ASSISTANT,
-                        content=f"[{agent_config.name}]: {agent_text}",
+
+                # --- Update state per mode ---
+                if mode == "shared":
+                    shared_messages.append(
+                        Message(
+                            role=MessageRole.ASSISTANT,
+                            content=f"[{agent_config.name}]: {agent_text}",
+                        )
                     )
-                )
+                else:
+                    # Add own response to own history
+                    agent_histories[agent_config.name].append(
+                        Message(role=MessageRole.ASSISTANT, content=agent_text)
+                    )
+                    # Deliver to other agents' inboxes
+                    for other in agents:
+                        if other.name != agent_config.name:
+                            agent_inboxes[other.name].append(
+                                Message(
+                                    role=MessageRole.USER,
+                                    content=f"Message from {agent_config.name}:\n{agent_text}",
+                                )
+                            )
 
                 # Log
                 agent_outputs[agent_config.name] = agent_text
@@ -692,6 +744,7 @@ class Runtime:
                                 if response.usage
                                 else 0
                             ),
+                            "mode": mode,
                         },
                     ))
 
