@@ -294,8 +294,8 @@ class OpenAICompatibleProvider(ModelGateway):
             elif request.response_schema:
                 params["response_format"] = {"type": "json_object"}
 
-            # Add tools if specified (mutually exclusive with response_format)
-            if request.tools and not request.response_format:
+            # Add tools if specified
+            if request.tools:
                 params["tools"] = request.tools
 
             # Add any extra params from config
@@ -455,7 +455,7 @@ class OpenAICompatibleProvider(ModelGateway):
             }
         elif request.response_schema:
             params["response_format"] = {"type": "json_object"}
-        if request.tools and not request.response_format:
+        if request.tools:
             params["tools"] = request.tools
         if config.extra_params:
             params.update(config.extra_params)

@@ -60,6 +60,28 @@ class Budget(BaseModel):
     max_tokens: int = 500_000
 
 
+class ChainStep(BaseModel):
+    """A step in a sequential chain/pipeline."""
+
+    name: str
+    goal: str  # Prompt for this step
+    system: str | None = None  # System prompt for this step
+    response_format: Any = None  # type[BaseModel] | None
+    tools: list[Any] | None = None  # list[Callable] | None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+class ChainResult(BaseModel):
+    """Result of a chain/pipeline execution."""
+
+    output: Any = None  # Final step's output
+    success: bool = False
+    steps: dict[str, Any] = Field(default_factory=dict)  # name -> output
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+
+
 class AgentConfig(BaseModel):
     """Configuration for a single agent in a team."""
 
@@ -96,13 +118,28 @@ class Runtime:
     Arcana Agent Runtime -- create once, use many times.
 
     Holds long-lived resources:
-    - Provider connections (gateway registry)
+    - Provider connections (gateway registry, with automatic fallback chain)
     - Tool registry + gateway
     - Trace backend
     - Default budget policy
     - Default engine config
 
+    Provider fallback behavior:
+        When multiple providers are registered (e.g.
+        ``providers={"deepseek": "sk-xxx", "openai": "sk-yyy"}``),
+        the runtime automatically builds a fallback chain based on
+        registration order (dict key order). The first provider is
+        primary; subsequent providers serve as fallbacks. If the
+        primary provider fails with a retryable error after exhausting
+        retries, the request is automatically forwarded to the next
+        provider in the chain.
+
+        Use ``runtime.fallback_order`` to inspect the resolved order.
+
     Args:
+        providers: Mapping of provider name to API key. The first key
+            becomes the default provider; remaining keys form the
+            automatic fallback chain in insertion order.
         namespace: Optional namespace for tenant isolation. When set,
             memory and trace are partitioned so that multiple Runtimes
             sharing the same backing stores don't see each other's data.
@@ -139,6 +176,10 @@ class Runtime:
         self._mcp_configs = mcp_servers or []
         self._mcp_client: Any = None  # MCPClient, set after connect_mcp()
 
+        # Cumulative budget tracking across runs
+        self._total_tokens_used: int = 0
+        self._total_cost_usd: float = 0.0
+
         # Setup trace (long-lived)
         self._trace_writer = None
         if trace:
@@ -170,6 +211,8 @@ class Runtime:
         response_format: type[BaseModel] | None = None,
         images: list[str] | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
+        system: str | None = None,
+        context: dict[str, Any] | str | None = None,
     ) -> RunResult:
         """
         Run a task to completion.
@@ -183,16 +226,35 @@ class Runtime:
             response_format: Pydantic model class for structured output.
                 When provided, the LLM response is parsed and validated
                 against this model. ``result.output`` will be an instance
-                of the model rather than a plain string.
+                of the model rather than a plain string. Tools remain
+                available — the agent uses tools during reasoning and
+                returns structured output on the final turn.
             images: Optional list of image inputs (URLs, file paths, or
                 data URIs) to include in the initial user message.
             input_handler: Optional callback for the ask_user built-in tool.
                 Can be sync or async. When None, the LLM receives a fallback
                 message and proceeds with best judgment.
+            system: System prompt for this run. Overrides
+                ``RuntimeConfig.system_prompt``. When None, falls back to
+                the config value or the engine's default.
+            context: Additional context for the agent. A dict is serialized
+                as JSON; a string is used as-is. Injected into the goal as
+                a ``<context>`` block so the agent can reference prior step
+                outputs or external data.
         """
+        import json as _json
+
         # Auto-connect MCP on first run
         if self._mcp_configs and not self._mcp_client:
             await self.connect_mcp()
+
+        # Inject context into goal
+        if context is not None:
+            if isinstance(context, dict):
+                context_str = _json.dumps(context, ensure_ascii=False, indent=2)
+            else:
+                context_str = str(context)
+            goal = f"{goal}\n\n<context>\n{context_str}\n</context>"
 
         # Hint when many tools are registered
         if self._tool_registry and len(self._tool_registry.list_tools()) > 5:
@@ -216,8 +278,13 @@ class Runtime:
             response_format=response_format,
             images=images,
             input_handler=input_handler,
+            system=system,
         )
         result = await session.run(goal)
+
+        # Accumulate usage into runtime-level totals
+        self._total_tokens_used += result.tokens_used
+        self._total_cost_usd += result.cost_usd
 
         # Memory: store result facts
         if self._memory_store and result.success:
@@ -236,6 +303,7 @@ class Runtime:
         engine: str = "conversation",
         max_turns: int | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
+        system: str | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream agent execution events.
 
@@ -277,6 +345,9 @@ class Runtime:
             agent_kwargs["memory_context"] = memory_context
         if input_handler is not None:
             agent_kwargs["input_handler"] = input_handler
+        resolved_system = system or self._config.system_prompt
+        if resolved_system:
+            agent_kwargs["system_prompt"] = resolved_system
 
         agent = ConversationAgent(**agent_kwargs)
 
@@ -321,6 +392,7 @@ class Runtime:
         max_turns: int | None = None,
         budget: Budget | None = None,
         tools: list[Callable] | None = None,  # type: ignore[type-arg]
+        system: str | None = None,
     ) -> AsyncGenerator[Session, None]:
         """
         Create a session for manual control.
@@ -336,6 +408,7 @@ class Runtime:
             max_turns=max_turns,
             budget=budget,
             extra_tools=tools,
+            system=system,
         )
         try:
             yield s
@@ -540,6 +613,75 @@ class Runtime:
             conversation_log=conversation_log,
         )
 
+    async def chain(
+        self,
+        steps: list[ChainStep],
+        *,
+        input: str = "",
+        budget: Budget | None = None,
+    ) -> ChainResult:
+        """
+        Run a sequential pipeline of agent steps.
+
+        Each step's output is automatically passed as context to the next
+        step. Use this when you need a linear flow like
+        Filter → Classify → Analyze → Integrate.
+
+        Args:
+            steps: Ordered list of pipeline steps
+            input: Initial input text fed as context to the first step
+            budget: Shared budget across all steps
+        """
+        step_outputs: dict[str, Any] = {}
+        total_tokens = 0
+        total_cost_usd = 0.0
+        current_context: str = input
+
+        for step in steps:
+            # Build context from previous step output
+            ctx: dict[str, Any] | str | None = None
+            if current_context:
+                ctx = current_context
+
+            result = await self.run(
+                step.goal,
+                system=step.system,
+                response_format=step.response_format,
+                tools=step.tools,
+                budget=budget,
+                context=ctx,
+            )
+
+            step_outputs[step.name] = result.output
+            total_tokens += result.tokens_used
+            total_cost_usd += result.cost_usd
+
+            if not result.success:
+                return ChainResult(
+                    output=result.output,
+                    success=False,
+                    steps=step_outputs,
+                    total_tokens=total_tokens,
+                    total_cost_usd=total_cost_usd,
+                )
+
+            # Pass output as context to next step
+            if result.output is not None:
+                if isinstance(result.output, BaseModel):
+                    current_context = result.output.model_dump_json(indent=2)
+                else:
+                    current_context = str(result.output)
+            else:
+                current_context = ""
+
+        return ChainResult(
+            output=step_outputs.get(steps[-1].name) if steps else None,
+            success=True,
+            steps=step_outputs,
+            total_tokens=total_tokens,
+            total_cost_usd=total_cost_usd,
+        )
+
     # ------------------------------------------------------------------
     # Graph node factories
     # ------------------------------------------------------------------
@@ -599,9 +741,47 @@ class Runtime:
     # ------------------------------------------------------------------
 
     @property
+    def budget_remaining_usd(self) -> float | None:
+        """Remaining USD budget, or None if no budget limit is set."""
+        if self._budget_policy.max_cost_usd is None:
+            return None
+        return max(0.0, self._budget_policy.max_cost_usd - self._total_cost_usd)
+
+    @property
+    def budget_used_usd(self) -> float:
+        """Total USD spent across all runs."""
+        return self._total_cost_usd
+
+    @property
+    def tokens_remaining(self) -> int | None:
+        """Remaining token budget, or None if no token limit is set."""
+        if self._budget_policy.max_tokens is None:
+            return None
+        return max(0, self._budget_policy.max_tokens - self._total_tokens_used)
+
+    @property
+    def tokens_used(self) -> int:
+        """Total tokens used across all runs."""
+        return self._total_tokens_used
+
+    @property
     def providers(self) -> list[str]:
         """List registered provider names."""
         return list(self._gateway.list_providers())
+
+    @property
+    def fallback_order(self) -> list[str]:
+        """Return the provider fallback order for the default provider.
+
+        The first element is the default (primary) provider. Subsequent
+        elements are fallback providers in the order they will be tried
+        when the primary exhausts retries on a retryable error.
+        """
+        default = self._gateway.default_provider
+        if default is None:
+            return []
+        chain = self._gateway.get_fallback_chain(default)
+        return [default, *chain]
 
     @property
     def tools(self) -> list[str]:
@@ -679,6 +859,19 @@ class Runtime:
         if providers:
             gateway.set_default(self._config.default_provider)
 
+            # Auto-build fallback chain: default provider falls back to the
+            # remaining registered providers in dict insertion order.
+            provider_names = list(providers.keys())
+            default = self._config.default_provider
+            fallbacks = [n for n in provider_names if n != default]
+            if fallbacks:
+                gateway.set_fallback_chain(default, fallbacks)
+                logger.info(
+                    "Provider fallback chain: %s -> %s",
+                    default,
+                    " -> ".join(fallbacks),
+                )
+
         return gateway
 
     def _setup_tools(
@@ -691,6 +884,9 @@ class Runtime:
 
         registry = ToolRegistry()
         for func in tools:
+            # Support Tool wrapper instances
+            if hasattr(func, "_fn"):
+                func = func._fn
             spec = getattr(func, "_arcana_tool_spec", None)
             if spec is None:
                 continue
@@ -709,6 +905,7 @@ class Runtime:
         response_format: type[BaseModel] | None = None,
         images: list[str] | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
+        system: str | None = None,
     ) -> Session:
         """Create a new session with per-run resources."""
         return Session(
@@ -721,6 +918,7 @@ class Runtime:
             response_format=response_format,
             images=images,
             input_handler=input_handler,
+            system=system,
         )
 
     def _create_budget_tracker(self) -> Any:
@@ -781,6 +979,7 @@ class Session:
         response_format: type[BaseModel] | None = None,
         images: list[str] | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
+        system: str | None = None,
     ) -> None:
         self._runtime = runtime
         self._engine = engine
@@ -791,6 +990,7 @@ class Session:
         self._response_format = response_format
         self._images = images
         self._input_handler = input_handler
+        self._system = system
 
         # Per-run resources
         self.run_id = str(uuid4())
@@ -811,10 +1011,6 @@ class Session:
         # Merge tools: runtime tools + session extra tools
         tool_gateway = self._runtime._tool_gateway
         # TODO: merge extra_tools if provided
-
-        # When response_format is set, disable tools (mutually exclusive)
-        if self._response_format is not None:
-            tool_gateway = None
 
         model_config = self._runtime._resolve_model_config()
 
@@ -840,6 +1036,10 @@ class Session:
                 "intent_classifier": classifier,
                 "max_turns": self._max_turns,
             }
+            # Resolve system prompt: run(system=) > RuntimeConfig > default
+            resolved_system = self._system or self._runtime._config.system_prompt
+            if resolved_system:
+                agent_kwargs["system_prompt"] = resolved_system
             if self._memory_context:
                 agent_kwargs["memory_context"] = self._memory_context
             if response_format_schema is not None:
@@ -880,13 +1080,17 @@ class Session:
         clean_output = raw_output.replace("[DONE]", "").replace("[done]", "").strip() if isinstance(raw_output, str) else raw_output
 
         # Parse and validate structured output when response_format is set
+        parsed_model = None
         if self._response_format is not None and isinstance(clean_output, str):
             try:
-                parsed = _json.loads(clean_output)
-                clean_output = self._response_format.model_validate(parsed)
+                parsed_json = _json.loads(clean_output)
+                parsed_model = self._response_format.model_validate(parsed_json)
+                # Backward compat: output holds the validated model too
+                clean_output = parsed_model
             except (_json.JSONDecodeError, Exception):
                 return RunResult(
                     output=clean_output,
+                    parsed=None,
                     success=False,
                     steps=self.state.current_step,
                     tokens_used=self.state.tokens_used,
@@ -896,6 +1100,7 @@ class Session:
 
         return RunResult(
             output=clean_output,
+            parsed=parsed_model,
             success=self.state.status.value == "completed",
             steps=self.state.current_step,
             tokens_used=self.state.tokens_used,
@@ -908,6 +1113,7 @@ class RunResult(BaseModel):
     """Result of a runtime run."""
 
     output: Any = None
+    parsed: Any = None
     success: bool = False
     steps: int = 0
     tokens_used: int = 0

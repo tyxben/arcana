@@ -1,4 +1,4 @@
-"""Tests for SDK public API: @tool, run(), _FunctionToolProvider."""
+"""Tests for SDK public API: @tool, Tool, run(), _FunctionToolProvider."""
 
 import inspect
 
@@ -7,6 +7,7 @@ import pytest
 from arcana.contracts.tool import SideEffect, ToolCall
 from arcana.sdk import (
     RunResult,
+    Tool,
     _FunctionToolProvider,
     _signature_to_json_schema,
     tool,
@@ -292,3 +293,119 @@ class TestRunResultSerialization:
         assert r2.tokens_used == r.tokens_used
         assert r2.cost_usd == r.cost_usd
         assert r2.run_id == r.run_id
+
+
+class TestToolClass:
+    """Tests for the non-decorator Tool class."""
+
+    def test_registers_like_decorator(self):
+        """Tool instance attaches _arcana_tool_spec on the wrapped function."""
+
+        def my_func(query: str) -> str:
+            """Search for stuff."""
+            return query
+
+        t = Tool(fn=my_func, when_to_use="Search the web")
+        assert hasattr(my_func, "_arcana_tool_spec")
+        spec = my_func._arcana_tool_spec
+        assert spec.name == "my_func"
+        assert spec.description == "Search for stuff."
+        assert spec.when_to_use == "Search the web"
+        assert t._spec is spec
+
+    def test_callable(self):
+        """Tool(fn=my_func)(args) calls through to my_func."""
+
+        def add(a: str, b: str) -> str:
+            return f"{a}+{b}"
+
+        t = Tool(fn=add)
+        assert t("x", "y") == "x+y"
+
+    def test_custom_name(self):
+        def f(x: str) -> str:
+            return x
+
+        t = Tool(fn=f, name="custom_name")
+        assert t._spec.name == "custom_name"
+
+    def test_custom_description(self):
+        def f(x: str) -> str:
+            return x
+
+        t = Tool(fn=f, description="My custom description")
+        assert t._spec.description == "My custom description"
+
+    def test_affordance_fields(self):
+        def f(x: str) -> str:
+            """Do stuff."""
+            return x
+
+        t = Tool(
+            fn=f,
+            when_to_use="when needed",
+            what_to_expect="a result",
+            failure_meaning="it broke",
+        )
+        assert t._spec.when_to_use == "when needed"
+        assert t._spec.what_to_expect == "a result"
+        assert t._spec.failure_meaning == "it broke"
+
+    def test_side_effect(self):
+        def f(x: str) -> str:
+            return x
+
+        t = Tool(fn=f, side_effect="write")
+        assert t._spec.side_effect == SideEffect.WRITE
+
+    def test_requires_confirmation(self):
+        def f(x: str) -> str:
+            return x
+
+        t = Tool(fn=f, requires_confirmation=True)
+        assert t._spec.requires_confirmation is True
+
+    def test_schema_generation(self):
+        def f(name: str, count: int, flag: bool = False) -> str:
+            return ""
+
+        t = Tool(fn=f)
+        schema = t._spec.input_schema
+        assert schema["properties"]["name"]["type"] == "string"
+        assert schema["properties"]["count"]["type"] == "integer"
+        assert schema["properties"]["flag"]["type"] == "boolean"
+        assert "name" in schema["required"]
+        assert "count" in schema["required"]
+        assert "flag" not in schema.get("required", [])
+
+    def test_tool_func_attr_set(self):
+        """_arcana_tool_func is set on the wrapped function."""
+
+        def f(x: str) -> str:
+            return x
+
+        Tool(fn=f)
+        assert hasattr(f, "_arcana_tool_func")
+        assert f._arcana_tool_func is f
+
+    def test_runtime_accepts_tool_instances(self):
+        """Runtime._setup_tools handles Tool wrapper instances."""
+        from arcana.runtime_core import Runtime
+
+        def my_search(query: str) -> str:
+            """Search the web."""
+            return f"results for {query}"
+
+        search_tool = Tool(fn=my_search, when_to_use="Search the web")
+
+        rt = Runtime(providers={"deepseek": "fake-key"}, tools=[search_tool])
+        assert rt._tool_gateway is not None
+        tool_names = rt._tool_registry.list_tools()
+        assert "my_search" in tool_names
+
+    def test_importable_from_arcana(self):
+        """Tool is importable from the top-level arcana package."""
+        import arcana
+
+        assert hasattr(arcana, "Tool")
+        assert arcana.Tool is Tool

@@ -59,7 +59,7 @@ wheels = [
 
 [[package]]
 name = "arcana-agent"
-version = "0.1.0b7"
+version = "0.1.0b9"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

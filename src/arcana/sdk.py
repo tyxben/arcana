@@ -88,6 +88,63 @@ def tool(
     return decorator
 
 
+class Tool:
+    """Non-decorator tool registration.
+
+    Use this when you want to register tools without importing arcana
+    at module level, or when the tool function is defined elsewhere.
+
+    Example::
+
+        from arcana import Tool
+
+        def my_search(query: str) -> str:
+            \"\"\"Search the web.\"\"\"
+            return requests.get(f"https://api.example.com/search?q={query}").text
+
+        search_tool = Tool(fn=my_search, when_to_use="Search the web for information")
+        runtime = Runtime(tools=[search_tool])
+    """
+
+    def __init__(
+        self,
+        fn: Callable,  # type: ignore[type-arg]
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        when_to_use: str | None = None,
+        what_to_expect: str | None = None,
+        failure_meaning: str | None = None,
+        side_effect: str = "read",
+        requires_confirmation: bool = False,
+    ) -> None:
+        tool_name = name or fn.__name__
+        tool_desc = description or fn.__doc__ or f"Tool: {tool_name}"
+
+        sig = inspect.signature(fn)
+        input_schema = _signature_to_json_schema(sig)
+
+        spec = ToolSpec(
+            name=tool_name,
+            description=tool_desc,
+            input_schema=input_schema,
+            when_to_use=when_to_use,
+            what_to_expect=what_to_expect,
+            failure_meaning=failure_meaning,
+            side_effect=SideEffect(side_effect),
+            requires_confirmation=requires_confirmation,
+        )
+
+        self._fn = fn
+        self._spec = spec
+        # Make it look like a decorated function for the registry
+        fn._arcana_tool_spec = spec  # type: ignore[attr-defined]
+        fn._arcana_tool_func = fn  # type: ignore[attr-defined]
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self._fn(*args, **kwargs)
+
+
 def _signature_to_json_schema(sig: inspect.Signature) -> dict[str, Any]:
     """Convert function signature to JSON Schema. Pure function."""
     properties: dict[str, Any] = {}
@@ -130,6 +187,7 @@ class RunResult(BaseModel):
     """Result of an arcana.run() call."""
 
     output: Any = None
+    parsed: Any = None
     success: bool = False
     steps: int = 0
     tokens_used: int = 0
@@ -214,6 +272,8 @@ async def run(
     stream: bool = False,
     response_format: type[BaseModel] | None = None,
     input_handler: Callable | None = None,  # type: ignore[type-arg]
+    system: str | None = None,
+    context: dict | str | None = None,
 ) -> RunResult:
     """
     Run an agent to accomplish a goal.
@@ -239,11 +299,17 @@ async def run(
         response_format: Pydantic BaseModel class for structured output.
             When provided, the LLM is instructed to return JSON matching
             the model's schema, and ``result.output`` will be a validated
-            instance of the model rather than a plain string. Tool use is
-            disabled when ``response_format`` is set.
+            instance of the model rather than a plain string. Tools and
+            structured output can be used together — the agent uses tools
+            during reasoning and returns structured output on the final turn.
         input_handler: Optional callback for the ask_user built-in tool.
             Can be sync or async. When None, the LLM receives a fallback
             message and proceeds with best judgment.
+        system: System prompt defining the agent's role/persona for this
+            run. When None, the engine's default is used.
+        context: Additional context for the agent. A dict is serialized
+            as JSON; a string is used as-is. Injected as a ``<context>``
+            block so the agent can reference prior outputs or external data.
 
     Returns:
         RunResult with output and execution metadata
@@ -288,11 +354,14 @@ async def run(
         images=images,
         response_format=response_format,
         input_handler=input_handler,
+        system=system,
+        context=context,
     )
 
     # Convert to sdk.RunResult (keep backward compat)
     return RunResult(
         output=result.output,
+        parsed=result.parsed,
         success=result.success,
         steps=result.steps,
         tokens_used=result.tokens_used,

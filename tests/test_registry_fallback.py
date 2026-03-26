@@ -170,6 +170,26 @@ class TestFallbackChain:
         assert fallback.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_fallback_logs_switch(self, caplog):
+        """Switching to fallback should emit a log message."""
+        import logging
+
+        registry = ModelGatewayRegistry(max_retries=0, retry_base_delay_ms=1)
+        primary = FakeProvider(
+            "primary",
+            errors=[RateLimitError("fail", "primary")],
+        )
+        fallback = FakeProvider("fallback", responses=[_ok_response("from fallback")])
+        registry.register("primary", primary)
+        registry.register("fallback", fallback)
+        registry.set_fallback_chain("primary", ["fallback"])
+
+        with caplog.at_level(logging.INFO, logger="arcana.gateway.registry"):
+            await registry.generate(_make_request(), _make_config())
+
+        assert any("falling back to 'fallback'" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
     async def test_fallback_disabled(self):
         """use_fallback=False should skip fallback chain."""
         registry = ModelGatewayRegistry(max_retries=0, retry_base_delay_ms=1)
@@ -293,3 +313,28 @@ class TestRegistryInit:
         registry = ModelGatewayRegistry(max_retries=5, retry_base_delay_ms=100)
         assert registry._max_retries == 5
         assert registry._retry_base_delay_ms == 100
+
+    def test_get_fallback_chain(self):
+        registry = ModelGatewayRegistry()
+        primary = FakeProvider("primary")
+        fallback = FakeProvider("fallback")
+        registry.register("primary", primary)
+        registry.register("fallback", fallback)
+        registry.set_fallback_chain("primary", ["fallback"])
+
+        assert registry.get_fallback_chain("primary") == ["fallback"]
+        assert registry.get_fallback_chain("fallback") == []
+        assert registry.get_fallback_chain("nonexistent") == []
+
+    def test_get_fallback_chain_returns_copy(self):
+        """Mutating the returned list should not affect internal state."""
+        registry = ModelGatewayRegistry()
+        primary = FakeProvider("primary")
+        fallback = FakeProvider("fallback")
+        registry.register("primary", primary)
+        registry.register("fallback", fallback)
+        registry.set_fallback_chain("primary", ["fallback"])
+
+        chain = registry.get_fallback_chain("primary")
+        chain.append("extra")
+        assert registry.get_fallback_chain("primary") == ["fallback"]

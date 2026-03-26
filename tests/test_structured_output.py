@@ -178,8 +178,8 @@ class TestOpenAIProviderResponseFormat:
         # that the request carries the schema correctly.
         assert request.response_format == schema
 
-    def test_response_format_excludes_tools(self) -> None:
-        """When response_format is set, tools should not be sent."""
+    def test_response_format_coexists_with_tools(self) -> None:
+        """Tools and response_format can be used together."""
         from arcana.contracts.llm import Message, MessageRole
 
         schema = Person.model_json_schema()
@@ -189,11 +189,9 @@ class TestOpenAIProviderResponseFormat:
             tools=[{"type": "function", "function": {"name": "search"}}],
         )
 
-        # The provider logic checks: if response_format, don't include tools.
-        # We verify the request carries both, but the provider will filter.
+        # Both fields coexist on the request — the provider sends both
         assert request.response_format is not None
-        assert request.tools is not None  # set on the request
-        # The actual filtering is in the provider's generate() method
+        assert request.tools is not None
 
 
 # =========================================================================
@@ -209,8 +207,10 @@ class TestSDKRunWithResponseFormat:
         """arcana.run() should parse JSON output into a Pydantic model."""
         from arcana.runtime_core import RunResult as RuntimeRunResult
 
+        person = Person(name="John", age=30)
         mock_runtime_result = RuntimeRunResult(
-            output=Person(name="John", age=30),
+            output=person,
+            parsed=person,
             success=True,
             steps=1,
             tokens_used=100,
@@ -304,6 +304,8 @@ class TestRuntimeRunWithResponseFormat:
             rt._mcp_client = None
             rt._tool_registry = None
             rt._memory_store = None
+            rt._total_tokens_used = 0
+            rt._total_cost_usd = 0.0
 
             result = await rt.run(
                 "Extract person info",
@@ -339,6 +341,8 @@ class TestRuntimeRunWithResponseFormat:
             rt._mcp_client = None
             rt._tool_registry = None
             rt._memory_store = None
+            rt._total_tokens_used = 0
+            rt._total_cost_usd = 0.0
 
             result = await rt.run("Just a question")
 
@@ -411,24 +415,53 @@ class TestSessionStructuredParsing:
         # the fact that the raw string would be preserved as output.
         is_valid = True
         try:
-            parsed = json.loads(raw)
-            Person.model_validate(parsed)
+            parsed_json = json.loads(raw)
+            Person.model_validate(parsed_json)
         except (json.JSONDecodeError, ValidationError):
             is_valid = False
 
         assert not is_valid, "Invalid JSON should fail parsing"
 
+    def test_result_parsed_is_none_without_response_format(self) -> None:
+        """Without response_format, parsed is always None."""
+        from arcana.runtime_core import RunResult
+
+        result = RunResult(
+            output="plain text answer",
+            success=True,
+            steps=1,
+            tokens_used=50,
+            run_id="test-no-format",
+        )
+        assert result.parsed is None
+        assert result.output == "plain text answer"
+
+    def test_result_parsed_is_none_on_failure(self) -> None:
+        """On parse failure, parsed is None and output is the raw string."""
+        from arcana.runtime_core import RunResult
+
+        result = RunResult(
+            output="not json",
+            parsed=None,
+            success=False,
+            steps=1,
+            tokens_used=50,
+            run_id="test-fail",
+        )
+        assert isinstance(result.output, str)
+        assert result.parsed is None
+
 
 # =========================================================================
-# 9. Tools disabled when response_format is set
+# 9. Tools and response_format coexistence
 # =========================================================================
 
 
-class TestToolsDisabledWithResponseFormat:
-    """Verify tools are mutually exclusive with response_format."""
+class TestToolsWithResponseFormat:
+    """Verify tools and response_format can be used together."""
 
-    def test_llm_request_can_have_both(self) -> None:
-        """LLMRequest allows both, but the provider filters tools out."""
+    def test_llm_request_carries_both(self) -> None:
+        """LLMRequest carries both tools and response_format to the provider."""
         from arcana.contracts.llm import Message, MessageRole
 
         schema = Person.model_json_schema()
@@ -437,8 +470,32 @@ class TestToolsDisabledWithResponseFormat:
             response_format=schema,
             tools=[{"type": "function", "function": {"name": "foo"}}],
         )
-        # Both fields are set on the data model
         assert req.response_format is not None
         assert req.tools is not None
-        # The provider's generate() method will not send tools when
-        # response_format is present (tested via provider integration tests)
+
+    def test_session_preserves_tool_gateway_with_response_format(self) -> None:
+        """Session.run() should NOT null out tool_gateway when response_format is set."""
+        from unittest.mock import MagicMock, patch
+
+        from arcana.runtime_core import Budget, Runtime, RuntimeConfig
+
+        with patch("arcana.runtime_core.Runtime._setup_providers"):
+            rt = Runtime.__new__(Runtime)
+            rt._config = RuntimeConfig()
+            rt._budget_policy = Budget()
+            rt._namespace = None
+            rt._tool_registry = None
+            rt._tool_gateway = MagicMock()  # non-None gateway
+            rt._gateway = MagicMock()
+            rt._trace_writer = None
+            rt._mcp_configs = None
+            rt._mcp_client = None
+            rt._memory_store = None
+            rt._total_tokens_used = 0
+            rt._total_cost_usd = 0.0
+
+            session = rt._create_session(
+                response_format=Person,
+            )
+            # tool_gateway should still be available, not nulled out
+            assert rt._tool_gateway is not None

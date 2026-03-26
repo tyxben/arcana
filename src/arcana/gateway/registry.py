@@ -117,6 +117,14 @@ class ModelGatewayRegistry:
         """Get list of registered provider names."""
         return list(self._providers.keys())
 
+    def get_fallback_chain(self, primary: str) -> list[str]:
+        """Get the fallback chain for a provider.
+
+        Returns:
+            List of fallback provider names in priority order, or empty list.
+        """
+        return list(self._fallback_chains.get(primary, []))
+
     def _resolve_provider(
         self, config: ModelConfig
     ) -> tuple[str, ModelGateway]:
@@ -199,6 +207,10 @@ class ModelGatewayRegistry:
             fallback = self._providers.get(fallback_name)
             if fallback is None:
                 continue
+            logger.info(
+                "Provider '%s' exhausted retries; falling back to '%s'",
+                provider_name, fallback_name,
+            )
             fallback_config = config.model_copy(update={"provider": fallback_name})
             for attempt in range(1 + self._max_retries):
                 try:

@@ -43,10 +43,12 @@ Key capabilities beyond basic turn loop:
 - **`ask_user` built-in tool**: LLM can ask clarifying questions mid-execution; intercepted at runtime level (bypasses ToolGateway); graceful fallback when no handler provided
 - **Prompt caching**: transparent, provider-level -- Anthropic `cache_control` tags on system/tools, OpenAI `cached_tokens` tracked
 - **Thinking-informed assessment**: `_assess_turn` analyzes extended thinking blocks for uncertainty/verification/incomplete signals, adjusts confidence
-- **Structured output**: `response_format` passes a Pydantic model's JSON Schema to the provider; tools are disabled when active
+- **Structured output**: `response_format` passes a Pydantic model's JSON Schema to the provider; tools remain available and coexist with structured output
 - **Multimodal input**: `images` parameter accepts URLs, file paths, data URIs; auto-converts between OpenAI and Anthropic content block formats
 - **LLM-driven context compression**: `WorkingSetBuilder.abuild_conversation_context()` uses a cheap LLM call for semantic summarization when history exceeds budget; falls back to keyword-based compression
 - **Multi-turn chat**: `runtime.chat()` returns a `ChatSession` with persistent history, shared budget, and streaming
+- **Sequential pipeline**: `runtime.chain()` runs a list of `ChainStep`s sequentially, automatically passing each step's output as context to the next
+- **Context passing**: `runtime.run(context=...)` injects additional context (dict or string) into the agent's goal as a `<context>` block
 
 ```
 Request -> Intent Router (routing/)
@@ -56,6 +58,7 @@ Request -> Intent Router (routing/)
                  Runtime OS: Budget | Trace | Tools | Diagnostics | ask_user
 
 Multi-turn: runtime.chat() -> ChatSession -> send() / stream()
+Pipeline:   runtime.chain([ChainStep, ...]) -> sequential run() with auto context
 
 V1 path (still compatible):
             -> Agent + AdaptivePolicy (runtime/agent.py)
@@ -107,10 +110,11 @@ V1 path (still compatible):
 - `replay.py`: Trace replay for debugging
 - `progress.py`: Progress tracking
 
-**runtime_core.py** - `Runtime`, `Session`, `ChatSession`, `ChatResponse`, `Budget`, `AgentConfig`:
+**runtime_core.py** - `Runtime`, `Session`, `ChatSession`, `ChatResponse`, `Budget`, `AgentConfig`, `ChainStep`, `ChainResult`:
 - `Runtime`: Long-lived resource container (providers, tools, budget, trace)
 - `Runtime.run()`: Single-shot task execution
 - `Runtime.chat()`: Multi-turn conversational sessions (`ChatSession.send()` / `ChatSession.stream()`)
+- `Runtime.chain()`: Sequential pipeline with automatic context passing between steps
 - `Runtime.session()`: Manual session control for advanced usage
 
 **routing/** - Intent classification and routing:
@@ -197,9 +201,11 @@ Key parameters for `arcana.run()`:
 - `engine`: `"conversation"` (default, V2 ConversationAgent) or `"adaptive"` (V1)
 - `max_turns`: Maximum number of agent turns (default: 20)
 - `tools`: List of tools decorated with `@arcana.tool`
-- `response_format`: Pydantic `BaseModel` class for structured output (disables tools when set)
+- `response_format`: Pydantic `BaseModel` class for structured output (tools remain available)
 - `images`: List of image URLs, file paths, or data URIs for multimodal input
 - `input_handler`: Sync or async callback for the `ask_user` built-in tool (None = graceful fallback)
+- `system`: System prompt for the run (overrides `RuntimeConfig.system_prompt`)
+- `context`: Additional context (dict or string) injected into the goal
 
 ## Constitution
 
@@ -207,7 +213,7 @@ Key parameters for `arcana.run()`:
 
 ## Project Status
 
-Current: v0.1.0b7 -- 1045 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output, multimodal input, LLM context compression, ask_user, multi-turn chat.
+Current: v0.1.0b10 -- 1080 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools), multimodal input, LLM context compression, ask_user, multi-turn chat, sequential pipeline (chain), context passing, system prompt on run().
 
 ## Learning Resources
 

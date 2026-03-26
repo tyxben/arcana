@@ -7,6 +7,8 @@ import pytest
 from arcana.runtime_core import (
     AgentConfig,
     Budget,
+    ChainResult,
+    ChainStep,
     RunResult,
     Runtime,
     RuntimeConfig,
@@ -54,6 +56,15 @@ class TestRunResult:
         assert r.success
         assert r.steps == 3
         assert r.tokens_used == 100
+
+    def test_run_result_has_parsed_field(self):
+        """RunResult exposes a parsed field (None by default)."""
+        r = RunResult()
+        assert r.parsed is None
+
+        r2 = RunResult(output="raw text", parsed={"name": "Alice"}, success=True)
+        assert r2.parsed == {"name": "Alice"}
+        assert r2.output == "raw text"
 
 
 class TestTeamResult:
@@ -246,6 +257,330 @@ class TestRuntimeTeam:
         assert len(result.conversation_log) == 2
 
 
+class TestRuntimeChain:
+    @pytest.mark.asyncio
+    async def test_chain_sequential_execution(self):
+        """Chain runs steps sequentially, passing output as context."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        call_count = 0
+        calls: list[dict] = []
+
+        async def mock_run(goal, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            calls.append({"goal": goal, **kwargs})
+            return RunResult(
+                output=f"step-{call_count}-output",
+                success=True,
+                steps=1,
+                tokens_used=50,
+                cost_usd=0.001,
+                run_id=f"run-{call_count}",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                ChainStep(name="filter", goal="Filter items"),
+                ChainStep(name="classify", goal="Classify items"),
+            ],
+            input="raw data",
+        )
+
+        assert result.success
+        assert call_count == 2
+        assert result.steps["filter"] == "step-1-output"
+        assert result.steps["classify"] == "step-2-output"
+        assert result.output == "step-2-output"
+        assert result.total_tokens == 100
+        # First step gets input as context
+        assert calls[0]["context"] == "raw data"
+        # Second step gets first step's output as context
+        assert calls[1]["context"] == "step-1-output"
+
+    @pytest.mark.asyncio
+    async def test_chain_stops_on_failure(self):
+        """Chain stops and returns failure if a step fails."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        call_count = 0
+
+        async def mock_run(goal, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                return RunResult(output="error", success=False, run_id="fail")
+            return RunResult(
+                output="ok", success=True, steps=1,
+                tokens_used=10, cost_usd=0.001, run_id=f"run-{call_count}",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                ChainStep(name="a", goal="Step A"),
+                ChainStep(name="b", goal="Step B"),
+                ChainStep(name="c", goal="Step C"),
+            ],
+        )
+
+        assert not result.success
+        assert call_count == 2  # Step C never ran
+        assert "a" in result.steps
+        assert "b" in result.steps
+        assert "c" not in result.steps
+
+    @pytest.mark.asyncio
+    async def test_chain_passes_system_and_response_format(self):
+        """Chain passes per-step system and response_format to run()."""
+        from pydantic import BaseModel
+
+        class Output(BaseModel):
+            value: str
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured_kwargs: list[dict] = []
+
+        async def mock_run(goal, **kwargs):
+            captured_kwargs.append(kwargs)
+            return RunResult(
+                output=Output(value="test") if kwargs.get("response_format") else "plain",
+                success=True, steps=1, tokens_used=10, cost_usd=0.001, run_id="r",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        await rt.chain(
+            steps=[
+                ChainStep(
+                    name="step1",
+                    goal="Do something",
+                    system="You are a filter",
+                    response_format=Output,
+                ),
+            ],
+        )
+
+        assert captured_kwargs[0]["system"] == "You are a filter"
+        assert captured_kwargs[0]["response_format"] is Output
+
+    @pytest.mark.asyncio
+    async def test_chain_empty_steps(self):
+        """Chain with no steps returns empty result."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        result = await rt.chain(steps=[])
+        assert result.success
+        assert result.output is None
+        assert result.steps == {}
+
+
+class TestRuntimeRunContext:
+    @pytest.mark.asyncio
+    async def test_run_context_dict_injected_into_goal(self):
+        """Context dict is serialized and injected into goal."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured_goal = None
+
+        original_create_session = rt._create_session
+
+        def mock_create_session(**kwargs):
+            return original_create_session(**kwargs)
+
+        # Mock at the session level to capture the goal
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        mock_response = LLMResponse(
+            content="done",
+            usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+            model="test",
+            finish_reason="stop",
+        )
+        rt._gateway.generate = AsyncMock(return_value=mock_response)
+        rt._gateway.stream = AsyncMock(side_effect=AttributeError)
+
+        result = await rt.run(
+            "Classify these items",
+            context={"batch_insight": "all tech news", "count": 42},
+        )
+
+        # Verify context was injected by checking the gateway call
+        call_args = rt._gateway.generate.call_args
+        if call_args:
+            messages = call_args[1]["request"].messages if "request" in call_args[1] else call_args[0][0].messages
+            user_msg = [m for m in messages if m.role.value == "user"][0]
+            assert "<context>" in user_msg.content
+            assert "all tech news" in user_msg.content
+
+    @pytest.mark.asyncio
+    async def test_run_context_string_injected_into_goal(self):
+        """Context string is injected as-is."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        mock_response = LLMResponse(
+            content="done",
+            usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+            model="test",
+            finish_reason="stop",
+        )
+        rt._gateway.generate = AsyncMock(return_value=mock_response)
+        rt._gateway.stream = AsyncMock(side_effect=AttributeError)
+
+        await rt.run(
+            "Classify items",
+            context="Previous step found all items are tech news",
+        )
+
+        call_args = rt._gateway.generate.call_args
+        if call_args:
+            messages = call_args[1]["request"].messages if "request" in call_args[1] else call_args[0][0].messages
+            user_msg = [m for m in messages if m.role.value == "user"][0]
+            assert "<context>" in user_msg.content
+            assert "Previous step found all items are tech news" in user_msg.content
+
+    @pytest.mark.asyncio
+    async def test_run_no_context_no_injection(self):
+        """Without context, goal is unchanged."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        mock_response = LLMResponse(
+            content="done",
+            usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+            model="test",
+            finish_reason="stop",
+        )
+        rt._gateway.generate = AsyncMock(return_value=mock_response)
+        rt._gateway.stream = AsyncMock(side_effect=AttributeError)
+
+        await rt.run("Classify items")
+
+        call_args = rt._gateway.generate.call_args
+        if call_args:
+            messages = call_args[1]["request"].messages if "request" in call_args[1] else call_args[0][0].messages
+            user_msg = [m for m in messages if m.role.value == "user"][0]
+            assert "<context>" not in user_msg.content
+
+
+class TestRuntimeRunSystem:
+    @pytest.mark.asyncio
+    async def test_run_system_passed_to_agent(self):
+        """run(system=...) is passed through to ConversationAgent."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        mock_response = LLMResponse(
+            content="done",
+            usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+            model="test",
+            finish_reason="stop",
+        )
+        rt._gateway.generate = AsyncMock(return_value=mock_response)
+        rt._gateway.stream = AsyncMock(side_effect=AttributeError)
+
+        await rt.run("Hello", system="You are a pirate")
+
+        call_args = rt._gateway.generate.call_args
+        if call_args:
+            messages = call_args[1]["request"].messages if "request" in call_args[1] else call_args[0][0].messages
+            system_msg = [m for m in messages if m.role.value == "system"][0]
+            assert "You are a pirate" in system_msg.content
+
+    @pytest.mark.asyncio
+    async def test_run_config_system_prompt_used_as_fallback(self):
+        """RuntimeConfig.system_prompt is used when run(system=) is not set."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(
+                default_provider="ollama",
+                system_prompt="You are a butler",
+            ),
+        )
+
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        mock_response = LLMResponse(
+            content="done",
+            usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+            model="test",
+            finish_reason="stop",
+        )
+        rt._gateway.generate = AsyncMock(return_value=mock_response)
+        rt._gateway.stream = AsyncMock(side_effect=AttributeError)
+
+        await rt.run("Hello")
+
+        call_args = rt._gateway.generate.call_args
+        if call_args:
+            messages = call_args[1]["request"].messages if "request" in call_args[1] else call_args[0][0].messages
+            system_msg = [m for m in messages if m.role.value == "system"][0]
+            assert "You are a butler" in system_msg.content
+
+    @pytest.mark.asyncio
+    async def test_run_system_overrides_config(self):
+        """run(system=) overrides RuntimeConfig.system_prompt."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(
+                default_provider="ollama",
+                system_prompt="You are a butler",
+            ),
+        )
+
+        from arcana.contracts.llm import LLMResponse, TokenUsage
+
+        mock_response = LLMResponse(
+            content="done",
+            usage=TokenUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+            model="test",
+            finish_reason="stop",
+        )
+        rt._gateway.generate = AsyncMock(return_value=mock_response)
+        rt._gateway.stream = AsyncMock(side_effect=AttributeError)
+
+        await rt.run("Hello", system="You are a pirate")
+
+        call_args = rt._gateway.generate.call_args
+        if call_args:
+            messages = call_args[1]["request"].messages if "request" in call_args[1] else call_args[0][0].messages
+            system_msg = [m for m in messages if m.role.value == "system"][0]
+            assert "You are a pirate" in system_msg.content
+            assert "butler" not in system_msg.content
+
+
 class TestRuntimeClose:
     @pytest.mark.asyncio
     async def test_close_without_mcp(self):
@@ -341,3 +676,101 @@ class TestSession:
         rt = Runtime()
         session = Session(runtime=rt, budget=Budget(max_cost_usd=0.5))
         assert session.budget.max_cost_usd == 0.5
+
+
+class TestRuntimeBudgetQuery:
+    def test_budget_remaining_initial(self):
+        """Fresh runtime returns full budget."""
+        rt = Runtime(budget=Budget(max_cost_usd=5.0, max_tokens=100_000))
+        assert rt.budget_remaining_usd == 5.0
+        assert rt.budget_used_usd == 0.0
+        assert rt.tokens_remaining == 100_000
+        assert rt.tokens_used == 0
+
+    def test_budget_remaining_default(self):
+        """Default budget returns default values."""
+        rt = Runtime()
+        assert rt.budget_remaining_usd == 10.0
+        assert rt.tokens_remaining == 500_000
+
+    @pytest.mark.asyncio
+    async def test_budget_tracks_across_runs(self):
+        """After a run, budget_used_usd reflects usage."""
+        from arcana.contracts.state import AgentState, ExecutionStatus
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+            budget=Budget(max_cost_usd=5.0, max_tokens=100_000),
+        )
+
+        mock_state = AgentState(
+            run_id="test-1",
+            status=ExecutionStatus.COMPLETED,
+            working_memory={"answer": "hello"},
+            tokens_used=150,
+            cost_usd=0.5,
+        )
+
+        with patch("arcana.runtime.conversation.ConversationAgent") as MockAgent:
+            instance = MockAgent.return_value
+            instance.run = AsyncMock(return_value=mock_state)
+            await rt.run("first task")
+
+        assert rt.budget_used_usd == 0.5
+        assert rt.budget_remaining_usd == 4.5
+        assert rt.tokens_used == 150
+        assert rt.tokens_remaining == 99_850
+
+    @pytest.mark.asyncio
+    async def test_tokens_used_accumulates(self):
+        """Multiple runs accumulate token counts."""
+        from arcana.contracts.state import AgentState, ExecutionStatus
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+            budget=Budget(max_cost_usd=10.0, max_tokens=1000),
+        )
+
+        states = [
+            AgentState(
+                run_id=f"test-{i}",
+                status=ExecutionStatus.COMPLETED,
+                working_memory={"answer": f"result-{i}"},
+                tokens_used=tokens,
+                cost_usd=cost,
+            )
+            for i, (tokens, cost) in enumerate([(100, 0.1), (200, 0.3), (50, 0.05)])
+        ]
+
+        with patch("arcana.runtime.conversation.ConversationAgent") as MockAgent:
+            for state in states:
+                instance = MockAgent.return_value
+                instance.run = AsyncMock(return_value=state)
+                await rt.run(f"task {state.run_id}")
+
+        assert rt.tokens_used == 350
+        assert rt.budget_used_usd == pytest.approx(0.45)
+        assert rt.tokens_remaining == 650
+        assert rt.budget_remaining_usd == pytest.approx(9.55)
+
+
+class TestRuntimeFallbackOrder:
+    def test_single_provider(self):
+        rt = Runtime(
+            providers={"deepseek": "sk-xxx"},
+            config=RuntimeConfig(default_provider="deepseek"),
+        )
+        assert rt.fallback_order == ["deepseek"]
+
+    def test_multi_provider_auto_chain(self):
+        rt = Runtime(
+            providers={"deepseek": "sk-xxx", "openai": "sk-yyy"},
+            config=RuntimeConfig(default_provider="deepseek"),
+        )
+        assert rt.fallback_order == ["deepseek", "openai"]
+
+    def test_no_providers(self):
+        rt = Runtime()
+        assert rt.fallback_order == []

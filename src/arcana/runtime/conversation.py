@@ -240,7 +240,7 @@ class ConversationAgent:
             # 3. LLM call (streaming when gateway supports it)
             request = LLMRequest(
                 messages=curated,
-                tools=active_tools if not self._response_format_schema else None,
+                tools=active_tools,
                 response_format=self._response_format_schema,
             )
             config = self._resolve_model_config()
@@ -936,7 +936,7 @@ class ConversationAgent:
 
             request = LLMRequest(
                 messages=curated,
-                tools=active_tools if not self._response_format_schema else None,
+                tools=active_tools,
                 response_format=self._response_format_schema,
             )
             config = self._resolve_model_config()
