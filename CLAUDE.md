@@ -213,7 +213,7 @@ Key parameters for `arcana.run()`:
 
 ## Project Status
 
-Current: v0.1.0b10 -- 1080 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools), multimodal input, LLM context compression, ask_user, multi-turn chat, sequential pipeline (chain), context passing, system prompt on run().
+Current: v0.1.0b11 -- 1105 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback), multimodal input, LLM context compression, ask_user, multi-turn chat, pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping, system prompt on run().
 
 ## Learning Resources
 

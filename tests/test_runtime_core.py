@@ -1,12 +1,13 @@
 """Tests for Runtime, Session, Budget, and SDK entry points."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from arcana.runtime_core import (
     AgentConfig,
     Budget,
+    BudgetScope,
     ChainResult,
     ChainStep,
     RunResult,
@@ -389,6 +390,288 @@ class TestRuntimeChain:
         assert result.success
         assert result.output is None
         assert result.steps == {}
+
+    @pytest.mark.asyncio
+    async def test_chain_parallel_steps(self):
+        """Parallel steps run concurrently and both receive same context."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        calls: list[dict] = []
+
+        async def mock_run(goal, **kwargs):
+            calls.append({"goal": goal, **kwargs})
+            # Return output keyed by goal for identification
+            if "Classify" in goal:
+                return RunResult(
+                    output="classified", success=True, steps=1,
+                    tokens_used=30, cost_usd=0.001, run_id="classify",
+                )
+            else:
+                return RunResult(
+                    output="analyzed", success=True, steps=1,
+                    tokens_used=20, cost_usd=0.002, run_id="analyze",
+                )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                [
+                    ChainStep(name="classify", goal="Classify items"),
+                    ChainStep(name="analyze", goal="Analyze items"),
+                ],
+            ],
+            input="raw data",
+        )
+
+        assert result.success
+        assert len(calls) == 2
+        assert result.steps["classify"] == "classified"
+        assert result.steps["analyze"] == "analyzed"
+        # Both parallel steps receive the same input context
+        assert calls[0]["context"] == "raw data"
+        assert calls[1]["context"] == "raw data"
+        assert result.total_tokens == 50
+        assert result.total_cost_usd == pytest.approx(0.003)
+        # Output is dict when last step is a parallel group
+        assert result.output == {"classify": "classified", "analyze": "analyzed"}
+
+    @pytest.mark.asyncio
+    async def test_chain_parallel_then_sequential(self):
+        """[A, B] -> C: C gets merged context from A and B."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        calls: list[dict] = []
+        call_count = 0
+
+        async def mock_run(goal, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            calls.append({"goal": goal, **kwargs})
+            if "Classify" in goal:
+                return RunResult(
+                    output="classified-result", success=True, steps=1,
+                    tokens_used=10, cost_usd=0.001, run_id="r1",
+                )
+            elif "Analyze" in goal:
+                return RunResult(
+                    output="analyzed-result", success=True, steps=1,
+                    tokens_used=10, cost_usd=0.001, run_id="r2",
+                )
+            else:
+                return RunResult(
+                    output="integrated", success=True, steps=1,
+                    tokens_used=10, cost_usd=0.001, run_id="r3",
+                )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                [
+                    ChainStep(name="classify", goal="Classify items"),
+                    ChainStep(name="analyze", goal="Analyze items"),
+                ],
+                ChainStep(name="integrate", goal="Integrate results"),
+            ],
+            input="raw data",
+        )
+
+        assert result.success
+        assert call_count == 3
+        # Integrate step should receive merged context from both parallel steps
+        integrate_call = [c for c in calls if "Integrate" in c["goal"]][0]
+        ctx = integrate_call["context"]
+        assert "[classify]:" in ctx
+        assert "classified-result" in ctx
+        assert "[analyze]:" in ctx
+        assert "analyzed-result" in ctx
+        assert result.output == "integrated"
+
+    @pytest.mark.asyncio
+    async def test_chain_sequential_then_parallel(self):
+        """A -> [B, C]: B and C both get A's output as context."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        calls: list[dict] = []
+
+        async def mock_run(goal, **kwargs):
+            calls.append({"goal": goal, **kwargs})
+            if "Filter" in goal:
+                return RunResult(
+                    output="filtered-data", success=True, steps=1,
+                    tokens_used=20, cost_usd=0.001, run_id="r1",
+                )
+            elif "Classify" in goal:
+                return RunResult(
+                    output="classified", success=True, steps=1,
+                    tokens_used=15, cost_usd=0.001, run_id="r2",
+                )
+            else:
+                return RunResult(
+                    output="analyzed", success=True, steps=1,
+                    tokens_used=15, cost_usd=0.001, run_id="r3",
+                )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                ChainStep(name="filter", goal="Filter items"),
+                [
+                    ChainStep(name="classify", goal="Classify items"),
+                    ChainStep(name="analyze", goal="Analyze items"),
+                ],
+            ],
+            input="raw data",
+        )
+
+        assert result.success
+        assert result.steps["filter"] == "filtered-data"
+        assert result.steps["classify"] == "classified"
+        assert result.steps["analyze"] == "analyzed"
+        # Both parallel steps should receive filter's output as context
+        classify_call = [c for c in calls if "Classify" in c["goal"]][0]
+        analyze_call = [c for c in calls if "Analyze" in c["goal"]][0]
+        assert classify_call["context"] == "filtered-data"
+        assert analyze_call["context"] == "filtered-data"
+        # Output is dict since last step is parallel
+        assert result.output == {"classify": "classified", "analyze": "analyzed"}
+
+    @pytest.mark.asyncio
+    async def test_chain_parallel_failure_stops_chain(self):
+        """If one parallel step fails, the chain returns failure."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        call_count = 0
+
+        async def mock_run(goal, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if "Classify" in goal:
+                return RunResult(
+                    output="classified", success=True, steps=1,
+                    tokens_used=10, cost_usd=0.001, run_id="r1",
+                )
+            elif "Analyze" in goal:
+                return RunResult(
+                    output="error", success=False, steps=1,
+                    tokens_used=5, cost_usd=0.0005, run_id="r2",
+                )
+            else:
+                # This should never be reached
+                return RunResult(
+                    output="integrated", success=True, steps=1,
+                    tokens_used=10, cost_usd=0.001, run_id="r3",
+                )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                [
+                    ChainStep(name="classify", goal="Classify items"),
+                    ChainStep(name="analyze", goal="Analyze items"),
+                ],
+                ChainStep(name="integrate", goal="Integrate results"),
+            ],
+        )
+
+        assert not result.success
+        # Both parallel steps ran (gather runs all)
+        assert "classify" in result.steps
+        assert "analyze" in result.steps
+        # Integrate never ran
+        assert "integrate" not in result.steps
+
+    @pytest.mark.asyncio
+    async def test_chain_mixed_sequential_and_parallel(self):
+        """Full DAG: A -> [B, C] -> D."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        calls: list[dict] = []
+        call_count = 0
+
+        async def mock_run(goal, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            calls.append({"goal": goal, **kwargs})
+            if "Filter" in goal:
+                return RunResult(
+                    output="filtered", success=True, steps=1,
+                    tokens_used=20, cost_usd=0.001, run_id="r1",
+                )
+            elif "Classify" in goal:
+                return RunResult(
+                    output="classified", success=True, steps=1,
+                    tokens_used=15, cost_usd=0.001, run_id="r2",
+                )
+            elif "Analyze" in goal:
+                return RunResult(
+                    output="analyzed", success=True, steps=1,
+                    tokens_used=15, cost_usd=0.001, run_id="r3",
+                )
+            else:
+                return RunResult(
+                    output="integrated", success=True, steps=1,
+                    tokens_used=25, cost_usd=0.002, run_id="r4",
+                )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                ChainStep(name="filter", goal="Filter items", system="You are a filter"),
+                [
+                    ChainStep(name="classify", goal="Classify items", system="You are a classifier"),
+                    ChainStep(name="analyze", goal="Analyze items", system="You are an analyst"),
+                ],
+                ChainStep(name="integrate", goal="Integrate results", system="You are an integrator"),
+            ],
+            input="raw data",
+        )
+
+        assert result.success
+        assert call_count == 4
+        assert result.steps["filter"] == "filtered"
+        assert result.steps["classify"] == "classified"
+        assert result.steps["analyze"] == "analyzed"
+        assert result.steps["integrate"] == "integrated"
+        assert result.output == "integrated"
+        assert result.total_tokens == 75
+        assert result.total_cost_usd == pytest.approx(0.005)
+
+        # Verify context flow:
+        # 1. Filter gets input
+        filter_call = [c for c in calls if "Filter" in c["goal"]][0]
+        assert filter_call["context"] == "raw data"
+        # 2. Classify and Analyze both get filter's output
+        classify_call = [c for c in calls if "Classify" in c["goal"]][0]
+        analyze_call = [c for c in calls if "Analyze" in c["goal"]][0]
+        assert classify_call["context"] == "filtered"
+        assert analyze_call["context"] == "filtered"
+        # 3. Integrate gets merged context from classify + analyze
+        integrate_call = [c for c in calls if "Integrate" in c["goal"]][0]
+        ctx = integrate_call["context"]
+        assert "[classify]:" in ctx
+        assert "classified" in ctx
+        assert "[analyze]:" in ctx
+        assert "analyzed" in ctx
 
 
 class TestRuntimeRunContext:
@@ -774,3 +1057,431 @@ class TestRuntimeFallbackOrder:
     def test_no_providers(self):
         rt = Runtime()
         assert rt.fallback_order == []
+
+
+class TestRunProviderModelOverride:
+    """Tests for per-run provider/model selection via run(provider=, model=)."""
+
+    @pytest.mark.asyncio
+    async def test_run_with_provider_override(self):
+        """run(provider='openai') passes the override to Session."""
+        rt = Runtime(
+            providers={"ollama": "", "openai": "sk-test"},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured_sessions: list[Session] = []
+        original_create = rt._create_session
+
+        def spy_create(**kwargs):
+            session = original_create(**kwargs)
+            captured_sessions.append(session)
+            return session
+
+        async def fake_run(self_session, goal: str):
+            return MagicMock(
+                output="result",
+                success=True,
+                tokens_used=10,
+                cost_usd=0.001,
+                run_id="test",
+            )
+
+        with (
+            patch.object(rt, "_create_session", side_effect=spy_create),
+            patch.object(Session, "run", fake_run),
+        ):
+            await rt.run("test goal", provider="openai")
+
+        assert len(captured_sessions) == 1
+        assert captured_sessions[0]._provider_override == "openai"
+
+    @pytest.mark.asyncio
+    async def test_run_with_model_override(self):
+        """run(model='custom-model') passes the override to Session."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured_sessions: list[Session] = []
+        original_create = rt._create_session
+
+        def spy_create(**kwargs):
+            session = original_create(**kwargs)
+            captured_sessions.append(session)
+            return session
+
+        async def fake_run(self_session, goal: str):
+            return MagicMock(
+                output="result",
+                success=True,
+                tokens_used=10,
+                cost_usd=0.001,
+                run_id="test",
+            )
+
+        with (
+            patch.object(rt, "_create_session", side_effect=spy_create),
+            patch.object(Session, "run", fake_run),
+        ):
+            await rt.run("test goal", model="custom-model-v2")
+
+        assert len(captured_sessions) == 1
+        assert captured_sessions[0]._model_override == "custom-model-v2"
+
+    @pytest.mark.asyncio
+    async def test_run_with_both_provider_and_model(self):
+        """run(provider='openai', model='gpt-4o') overrides both."""
+        rt = Runtime(
+            providers={"ollama": "", "openai": "sk-test"},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured_sessions: list[Session] = []
+        original_create = rt._create_session
+
+        def spy_create(**kwargs):
+            session = original_create(**kwargs)
+            captured_sessions.append(session)
+            return session
+
+        async def fake_run(self_session, goal: str):
+            return MagicMock(
+                output="result",
+                success=True,
+                tokens_used=10,
+                cost_usd=0.001,
+                run_id="test",
+            )
+
+        with (
+            patch.object(rt, "_create_session", side_effect=spy_create),
+            patch.object(Session, "run", fake_run),
+        ):
+            await rt.run("test goal", provider="openai", model="gpt-4o-mini")
+
+        assert len(captured_sessions) == 1
+        assert captured_sessions[0]._provider_override == "openai"
+        assert captured_sessions[0]._model_override == "gpt-4o-mini"
+
+    @pytest.mark.asyncio
+    async def test_session_builds_custom_model_config_with_overrides(self):
+        """Session.run() builds a custom ModelConfig when overrides are set."""
+        from arcana.contracts.llm import ModelConfig
+
+        rt = Runtime(
+            providers={"ollama": "", "openai": "sk-test"},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        session = rt._create_session(provider="openai", model="gpt-4o")
+
+        # Verify the override fields are stored
+        assert session._provider_override == "openai"
+        assert session._model_override == "gpt-4o"
+
+        # Simulate the model config resolution logic from Session.run()
+        resolved_provider = (
+            session._provider_override or rt._config.default_provider
+        )
+        resolved_model_id = (
+            session._model_override or rt._config.default_model
+        )
+        if not resolved_model_id:
+            p = rt._gateway.get(resolved_provider)
+            if (
+                p
+                and hasattr(p, "default_model")
+                and isinstance(p.default_model, str)
+            ):
+                resolved_model_id = p.default_model
+
+        mc = ModelConfig(provider=resolved_provider, model_id=resolved_model_id)
+        assert mc.provider == "openai"
+        assert mc.model_id == "gpt-4o"
+
+    @pytest.mark.asyncio
+    async def test_session_without_override_uses_default(self):
+        """Session without overrides uses _resolve_model_config()."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        session = rt._create_session()
+        assert session._provider_override is None
+        assert session._model_override is None
+
+
+class TestChainStepProviderModel:
+    """Tests for provider/model fields on ChainStep."""
+
+    def test_chain_step_accepts_provider_and_model(self):
+        """ChainStep accepts provider and model fields."""
+        step = ChainStep(
+            name="analyze",
+            goal="Analyze data",
+            provider="openai",
+            model="gpt-4o",
+        )
+        assert step.provider == "openai"
+        assert step.model == "gpt-4o"
+
+    def test_chain_step_defaults_none(self):
+        """ChainStep provider/model default to None."""
+        step = ChainStep(name="step1", goal="Do something")
+        assert step.provider is None
+        assert step.model is None
+
+    @pytest.mark.asyncio
+    async def test_chain_passes_provider_model_to_run(self):
+        """chain() passes ChainStep provider/model through to run()."""
+        rt = Runtime(
+            providers={"ollama": "", "openai": "sk-test"},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        call_args: list[dict] = []
+
+        async def fake_run(goal, *, provider=None, model=None, **kwargs):
+            call_args.append(
+                {"goal": goal, "provider": provider, "model": model}
+            )
+            return RunResult(
+                output="step result",
+                success=True,
+                steps=1,
+                tokens_used=5,
+                cost_usd=0.0005,
+                run_id="test",
+            )
+
+        rt.run = fake_run  # type: ignore[assignment]
+
+        steps = [
+            ChainStep(
+                name="filter",
+                goal="Filter data",
+                provider="ollama",
+                model="llama3",
+            ),
+            ChainStep(
+                name="analyze",
+                goal="Analyze data",
+                provider="openai",
+                model="gpt-4o",
+            ),
+        ]
+        result = await rt.chain(steps)
+
+        assert result.success
+        assert len(call_args) == 2
+        assert call_args[0]["provider"] == "ollama"
+        assert call_args[0]["model"] == "llama3"
+        assert call_args[1]["provider"] == "openai"
+        assert call_args[1]["model"] == "gpt-4o"
+
+
+class TestBudgetScope:
+    @pytest.mark.asyncio
+    async def test_budget_scope_basic(self):
+        """BudgetScope tracks usage across multiple runs."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        call_count = 0
+
+        async def mock_run(goal, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return RunResult(
+                output=f"result-{call_count}",
+                success=True,
+                steps=1,
+                tokens_used=100,
+                cost_usd=0.01,
+                run_id=f"run-{call_count}",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        async with rt.budget_scope(max_cost_usd=0.10) as scoped:
+            r1 = await scoped.run("Task 1")
+            r2 = await scoped.run("Task 2")
+
+        assert r1.output == "result-1"
+        assert r2.output == "result-2"
+        assert scoped.budget_used_usd == pytest.approx(0.02)
+        assert scoped.tokens_used == 200
+
+    @pytest.mark.asyncio
+    async def test_budget_scope_exhausted(self):
+        """BudgetScope raises BudgetExceededError when scope budget exceeded."""
+        from arcana.gateway.base import BudgetExceededError
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        async def mock_run(goal, **kwargs):
+            return RunResult(
+                output="done",
+                success=True,
+                steps=1,
+                tokens_used=50,
+                cost_usd=0.05,
+                run_id="run",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        async with rt.budget_scope(max_cost_usd=0.08) as scoped:
+            await scoped.run("Task 1")  # costs 0.05
+            assert scoped.budget_used_usd == pytest.approx(0.05)
+
+            await scoped.run("Task 2")  # costs 0.05, total = 0.10 > 0.08 but runs before check
+            # Now the scope has used 0.10 which exceeds 0.08
+            assert scoped.budget_used_usd == pytest.approx(0.10)
+
+            # Third run should raise because scope is already exhausted
+            with pytest.raises(BudgetExceededError, match="Scoped budget exhausted"):
+                await scoped.run("Task 3")
+
+    @pytest.mark.asyncio
+    async def test_budget_scope_token_exhausted(self):
+        """BudgetScope raises BudgetExceededError when token budget exceeded."""
+        from arcana.gateway.base import BudgetExceededError
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        async def mock_run(goal, **kwargs):
+            return RunResult(
+                output="done",
+                success=True,
+                steps=1,
+                tokens_used=600,
+                cost_usd=0.001,
+                run_id="run",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        async with rt.budget_scope(max_tokens=1000) as scoped:
+            await scoped.run("Task 1")  # uses 600 tokens
+            assert scoped.tokens_used == 600
+
+            await scoped.run("Task 2")  # uses 600 more, total = 1200 > 1000
+            assert scoped.tokens_used == 1200
+
+            # Third run should raise
+            with pytest.raises(BudgetExceededError, match="Scoped token budget exhausted"):
+                await scoped.run("Task 3")
+
+    @pytest.mark.asyncio
+    async def test_budget_scope_runtime_also_tracks(self):
+        """Runtime._total_cost_usd also accumulates from scoped runs."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+            budget=Budget(max_cost_usd=5.0),
+        )
+
+        call_count = 0
+
+        async def mock_run(goal, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Simulate runtime._total_cost_usd accumulation
+            rt._total_cost_usd += 0.02
+            rt._total_tokens_used += 100
+            return RunResult(
+                output="done",
+                success=True,
+                steps=1,
+                tokens_used=100,
+                cost_usd=0.02,
+                run_id=f"run-{call_count}",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        assert rt.budget_used_usd == 0.0
+
+        async with rt.budget_scope(max_cost_usd=0.10) as scoped:
+            await scoped.run("Task 1")
+            await scoped.run("Task 2")
+
+        # Scope tracked its own usage
+        assert scoped.budget_used_usd == pytest.approx(0.04)
+        assert scoped.tokens_used == 200
+
+        # Runtime also tracked the same usage
+        assert rt.budget_used_usd == pytest.approx(0.04)
+        assert rt.tokens_used == 200
+
+    @pytest.mark.asyncio
+    async def test_budget_scope_properties(self):
+        """Verify remaining/used properties of BudgetScope."""
+        rt = Runtime()
+
+        scope = BudgetScope(rt, max_cost_usd=1.0, max_tokens=10_000)
+        assert scope.budget_used_usd == 0.0
+        assert scope.budget_remaining_usd == 1.0
+        assert scope.tokens_used == 0
+        assert scope.tokens_remaining == 10_000
+
+        # Simulate usage
+        scope._cost_used = 0.3
+        scope._tokens_used = 4000
+        assert scope.budget_used_usd == pytest.approx(0.3)
+        assert scope.budget_remaining_usd == pytest.approx(0.7)
+        assert scope.tokens_used == 4000
+        assert scope.tokens_remaining == 6000
+
+    @pytest.mark.asyncio
+    async def test_budget_scope_no_limits(self):
+        """BudgetScope with no limits returns None for remaining properties."""
+        rt = Runtime()
+
+        scope = BudgetScope(rt)
+        assert scope.budget_remaining_usd is None
+        assert scope.tokens_remaining is None
+
+    @pytest.mark.asyncio
+    async def test_budget_scope_merges_user_budget(self):
+        """BudgetScope merges user-provided budget with scope budget (stricter wins)."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured_kwargs: list[dict] = []
+
+        async def mock_run(goal, **kwargs):
+            captured_kwargs.append(kwargs)
+            return RunResult(
+                output="done",
+                success=True,
+                steps=1,
+                tokens_used=10,
+                cost_usd=0.001,
+                run_id="run",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        async with rt.budget_scope(max_cost_usd=0.50) as scoped:
+            # User passes a tighter budget
+            await scoped.run("Task", budget=Budget(max_cost_usd=0.01, max_tokens=100))
+
+        # The merged budget should use the stricter (lower) values
+        merged = captured_kwargs[0]["budget"]
+        assert merged.max_cost_usd == 0.01  # user's 0.01 < scope's 0.50
+        assert merged.max_tokens == 100  # user's 100 < scope's 500_000

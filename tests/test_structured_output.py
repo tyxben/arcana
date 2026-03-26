@@ -6,6 +6,7 @@ All tests use mocks -- no real API calls required.
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -499,3 +500,217 @@ class TestToolsWithResponseFormat:
             )
             # tool_gateway should still be available, not nulled out
             assert rt._tool_gateway is not None
+
+
+# =========================================================================
+# 10. on_parse_error callback
+# =========================================================================
+
+
+def _make_fake_state(answer: str) -> Any:
+    """Create a fake completed AgentState with the given answer."""
+    from arcana.contracts.state import AgentState, ExecutionStatus
+
+    state = AgentState(
+        run_id="test-parse-error",
+        goal="test goal",
+        max_steps=1,
+    )
+    state.status = ExecutionStatus.COMPLETED
+    state.working_memory["answer"] = answer
+    state.current_step = 1
+    state.tokens_used = 50
+    return state
+
+
+class TestOnParseErrorCallback:
+    """Test on_parse_error callback for structured output resilience.
+
+    These tests exercise the real Session.run() code path by mocking the
+    ConversationAgent so it sets the agent state without making LLM calls.
+    """
+
+    def _build_runtime(self) -> Any:
+        """Create a minimal Runtime with mocked internals."""
+        from arcana.runtime_core import Budget, Runtime, RuntimeConfig
+
+        rt = Runtime.__new__(Runtime)
+        rt._config = RuntimeConfig(default_provider="test")
+        rt._budget_policy = Budget()
+        rt._namespace = None
+        rt._gateway = MagicMock()
+        rt._tool_registry = None
+        rt._tool_gateway = None
+        rt._trace_writer = None
+        rt._mcp_configs = []
+        rt._mcp_client = None
+        rt._memory_store = None
+        rt._total_tokens_used = 0
+        rt._total_cost_usd = 0.0
+
+        # _resolve_model_config needs to return something valid
+        mock_model_config = MagicMock()
+        rt._resolve_model_config = MagicMock(return_value=mock_model_config)
+
+        return rt
+
+    @pytest.mark.asyncio
+    async def test_on_parse_error_fixes_output(self) -> None:
+        """Callback returns a fixed model instance -> result is success."""
+        malformed_json = '{"name": "Alice", "age": "thirty"}'
+        fixed_person = Person(name="Alice", age=30)
+
+        def fixer(raw: str, error: Exception) -> Person:
+            return fixed_person
+
+        rt = self._build_runtime()
+        fake_state = _make_fake_state(malformed_json)
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=fake_state)
+            MockAgent.return_value = mock_agent_instance
+
+            result = await rt.run(
+                "extract person",
+                response_format=Person,
+                on_parse_error=fixer,
+            )
+
+        assert result.success is True
+        assert isinstance(result.parsed, Person)
+        assert result.parsed.name == "Alice"
+        assert result.parsed.age == 30
+        assert result.output == fixed_person
+
+    @pytest.mark.asyncio
+    async def test_on_parse_error_returns_none(self) -> None:
+        """Callback returns None -> original failure preserved."""
+        malformed_json = '{"name": "Alice", "age": "thirty"}'
+
+        def fixer(raw: str, error: Exception) -> None:
+            return None
+
+        rt = self._build_runtime()
+        fake_state = _make_fake_state(malformed_json)
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=fake_state)
+            MockAgent.return_value = mock_agent_instance
+
+            result = await rt.run(
+                "extract person",
+                response_format=Person,
+                on_parse_error=fixer,
+            )
+
+        assert result.success is False
+        assert result.parsed is None
+        assert isinstance(result.output, str)
+
+    @pytest.mark.asyncio
+    async def test_on_parse_error_callback_raises(self) -> None:
+        """Callback raises an exception -> original failure preserved."""
+        malformed_json = '{"name": "Alice", "age": "thirty"}'
+
+        def fixer(raw: str, error: Exception) -> Person:
+            raise RuntimeError("callback crashed")
+
+        rt = self._build_runtime()
+        fake_state = _make_fake_state(malformed_json)
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=fake_state)
+            MockAgent.return_value = mock_agent_instance
+
+            result = await rt.run(
+                "extract person",
+                response_format=Person,
+                on_parse_error=fixer,
+            )
+
+        assert result.success is False
+        assert result.parsed is None
+
+    @pytest.mark.asyncio
+    async def test_on_parse_error_not_called_on_success(self) -> None:
+        """When parsing succeeds, callback should never be invoked."""
+        valid_json = '{"name": "Alice", "age": 28}'
+        callback_called = False
+
+        def fixer(raw: str, error: Exception) -> Person:
+            nonlocal callback_called
+            callback_called = True
+            return Person(name="fixed", age=0)
+
+        rt = self._build_runtime()
+        fake_state = _make_fake_state(valid_json)
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=fake_state)
+            MockAgent.return_value = mock_agent_instance
+
+            result = await rt.run(
+                "extract person",
+                response_format=Person,
+                on_parse_error=fixer,
+            )
+
+        assert not callback_called
+        assert result.success is True
+        assert isinstance(result.parsed, Person)
+        assert result.parsed.name == "Alice"
+        assert result.parsed.age == 28
+
+    @pytest.mark.asyncio
+    async def test_on_parse_error_receives_raw_and_error(self) -> None:
+        """Verify callback receives the raw string and the actual error."""
+        malformed_json = '{"name": "Alice", "age": "thirty"}'
+        received_args: dict[str, object] = {}
+
+        def fixer(raw: str, error: Exception) -> None:
+            received_args["raw"] = raw
+            received_args["error"] = error
+            return None
+
+        rt = self._build_runtime()
+        fake_state = _make_fake_state(malformed_json)
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=fake_state)
+            MockAgent.return_value = mock_agent_instance
+
+            await rt.run(
+                "extract person",
+                response_format=Person,
+                on_parse_error=fixer,
+            )
+
+        assert "raw" in received_args
+        assert "error" in received_args
+        assert received_args["raw"] == malformed_json
+        assert isinstance(received_args["error"], Exception)

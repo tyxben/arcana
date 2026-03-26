@@ -274,6 +274,7 @@ async def run(
     input_handler: Callable | None = None,  # type: ignore[type-arg]
     system: str | None = None,
     context: dict | str | None = None,
+    on_parse_error: Callable | None = None,  # type: ignore[type-arg]
 ) -> RunResult:
     """
     Run an agent to accomplish a goal.
@@ -356,6 +357,7 @@ async def run(
         input_handler=input_handler,
         system=system,
         context=context,
+        on_parse_error=on_parse_error,
     )
 
     # Convert to sdk.RunResult (keep backward compat)

@@ -31,6 +31,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncGenerator, Callable
@@ -68,6 +69,9 @@ class ChainStep(BaseModel):
     system: str | None = None  # System prompt for this step
     response_format: Any = None  # type[BaseModel] | None
     tools: list[Any] | None = None  # list[Callable] | None
+    provider: str | None = None  # Override provider for this step
+    model: str | None = None  # Override model for this step
+    on_parse_error: Any = None  # Callable[[str, Exception], BaseModel | None] | None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -80,6 +84,78 @@ class ChainResult(BaseModel):
     steps: dict[str, Any] = Field(default_factory=dict)  # name -> output
     total_tokens: int = 0
     total_cost_usd: float = 0.0
+
+
+class BudgetScope:
+    """Scoped budget context — runs inside deduct from both scope and runtime.
+
+    Usage::
+
+        async with runtime.budget_scope(max_cost_usd=0.10) as scoped:
+            result = await scoped.run("Filter items", ...)
+            print(scoped.budget_used_usd)
+    """
+
+    def __init__(
+        self,
+        runtime: Runtime,
+        max_cost_usd: float | None = None,
+        max_tokens: int | None = None,
+    ) -> None:
+        self._runtime = runtime
+        self._max_cost_usd = max_cost_usd
+        self._max_tokens = max_tokens
+        self._cost_used: float = 0.0
+        self._tokens_used: int = 0
+
+    @property
+    def budget_used_usd(self) -> float:
+        return self._cost_used
+
+    @property
+    def budget_remaining_usd(self) -> float | None:
+        if self._max_cost_usd is None:
+            return None
+        return max(0.0, self._max_cost_usd - self._cost_used)
+
+    @property
+    def tokens_used(self) -> int:
+        return self._tokens_used
+
+    @property
+    def tokens_remaining(self) -> int | None:
+        if self._max_tokens is None:
+            return None
+        return max(0, self._max_tokens - self._tokens_used)
+
+    async def run(self, goal: str, **kwargs: Any) -> RunResult:
+        """Run with scoped budget enforcement."""
+        from arcana.gateway.base import BudgetExceededError
+
+        if self._max_cost_usd is not None and self._cost_used >= self._max_cost_usd:
+            raise BudgetExceededError("Scoped budget exhausted (cost)", budget_type="cost")
+        if self._max_tokens is not None and self._tokens_used >= self._max_tokens:
+            raise BudgetExceededError("Scoped token budget exhausted", budget_type="tokens")
+
+        scope_budget: Budget | None = None
+        if self._max_cost_usd is not None or self._max_tokens is not None:
+            remaining_cost = (self._max_cost_usd - self._cost_used if self._max_cost_usd is not None else 10.0)
+            remaining_tokens = (self._max_tokens - self._tokens_used if self._max_tokens is not None else 500_000)
+            scope_budget = Budget(max_cost_usd=remaining_cost, max_tokens=remaining_tokens)
+
+        user_budget: Budget | None = kwargs.pop("budget", None)
+        if user_budget and scope_budget:
+            scope_budget = Budget(
+                max_cost_usd=min(scope_budget.max_cost_usd, user_budget.max_cost_usd),
+                max_tokens=min(scope_budget.max_tokens, user_budget.max_tokens),
+            )
+        elif user_budget:
+            scope_budget = user_budget
+
+        result = await self._runtime.run(goal, budget=scope_budget, **kwargs)
+        self._cost_used += result.cost_usd
+        self._tokens_used += result.tokens_used
+        return result
 
 
 class AgentConfig(BaseModel):
@@ -213,6 +289,9 @@ class Runtime:
         input_handler: Callable | None = None,  # type: ignore[type-arg]
         system: str | None = None,
         context: dict[str, Any] | str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        on_parse_error: Callable | None = None,  # type: ignore[type-arg]
     ) -> RunResult:
         """
         Run a task to completion.
@@ -241,6 +320,11 @@ class Runtime:
                 as JSON; a string is used as-is. Injected into the goal as
                 a ``<context>`` block so the agent can reference prior step
                 outputs or external data.
+            provider: Override the default provider for this run only.
+            model: Override the default model for this run only.
+            on_parse_error: Callback invoked when structured output parsing
+                fails. Receives ``(raw_string, error)`` and may return a
+                fixed ``BaseModel`` instance or ``None``. Supports async.
         """
         import json as _json
 
@@ -279,6 +363,9 @@ class Runtime:
             images=images,
             input_handler=input_handler,
             system=system,
+            provider=provider,
+            model=model,
+            on_parse_error=on_parse_error,
         )
         result = await session.run(goal)
 
@@ -304,6 +391,8 @@ class Runtime:
         max_turns: int | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
         system: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream agent execution events.
 
@@ -329,7 +418,18 @@ class Runtime:
         from arcana.routing.classifier import RuleBasedClassifier
         from arcana.runtime.conversation import ConversationAgent
 
-        model_config = self._resolve_model_config()
+        if provider or model:
+            resolved_provider = provider or self._config.default_provider
+            resolved_model = model or self._config.default_model
+            if not resolved_model:
+                p = self._gateway.get(resolved_provider)
+                if p and hasattr(p, "default_model") and isinstance(p.default_model, str):
+                    resolved_model = p.default_model
+                else:
+                    raise ValueError(f"No default model for provider '{resolved_provider}'")
+            model_config = ModelConfig(provider=resolved_provider, model_id=resolved_model)
+        else:
+            model_config = self._resolve_model_config()
         classifier = RuleBasedClassifier()
 
         agent_kwargs: dict[str, Any] = {
@@ -615,20 +715,26 @@ class Runtime:
 
     async def chain(
         self,
-        steps: list[ChainStep],
+        steps: list[ChainStep | list[ChainStep]],
         *,
         input: str = "",
         budget: Budget | None = None,
     ) -> ChainResult:
         """
-        Run a sequential pipeline of agent steps.
+        Run a pipeline of agent steps with optional parallel branches.
 
-        Each step's output is automatically passed as context to the next
-        step. Use this when you need a linear flow like
-        Filter → Classify → Analyze → Integrate.
+        Each step's output is automatically passed as context to the next.
+        Use nested lists for parallel execution::
+
+            steps=[
+                ChainStep(name="filter", ...),
+                [ChainStep(name="classify", ...), ChainStep(name="analyze", ...)],
+                ChainStep(name="integrate", ...),
+            ]
 
         Args:
-            steps: Ordered list of pipeline steps
+            steps: Ordered list. Each element is a ``ChainStep`` (sequential)
+                or a ``list[ChainStep]`` (parallel branch).
             input: Initial input text fed as context to the first step
             budget: Shared budget across all steps
         """
@@ -637,50 +743,108 @@ class Runtime:
         total_cost_usd = 0.0
         current_context: str = input
 
-        for step in steps:
-            # Build context from previous step output
-            ctx: dict[str, Any] | str | None = None
-            if current_context:
-                ctx = current_context
+        for step_or_group in steps:
+            if isinstance(step_or_group, list):
+                # Parallel execution
+                parallel_steps = step_or_group
 
-            result = await self.run(
-                step.goal,
-                system=step.system,
-                response_format=step.response_format,
-                tools=step.tools,
-                budget=budget,
-                context=ctx,
-            )
+                async def _run_parallel(s: ChainStep, ctx: str) -> tuple[str, RunResult]:
+                    ctx_val: dict[str, Any] | str | None = ctx if ctx else None
+                    r = await self.run(
+                        s.goal, system=s.system, response_format=s.response_format,
+                        tools=s.tools, budget=budget, context=ctx_val,
+                        provider=s.provider, model=s.model,
+                        on_parse_error=s.on_parse_error,
+                    )
+                    return s.name, r
 
-            step_outputs[step.name] = result.output
-            total_tokens += result.tokens_used
-            total_cost_usd += result.cost_usd
-
-            if not result.success:
-                return ChainResult(
-                    output=result.output,
-                    success=False,
-                    steps=step_outputs,
-                    total_tokens=total_tokens,
-                    total_cost_usd=total_cost_usd,
+                results = await asyncio.gather(
+                    *[_run_parallel(s, current_context) for s in parallel_steps],
                 )
 
-            # Pass output as context to next step
-            if result.output is not None:
-                if isinstance(result.output, BaseModel):
-                    current_context = result.output.model_dump_json(indent=2)
-                else:
-                    current_context = str(result.output)
+                failed = False
+                context_parts: list[str] = []
+                for name, result in results:
+                    step_outputs[name] = result.output
+                    total_tokens += result.tokens_used
+                    total_cost_usd += result.cost_usd
+                    if not result.success:
+                        failed = True
+                    if result.output is not None:
+                        if isinstance(result.output, BaseModel):
+                            output_str = result.output.model_dump_json(indent=2)
+                        else:
+                            output_str = str(result.output)
+                        context_parts.append(f"[{name}]:\n{output_str}")
+
+                if failed:
+                    return ChainResult(
+                        output=None, success=False, steps=step_outputs,
+                        total_tokens=total_tokens, total_cost_usd=total_cost_usd,
+                    )
+                current_context = "\n\n".join(context_parts)
             else:
-                current_context = ""
+                # Sequential execution
+                step = step_or_group
+                ctx: dict[str, Any] | str | None = current_context if current_context else None
+
+                result = await self.run(
+                    step.goal, system=step.system, response_format=step.response_format,
+                    tools=step.tools, budget=budget, context=ctx,
+                    provider=step.provider, model=step.model,
+                    on_parse_error=step.on_parse_error,
+                )
+
+                step_outputs[step.name] = result.output
+                total_tokens += result.tokens_used
+                total_cost_usd += result.cost_usd
+
+                if not result.success:
+                    return ChainResult(
+                        output=result.output, success=False, steps=step_outputs,
+                        total_tokens=total_tokens, total_cost_usd=total_cost_usd,
+                    )
+
+                if result.output is not None:
+                    if isinstance(result.output, BaseModel):
+                        current_context = result.output.model_dump_json(indent=2)
+                    else:
+                        current_context = str(result.output)
+                else:
+                    current_context = ""
+
+        if steps:
+            last = steps[-1]
+            if isinstance(last, list):
+                output = {s.name: step_outputs[s.name] for s in last}
+            else:
+                output = step_outputs.get(last.name)
+        else:
+            output = None
 
         return ChainResult(
-            output=step_outputs.get(steps[-1].name) if steps else None,
-            success=True,
-            steps=step_outputs,
-            total_tokens=total_tokens,
-            total_cost_usd=total_cost_usd,
+            output=output, success=True, steps=step_outputs,
+            total_tokens=total_tokens, total_cost_usd=total_cost_usd,
         )
+
+    # ------------------------------------------------------------------
+    # Budget scoping
+    # ------------------------------------------------------------------
+
+    @asynccontextmanager
+    async def budget_scope(
+        self,
+        max_cost_usd: float | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncGenerator[BudgetScope, None]:
+        """Create a scoped budget context.
+
+        Runs inside the scope deduct from both the scope budget and
+        the runtime's global budget. When the scope is exhausted,
+        only runs inside the scope are affected.
+        """
+        scope = BudgetScope(self, max_cost_usd=max_cost_usd, max_tokens=max_tokens)
+        yield scope
 
     # ------------------------------------------------------------------
     # Graph node factories
@@ -906,6 +1070,9 @@ class Runtime:
         images: list[str] | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
         system: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        on_parse_error: Callable | None = None,  # type: ignore[type-arg]
     ) -> Session:
         """Create a new session with per-run resources."""
         return Session(
@@ -919,6 +1086,9 @@ class Runtime:
             images=images,
             input_handler=input_handler,
             system=system,
+            provider=provider,
+            model=model,
+            on_parse_error=on_parse_error,
         )
 
     def _create_budget_tracker(self) -> Any:
@@ -980,6 +1150,9 @@ class Session:
         images: list[str] | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
         system: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        on_parse_error: Callable | None = None,  # type: ignore[type-arg]
     ) -> None:
         self._runtime = runtime
         self._engine = engine
@@ -991,6 +1164,9 @@ class Session:
         self._images = images
         self._input_handler = input_handler
         self._system = system
+        self._provider_override = provider
+        self._model_override = model
+        self._on_parse_error = on_parse_error
 
         # Per-run resources
         self.run_id = str(uuid4())
@@ -1012,7 +1188,18 @@ class Session:
         tool_gateway = self._runtime._tool_gateway
         # TODO: merge extra_tools if provided
 
-        model_config = self._runtime._resolve_model_config()
+        if self._provider_override or self._model_override:
+            resolved_provider = self._provider_override or self._runtime._config.default_provider
+            resolved_model_id = self._model_override or self._runtime._config.default_model
+            if not resolved_model_id:
+                p = self._runtime._gateway.get(resolved_provider)
+                if p and hasattr(p, "default_model") and isinstance(p.default_model, str):
+                    resolved_model_id = p.default_model
+                else:
+                    raise ValueError(f"No default model for provider '{resolved_provider}'")
+            model_config = ModelConfig(provider=resolved_provider, model_id=resolved_model_id)
+        else:
+            model_config = self._runtime._resolve_model_config()
 
         # Convert Pydantic model to JSON schema for the LLM request
         response_format_schema: dict[str, Any] | None = None
@@ -1087,7 +1274,25 @@ class Session:
                 parsed_model = self._response_format.model_validate(parsed_json)
                 # Backward compat: output holds the validated model too
                 clean_output = parsed_model
-            except (_json.JSONDecodeError, Exception):
+            except (_json.JSONDecodeError, Exception) as parse_error:
+                if self._on_parse_error is not None:
+                    try:
+                        if asyncio.iscoroutinefunction(self._on_parse_error):
+                            fixed = await self._on_parse_error(clean_output, parse_error)
+                        else:
+                            fixed = self._on_parse_error(clean_output, parse_error)
+                        if fixed is not None:
+                            return RunResult(
+                                output=fixed,
+                                parsed=fixed,
+                                success=True,
+                                steps=self.state.current_step,
+                                tokens_used=self.state.tokens_used,
+                                cost_usd=self.state.cost_usd,
+                                run_id=self.state.run_id,
+                            )
+                    except Exception:
+                        pass
                 return RunResult(
                     output=clean_output,
                     parsed=None,
