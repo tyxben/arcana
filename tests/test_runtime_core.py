@@ -8,7 +8,6 @@ from arcana.runtime_core import (
     AgentConfig,
     Budget,
     BudgetScope,
-    ChainResult,
     ChainStep,
     RunResult,
     Runtime,
@@ -683,12 +682,6 @@ class TestRuntimeRunContext:
             config=RuntimeConfig(default_provider="ollama"),
         )
 
-        captured_goal = None
-
-        original_create_session = rt._create_session
-
-        def mock_create_session(**kwargs):
-            return original_create_session(**kwargs)
 
         # Mock at the session level to capture the goal
         from arcana.contracts.llm import LLMResponse, TokenUsage
@@ -702,7 +695,7 @@ class TestRuntimeRunContext:
         rt._gateway.generate = AsyncMock(return_value=mock_response)
         rt._gateway.stream = AsyncMock(side_effect=AttributeError)
 
-        result = await rt.run(
+        await rt.run(
             "Classify these items",
             context={"batch_insight": "all tech news", "count": 42},
         )

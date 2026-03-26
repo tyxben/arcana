@@ -495,7 +495,7 @@ class TestToolsWithResponseFormat:
             rt._total_tokens_used = 0
             rt._total_cost_usd = 0.0
 
-            session = rt._create_session(
+            rt._create_session(
                 response_format=Person,
             )
             # tool_gateway should still be available, not nulled out
