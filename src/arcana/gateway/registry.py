@@ -229,6 +229,57 @@ class ModelGatewayRegistry:
 
         raise last_error
 
+    async def batch_generate(
+        self,
+        requests: list[LLMRequest],
+        config: ModelConfig,
+        *,
+        concurrency: int = 5,
+        trace_ctx: TraceContext | None = None,
+    ) -> list[LLMResponse | ProviderError]:
+        """Generate responses for multiple requests concurrently.
+
+        Delegates to the provider's ``batch_generate`` if available,
+        otherwise falls back to running ``generate`` calls concurrently
+        with a semaphore.
+
+        Each request is independent -- failures in one don't affect others.
+        Failed requests return the ProviderError instance in that position.
+
+        Args:
+            requests: List of LLM requests to process.
+            config: Model configuration (shared across all requests).
+            concurrency: Maximum number of concurrent API calls (default 5).
+            trace_ctx: Optional trace context for logging.
+
+        Returns:
+            List of LLMResponse or ProviderError, one per request,
+            preserving input order.
+        """
+        if not requests:
+            return []
+
+        _provider_name, provider = self._resolve_provider(config)
+
+        # Prefer provider-level batch if available
+        if hasattr(provider, "batch_generate"):
+            return await provider.batch_generate(
+                requests, config, concurrency=concurrency, trace_ctx=trace_ctx,
+            )
+
+        # Fallback: semaphore + gather over self.generate (includes retry/fallback)
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def _guarded(request: LLMRequest) -> LLMResponse | ProviderError:
+            async with semaphore:
+                try:
+                    return await self.generate(request, config, trace_ctx)
+                except ProviderError as e:
+                    return e
+
+        results = await asyncio.gather(*[_guarded(req) for req in requests])
+        return list(results)
+
     async def stream(
         self,
         request: LLMRequest,

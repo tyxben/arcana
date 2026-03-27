@@ -1,6 +1,6 @@
 """Arcana Agent Platform - A controllable, reproducible, and evaluable Agent Platform."""
 
-__version__ = "0.1.0b13"
+__version__ = "0.2.0"
 
 from arcana.contracts.mcp import MCPServerConfig as MCPServerConfig
 from arcana.contracts.streaming import StreamEvent as StreamEvent
@@ -8,6 +8,7 @@ from arcana.graph import END as END
 from arcana.graph import START as START
 from arcana.graph import StateGraph as StateGraph
 from arcana.runtime_core import AgentConfig as AgentConfig
+from arcana.runtime_core import BatchResult as BatchResult
 from arcana.runtime_core import Budget as Budget
 from arcana.runtime_core import BudgetScope as BudgetScope
 from arcana.runtime_core import ChainResult as ChainResult

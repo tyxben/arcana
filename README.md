@@ -2,10 +2,10 @@
 
 **Agent runtime that lets LLMs think, not just execute.**
 
-[![Version](https://img.shields.io/badge/version-0.1.0b7-blue)](https://pypi.org/project/arcana-agent/)
+[![Version](https://img.shields.io/badge/version-0.1.0b13-blue)](https://pypi.org/project/arcana-agent/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1045%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1135%20passing-brightgreen)]()
 
 ---
 
@@ -124,9 +124,25 @@ result = await arcana.run(
 )
 ```
 
+### Pipeline
+
+Sequential steps with optional parallel branches. Each step's output flows as context to the next.
+
+```python
+result = await runtime.chain([
+    arcana.ChainStep(name="research", goal="Find key facts about quantum computing"),
+    [  # parallel branch
+        arcana.ChainStep(name="summary", goal="Write a concise summary"),
+        arcana.ChainStep(name="critique", goal="Identify gaps and biases"),
+    ],
+    arcana.ChainStep(name="final", goal="Integrate summary and critique into a report"),
+])
+print(result.steps["final"])
+```
+
 ### Multi-Agent Teams
 
-Runtime provides communication and budget. Agents decide strategy -- no forced hierarchy.
+Runtime provides communication and budget. Agents decide strategy -- no forced hierarchy. Two modes: `"shared"` (all agents see everything) and `"session"` (independent contexts, messages arrive as user messages).
 
 ```python
 result = await runtime.team(
@@ -137,7 +153,19 @@ result = await runtime.team(
         arcana.AgentConfig(name="critic", prompt="You find weaknesses and suggest improvements."),
     ],
     max_rounds=3,
+    mode="shared",  # or "session" for independent contexts
 )
+```
+
+### Budget Scoping
+
+Isolate budget for a subset of runs without affecting the global runtime budget.
+
+```python
+async with runtime.budget_scope(max_cost_usd=0.50) as scoped:
+    r1 = await scoped.run("Classify this document")
+    r2 = await scoped.run("Extract key entities")
+    print(f"Scoped cost: ${scoped.budget_used_usd:.4f}")
 ```
 
 ### Graph Orchestration
@@ -169,6 +197,7 @@ result = await app.ainvoke(initial_state)
 | **Thinking signals** | Ignored | Ignored | Ignored | Runtime listens to thinking for confidence, never constrains |
 | **Tool management** | All tools in every prompt | Per-agent tool sets | All tools always | Dynamic per-turn exposure with affordances |
 | **User interaction** | Not built in | Not built in | Not built in | `ask_user` built-in, graceful fallback if no handler |
+| **Pipelines** | Chain + glue code | Sequential tasks | No pipelines | `chain()` with auto context passing + parallel branches |
 | **Default path** | Chain/graph required | Crew required | Agent loop always | Direct answer when possible, agent loop when needed |
 
 ---

@@ -928,6 +928,108 @@ class TestProviderResponseFormatDowngrade:
         provider = create_gemini_provider(api_key="AIza-test")
         assert provider._supports_json_schema is True
 
+    def test_anthropic_provider_injects_schema_into_system(self) -> None:
+        """Anthropic provider should inject schema into system prompt."""
+        from arcana.contracts.llm import Message, MessageRole, ModelConfig
+        from arcana.gateway.providers.anthropic import to_anthropic_request
+
+        schema = Person.model_json_schema()
+        request = LLMRequest(
+            messages=[
+                Message(role=MessageRole.SYSTEM, content="You are helpful."),
+                Message(role=MessageRole.USER, content="Extract person"),
+            ],
+            response_format=schema,
+        )
+        config = ModelConfig(
+            provider="anthropic",
+            model_id="claude-sonnet-4-20250514",
+            max_tokens=4096,
+        )
+
+        params = to_anthropic_request(request, config)
+
+        # System prompt should contain the schema instruction
+        system_content = params["system"]
+        if isinstance(system_content, list):
+            system_text = system_content[0]["text"]
+        else:
+            system_text = system_content
+        assert "You MUST respond with valid JSON" in system_text
+        assert '"name"' in system_text
+
+    def test_anthropic_provider_schema_without_system_message(self) -> None:
+        """Anthropic provider should create system prompt from schema when none exists."""
+        from arcana.contracts.llm import Message, MessageRole, ModelConfig
+        from arcana.gateway.providers.anthropic import to_anthropic_request
+
+        schema = Person.model_json_schema()
+        request = LLMRequest(
+            messages=[
+                Message(role=MessageRole.USER, content="Extract person"),
+            ],
+            response_format=schema,
+        )
+        config = ModelConfig(
+            provider="anthropic",
+            model_id="claude-sonnet-4-20250514",
+            max_tokens=4096,
+        )
+
+        params = to_anthropic_request(request, config)
+
+        # Should still have system with schema even though no original system message
+        assert "system" in params
+        system_content = params["system"]
+        if isinstance(system_content, list):
+            system_text = system_content[0]["text"]
+        else:
+            system_text = system_content
+        assert "You MUST respond with valid JSON" in system_text
+
+    def test_anthropic_provider_schema_coexists_with_tools(self) -> None:
+        """Anthropic provider should inject schema even when tools are present."""
+        from arcana.contracts.llm import Message, MessageRole, ModelConfig
+        from arcana.gateway.providers.anthropic import to_anthropic_request
+
+        schema = Person.model_json_schema()
+        tool = {
+            "type": "function",
+            "function": {
+                "name": "search",
+                "description": "Search for info",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        request = LLMRequest(
+            messages=[
+                Message(role=MessageRole.SYSTEM, content="You are helpful."),
+                Message(role=MessageRole.USER, content="Extract person"),
+            ],
+            response_format=schema,
+            tools=[tool],
+        )
+        config = ModelConfig(
+            provider="anthropic",
+            model_id="claude-sonnet-4-20250514",
+            max_tokens=4096,
+        )
+
+        params = to_anthropic_request(request, config)
+
+        # Schema in system prompt
+        system_content = params["system"]
+        if isinstance(system_content, list):
+            system_text = system_content[0]["text"]
+        else:
+            system_text = system_content
+        assert "You MUST respond with valid JSON" in system_text
+
+        # Tools still present
+        assert "tools" in params
+        assert len(params["tools"]) == 1
+        assert params["tools"][0]["name"] == "search"
+
     def test_downgrade_without_system_message(self) -> None:
         """When no system message exists, json_object is still used."""
         from arcana.gateway.providers.openai_compatible import (
@@ -1047,3 +1149,131 @@ class TestStructuredOutputSkipsStreaming:
         # stream() was used (generate should not have been called)
         mock_gateway.generate.assert_not_called()
         assert state.status.value == "completed"
+
+
+# =========================================================================
+# 13. parsed is always BaseModel or None (never dict)
+# =========================================================================
+
+
+class TestParsedAlwaysModel:
+    """Guarantee result.parsed is BaseModel | None, never a raw dict."""
+
+    def _build_runtime(self) -> Any:
+        from arcana.runtime_core import Budget, Runtime, RuntimeConfig
+
+        rt = Runtime.__new__(Runtime)
+        rt._config = RuntimeConfig(default_provider="test")
+        rt._budget_policy = Budget()
+        rt._namespace = None
+        rt._gateway = MagicMock()
+        rt._tool_registry = None
+        rt._tool_gateway = None
+        rt._trace_writer = None
+        rt._mcp_configs = []
+        rt._mcp_client = None
+        rt._memory_store = None
+        rt._total_tokens_used = 0
+        rt._total_cost_usd = 0.0
+        rt._resolve_model_config = MagicMock(return_value=MagicMock())
+        return rt
+
+    @pytest.mark.asyncio
+    async def test_on_parse_error_returns_dict_gets_validated(self) -> None:
+        """on_parse_error returning a dict should be model_validate'd."""
+        malformed_json = '{"name": "Alice", "age": "thirty"}'
+
+        def fixer(raw: str, error: Exception) -> dict:  # type: ignore[return-type]
+            return {"name": "Alice", "age": 30}
+
+        rt = self._build_runtime()
+        fake_state = _make_fake_state(malformed_json)
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=fake_state)
+            MockAgent.return_value = mock_agent_instance
+
+            result = await rt.run(
+                "extract person",
+                response_format=Person,
+                on_parse_error=fixer,
+            )
+
+        assert result.success is True
+        assert isinstance(result.parsed, Person), (
+            f"parsed should be Person, got {type(result.parsed)}"
+        )
+        assert result.parsed.name == "Alice"
+        assert result.parsed.age == 30
+
+    @pytest.mark.asyncio
+    async def test_working_memory_dict_gets_validated(self) -> None:
+        """If working_memory['answer'] is a dict, it should be validated."""
+        from arcana.contracts.state import AgentState, ExecutionStatus
+
+        state = AgentState(
+            run_id="test-dict-answer",
+            goal="test",
+            max_steps=1,
+        )
+        state.status = ExecutionStatus.COMPLETED
+        # Simulate a code path that stores a dict instead of a string
+        state.working_memory["answer"] = {"name": "Bob", "age": 25}
+        state.current_step = 1
+        state.tokens_used = 50
+
+        rt = self._build_runtime()
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=state)
+            MockAgent.return_value = mock_agent_instance
+
+            result = await rt.run(
+                "extract person",
+                response_format=Person,
+            )
+
+        assert result.success is True
+        assert isinstance(result.parsed, Person)
+        assert result.parsed.name == "Bob"
+        assert result.parsed.age == 25
+
+    @pytest.mark.asyncio
+    async def test_on_parse_error_returns_invalid_dict_fails_gracefully(self) -> None:
+        """on_parse_error returning an invalid dict falls back to failure."""
+        malformed_json = '{"name": "Alice", "age": "thirty"}'
+
+        def fixer(raw: str, error: Exception) -> dict:  # type: ignore[return-type]
+            return {"wrong_field": True}
+
+        rt = self._build_runtime()
+        fake_state = _make_fake_state(malformed_json)
+
+        with patch(
+            "arcana.runtime.conversation.ConversationAgent"
+        ) as MockAgent, patch(
+            "arcana.routing.classifier.RuleBasedClassifier"
+        ):
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.run = AsyncMock(return_value=fake_state)
+            MockAgent.return_value = mock_agent_instance
+
+            result = await rt.run(
+                "extract person",
+                response_format=Person,
+                on_parse_error=fixer,
+            )
+
+        # Should fall through to failure since dict doesn't match Person
+        assert result.success is False
+        assert result.parsed is None

@@ -91,6 +91,21 @@ def to_anthropic_request(request: LLMRequest, config: ModelConfig) -> dict[str, 
 
         api_messages.append(_convert_message(msg, role))
 
+    # -- structured output (response_format) --------------------------------
+    # Anthropic has no native response_format param.  Inject the schema into
+    # the system prompt so the model returns valid JSON, consistent with the
+    # json_object fallback used by DeepSeek / Ollama / Kimi / etc.
+    if request.response_format:
+        schema_instruction = (
+            "\n\nYou MUST respond with valid JSON matching this exact schema:\n"
+            f"```json\n{json.dumps(request.response_format, indent=2)}\n```\n"
+            "Return ONLY the JSON object, no other text."
+        )
+        if system_text:
+            system_text += schema_instruction
+        else:
+            system_text = schema_instruction.lstrip("\n")
+
     # -- build params -------------------------------------------------------
     params: dict[str, Any] = {
         "model": config.model_id,

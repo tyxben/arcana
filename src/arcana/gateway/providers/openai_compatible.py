@@ -15,6 +15,7 @@ the OpenAI chat completions format. Most modern LLM providers support this:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
@@ -453,6 +454,48 @@ class OpenAICompatibleProvider(ModelGateway):
             self.trace_writer.write(event)
 
         return llm_response
+
+    async def batch_generate(
+        self,
+        requests: list[LLMRequest],
+        config: ModelConfig,
+        *,
+        concurrency: int = 5,
+        trace_ctx: TraceContext | None = None,
+    ) -> list[LLMResponse | ProviderError]:
+        """Generate responses for multiple requests concurrently.
+
+        Uses asyncio.Semaphore to limit concurrent API calls.
+        Each request is independent -- failures in one don't affect others.
+        Failed requests return the ProviderError instance in that position
+        instead of an LLMResponse.
+
+        Args:
+            requests: List of LLM requests to process.
+            config: Model configuration (shared across all requests).
+            concurrency: Maximum number of concurrent API calls (default 5).
+            trace_ctx: Optional trace context for logging.
+
+        Returns:
+            List of LLMResponse or ProviderError, one per request,
+            preserving input order.
+        """
+        if not requests:
+            return []
+
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def _guarded_generate(request: LLMRequest) -> LLMResponse | ProviderError:
+            async with semaphore:
+                try:
+                    return await self.generate(request, config, trace_ctx)
+                except ProviderError as e:
+                    return e
+
+        results = await asyncio.gather(
+            *[_guarded_generate(req) for req in requests],
+        )
+        return list(results)
 
     async def stream(
         self,

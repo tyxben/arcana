@@ -2,6 +2,73 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [0.2.0] - 2026-03-27
+
+### Fixed — Structured Output Reliability
+- **`result.parsed` always returns `BaseModel | None`**: Fixed bug where `parsed` could be a raw `dict` when provider degrades to `json_object` mode. Now handles dict inputs, validates `on_parse_error` callback returns, and guarantees type consistency
+- **Anthropic structured output**: `AnthropicProvider` now supports `response_format` — injects JSON schema into system prompt (same fallback strategy as DeepSeek/Ollama/Kimi). Works with and without tools
+
+### Added — Batch API & Budget Granularity
+- **`Runtime.run_batch(tasks, concurrency=5)`**: Run multiple independent tasks concurrently with `asyncio.Semaphore`. Individual failures don't crash the batch. Returns `BatchResult` with results, succeeded/failed counts, total tokens/cost
+- **Provider-level `batch_generate()`**: `OpenAICompatibleProvider.batch_generate(requests, config, concurrency=5)` for concurrent LLM calls. Registry-level fallback when provider doesn't implement batch
+- **`ChainStep.budget`**: Per-step budget in `chain()` pipelines. Each step can have its own budget cap, always capped by chain-level remaining budget. Steps without budget share the chain pool
+
+### Stats
+- Tests: 1164, all passing
+
+## [0.1.0-beta.8] - 2026-03-27
+
+### Added — Team Dual Mode
+- **`runtime.team(mode="shared"|"session")`**: Two collaboration modes. `"shared"` (default) — all agents share one conversation history. `"session"` — each agent has an independent context; other agents' messages arrive as user messages
+
+### Stats
+- Tests: 1135, all passing
+
+## [0.1.0-beta.7] - 2026-03-27
+
+### Fixed — Provider Compatibility
+- **Cost estimation**: `TokenUsage.cost_estimate` now uses realistic mid-range pricing ($0.15/M input, $0.60/M output) instead of placeholder values
+- **Zero-token warning**: When a provider reports 0 tokens, the runtime estimates from response length and logs a warning instead of silently tracking $0
+- **Structured output + json_schema auto-downgrade**: Providers that don't support `json_schema` response format (DeepSeek, Ollama, Kimi, GLM, MiniMax) automatically fall back to `json_object` with schema instructions injected into system prompt
+- **Provider model config**: `providers` dict now accepts `{"provider": {"api_key": "...", "model": "..."}}` to override default model per provider
+- **Tool call logging**: Debug-level logs for all tool calls and results (name, arguments, output)
+
+## [0.1.0-beta.6] - 2026-03-26
+
+### Added — Pipeline & Budget Control
+- **Parallel chain branches**: `runtime.chain()` now accepts nested lists for parallel execution — `[ChainStep, [ChainStep, ChainStep], ChainStep]` runs the inner list concurrently with `asyncio.gather`
+- **Per-run provider/model selection**: `runtime.run(provider="openai", model="gpt-4o")` overrides default provider/model for a single run. Also available on `runtime.stream()` and `ChainStep`
+- **Budget scoping**: `async with runtime.budget_scope(max_cost_usd=0.50) as scoped:` isolates budget for a subset of runs
+- **`on_parse_error` callback**: `runtime.run(response_format=MyModel, on_parse_error=fix_fn)` — fires on `json.JSONDecodeError` or `pydantic.ValidationError`, NOT on provider-level format rejection
+- **`result.parsed` field**: `RunResult.parsed` holds the validated Pydantic model (separate from `result.output` for backward compatibility)
+- **`Tool` class**: Non-decorator tool registration — `Tool(fn=my_func, when_to_use="...")` for when `@arcana.tool` is not practical
+
+### Changed
+- `ChainStep` now supports `provider`, `model`, and `on_parse_error` fields
+- Tools and structured output coexist — agent uses tools during reasoning and returns structured output on the final turn
+- `BudgetScope` exported from `arcana` package
+
+## [0.1.0-beta.5] - 2026-03-25
+
+### Fixed
+- 8 user-reported issues: SDK `system` and `context` parameters, fallback chain logging, budget tracking across runs, `runtime.fallback_order` property, provider `get_fallback_chain()` method, Tool wrapper support in registry
+
+### Added
+- **`arcana.run(system=..., context=...)`**: System prompt and context injection available at SDK level
+- **`runtime.budget_remaining_usd`** / **`runtime.tokens_used`**: Runtime-level cumulative budget tracking properties
+- **Auto fallback chain**: Multiple providers automatically form a fallback chain based on registration order
+
+## [0.1.0-beta.4] - 2026-03-24
+
+### Fixed
+- 14 mypy strict errors regressed after beta.3
+- `ChatSession.send()` now uses `generate()` instead of `stream()` for reliable usage tracking
+- CI lint errors (unused imports, import sorting, bare except)
+
+### Added
+- Automated PyPI publish workflow (CI)
+- Integration verification tests for b7 features
+
 ## [0.1.0-beta.3] - 2026-03-24
 
 ### Added — LLM Capability Amplification

@@ -1724,3 +1724,149 @@ class TestBudgetScope:
         merged = captured_kwargs[0]["budget"]
         assert merged.max_cost_usd == 0.01  # user's 0.01 < scope's 0.50
         assert merged.max_tokens == 100  # user's 100 < scope's 500_000
+
+
+class TestChainStepBudget:
+    """Tests for per-step budget in chain()."""
+
+    @pytest.mark.asyncio
+    async def test_step_with_budget_receives_step_budget(self):
+        """A step with its own budget passes that budget to run()."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured_budgets: list[Budget | None] = []
+
+        async def mock_run(goal, **kwargs):
+            captured_budgets.append(kwargs.get("budget"))
+            return RunResult(
+                output="ok", success=True, steps=1,
+                tokens_used=10, cost_usd=0.001, run_id="run",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        step_budget = Budget(max_cost_usd=0.05, max_tokens=1000)
+        result = await rt.chain(
+            steps=[ChainStep(name="a", goal="Do A", budget=step_budget)],
+        )
+
+        assert result.success
+        assert captured_budgets[0] is not None
+        assert captured_budgets[0].max_cost_usd == 0.05
+        assert captured_budgets[0].max_tokens == 1000
+
+    @pytest.mark.asyncio
+    async def test_step_without_budget_uses_chain_budget(self):
+        """A step without its own budget uses the chain-level budget."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured_budgets: list[Budget | None] = []
+
+        async def mock_run(goal, **kwargs):
+            captured_budgets.append(kwargs.get("budget"))
+            return RunResult(
+                output="ok", success=True, steps=1,
+                tokens_used=100, cost_usd=0.01, run_id="run",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        chain_budget = Budget(max_cost_usd=1.0, max_tokens=10_000)
+        result = await rt.chain(
+            steps=[
+                ChainStep(name="a", goal="Do A"),
+                ChainStep(name="b", goal="Do B"),
+            ],
+            budget=chain_budget,
+        )
+
+        assert result.success
+        # First step gets full chain budget
+        assert captured_budgets[0] is not None
+        assert captured_budgets[0].max_cost_usd == 1.0
+        assert captured_budgets[0].max_tokens == 10_000
+        # Second step gets chain budget minus what step 1 spent
+        assert captured_budgets[1] is not None
+        assert captured_budgets[1].max_cost_usd == pytest.approx(0.99)
+        assert captured_budgets[1].max_tokens == 9_900
+
+    @pytest.mark.asyncio
+    async def test_step_budget_capped_by_chain_remaining(self):
+        """Step budget is capped by chain remaining budget."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured_budgets: list[Budget | None] = []
+
+        async def mock_run(goal, **kwargs):
+            captured_budgets.append(kwargs.get("budget"))
+            return RunResult(
+                output="ok", success=True, steps=1,
+                tokens_used=8000, cost_usd=0.80, run_id="run",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        chain_budget = Budget(max_cost_usd=1.0, max_tokens=10_000)
+        result = await rt.chain(
+            steps=[
+                ChainStep(name="a", goal="Do A"),  # spends 0.80 / 8000
+                ChainStep(name="b", goal="Do B", budget=Budget(max_cost_usd=0.50, max_tokens=5000)),
+            ],
+            budget=chain_budget,
+        )
+
+        assert result.success
+        # Step b wants 0.50 / 5000 but chain only has 0.20 / 2000 left
+        assert captured_budgets[1] is not None
+        assert captured_budgets[1].max_cost_usd == pytest.approx(0.20)
+        assert captured_budgets[1].max_tokens == 2000
+
+    @pytest.mark.asyncio
+    async def test_parallel_steps_each_get_own_budget(self):
+        """Parallel steps each get their own per-step budget."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured: dict[str, Budget | None] = {}
+
+        async def mock_run(goal, **kwargs):
+            # Use goal to identify which step
+            name = "x" if "X" in goal else "y"
+            captured[name] = kwargs.get("budget")
+            return RunResult(
+                output=f"{name}-out", success=True, steps=1,
+                tokens_used=10, cost_usd=0.001, run_id=f"run-{name}",
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        chain_budget = Budget(max_cost_usd=5.0, max_tokens=50_000)
+        result = await rt.chain(
+            steps=[
+                [
+                    ChainStep(name="x", goal="Do X", budget=Budget(max_cost_usd=0.10, max_tokens=1000)),
+                    ChainStep(name="y", goal="Do Y", budget=Budget(max_cost_usd=0.20, max_tokens=2000)),
+                ],
+            ],
+            budget=chain_budget,
+        )
+
+        assert result.success
+        # Each parallel step gets its own budget, capped by chain remaining
+        assert captured["x"] is not None
+        assert captured["x"].max_cost_usd == 0.10
+        assert captured["x"].max_tokens == 1000
+        assert captured["y"] is not None
+        assert captured["y"].max_cost_usd == 0.20
+        assert captured["y"].max_tokens == 2000

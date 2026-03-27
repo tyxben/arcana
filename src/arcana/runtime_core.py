@@ -72,6 +72,7 @@ class ChainStep(BaseModel):
     provider: str | None = None  # Override provider for this step
     model: str | None = None  # Override model for this step
     on_parse_error: Any = None  # Callable[[str, Exception], BaseModel | None] | None
+    budget: Budget | None = None  # Per-step budget cap (soft, within chain budget)
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -84,6 +85,16 @@ class ChainResult(BaseModel):
     steps: dict[str, Any] = Field(default_factory=dict)  # name -> output
     total_tokens: int = 0
     total_cost_usd: float = 0.0
+
+
+class BatchResult(BaseModel):
+    """Result of a batch execution (multiple independent runs)."""
+
+    results: list[Any] = Field(default_factory=list)  # list[RunResult]
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    succeeded: int = 0
+    failed: int = 0
 
 
 class BudgetScope:
@@ -804,23 +815,40 @@ class Runtime:
         total_cost_usd = 0.0
         current_context: str = input
 
+        def _effective_budget(step_budget: Budget | None) -> Budget | None:
+            """Compute effective budget: min(step_budget, chain_remaining)."""
+            if budget is None and step_budget is None:
+                return None
+            chain_remaining: Budget | None = None
+            if budget is not None:
+                chain_remaining = Budget(
+                    max_cost_usd=max(0.0, budget.max_cost_usd - total_cost_usd),
+                    max_tokens=max(0, budget.max_tokens - total_tokens),
+                )
+            if step_budget is not None and chain_remaining is not None:
+                return Budget(
+                    max_cost_usd=min(step_budget.max_cost_usd, chain_remaining.max_cost_usd),
+                    max_tokens=min(step_budget.max_tokens, chain_remaining.max_tokens),
+                )
+            return step_budget if step_budget is not None else chain_remaining
+
         for step_or_group in steps:
             if isinstance(step_or_group, list):
                 # Parallel execution
                 parallel_steps = step_or_group
 
-                async def _run_parallel(s: ChainStep, ctx: str) -> tuple[str, RunResult]:
+                async def _run_parallel(s: ChainStep, ctx: str, eff_budget: Budget | None) -> tuple[str, RunResult]:
                     ctx_val: dict[str, Any] | str | None = ctx if ctx else None
                     r = await self.run(
                         s.goal, system=s.system, response_format=s.response_format,
-                        tools=s.tools, budget=budget, context=ctx_val,
+                        tools=s.tools, budget=eff_budget, context=ctx_val,
                         provider=s.provider, model=s.model,
                         on_parse_error=s.on_parse_error,
                     )
                     return s.name, r
 
                 results = await asyncio.gather(
-                    *[_run_parallel(s, current_context) for s in parallel_steps],
+                    *[_run_parallel(s, current_context, _effective_budget(s.budget)) for s in parallel_steps],
                 )
 
                 failed = False
@@ -851,7 +879,7 @@ class Runtime:
 
                 result = await self.run(
                     step.goal, system=step.system, response_format=step.response_format,
-                    tools=step.tools, budget=budget, context=ctx,
+                    tools=step.tools, budget=_effective_budget(step.budget), context=ctx,
                     provider=step.provider, model=step.model,
                     on_parse_error=step.on_parse_error,
                 )
@@ -886,6 +914,70 @@ class Runtime:
         return ChainResult(
             output=output, success=True, steps=step_outputs,
             total_tokens=total_tokens, total_cost_usd=total_cost_usd,
+        )
+
+    # ------------------------------------------------------------------
+    # Batch execution
+    # ------------------------------------------------------------------
+
+    async def run_batch(
+        self,
+        tasks: list[dict[str, Any]],
+        *,
+        concurrency: int = 5,
+    ) -> BatchResult:
+        """Run multiple independent tasks concurrently.
+
+        Each task dict must have a ``"goal"`` key and may include any
+        keyword arguments accepted by :meth:`run` (``tools``, ``system``,
+        ``provider``, ``model``, ``response_format``, etc.).
+
+        Individual failures do not crash the batch -- the corresponding
+        ``RunResult`` will have ``success=False``.
+
+        Args:
+            tasks: List of task dicts, each with ``"goal"`` key and
+                optional kwargs matching ``run()`` parameters.
+            concurrency: Maximum number of concurrent runs (default 5).
+
+        Returns:
+            BatchResult with all results preserving input order.
+        """
+        if not tasks:
+            return BatchResult()
+
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def _guarded_run(task: dict[str, Any]) -> RunResult:
+            goal = task.pop("goal") if "goal" in task else task.get("goal", "")
+            # Rebuild task dict without 'goal' for kwargs
+            kwargs = {k: v for k, v in task.items() if k != "goal"}
+            async with semaphore:
+                try:
+                    return await self.run(goal, **kwargs)
+                except Exception as exc:
+                    logger.warning("Batch task failed: %s", exc)
+                    return RunResult(
+                        output=str(exc),
+                        success=False,
+                    )
+
+        # Copy each task dict so pop doesn't mutate caller's data
+        results = await asyncio.gather(
+            *[_guarded_run(dict(t)) for t in tasks],
+        )
+
+        total_tokens = sum(r.tokens_used for r in results)
+        total_cost = sum(r.cost_usd for r in results)
+        succeeded = sum(1 for r in results if r.success)
+        failed = sum(1 for r in results if not r.success)
+
+        return BatchResult(
+            results=list(results),
+            total_tokens=total_tokens,
+            total_cost_usd=total_cost,
+            succeeded=succeeded,
+            failed=failed,
         )
 
     # ------------------------------------------------------------------
@@ -1340,20 +1432,54 @@ class Session:
 
         # Parse and validate structured output when response_format is set
         parsed_model = None
-        if self._response_format is not None and isinstance(clean_output, str):
-            try:
-                parsed_json = _json.loads(clean_output)
-                parsed_model = self._response_format.model_validate(parsed_json)
-                # Backward compat: output holds the validated model too
-                clean_output = parsed_model
-            except (_json.JSONDecodeError, Exception) as parse_error:
+        if self._response_format is not None:
+            # Normalise: if raw_output is already a dict (e.g. provider
+            # pre-parsed), skip json.loads; otherwise parse the string.
+            if isinstance(clean_output, dict):
+                parsed_json = clean_output
+            elif isinstance(clean_output, str):
+                try:
+                    parsed_json = _json.loads(clean_output)
+                except _json.JSONDecodeError as parse_error:
+                    parsed_json = None
+                    _first_parse_error: Exception = parse_error
+                else:
+                    _first_parse_error = None  # type: ignore[assignment]
+            else:
+                parsed_json = None
+                _first_parse_error = TypeError(  # type: ignore[assignment]
+                    f"Expected str or dict, got {type(clean_output).__name__}"
+                )
+
+            # Validate against response_format (always, whether from
+            # json.loads or from a pre-parsed dict).
+            if parsed_json is not None:
+                try:
+                    parsed_model = self._response_format.model_validate(parsed_json)
+                    # Backward compat: output holds the validated model too
+                    clean_output = parsed_model
+                except Exception as validate_error:
+                    parsed_json = None
+                    _first_parse_error = validate_error  # type: ignore[assignment]
+
+            # If we still don't have a parsed model, try the error callback
+            if parsed_model is None:
                 if self._on_parse_error is not None:
                     try:
                         if asyncio.iscoroutinefunction(self._on_parse_error):
-                            fixed = await self._on_parse_error(clean_output, parse_error)
+                            fixed = await self._on_parse_error(
+                                clean_output, _first_parse_error,  # type: ignore[possibly-undefined]
+                            )
                         else:
-                            fixed = self._on_parse_error(clean_output, parse_error)
+                            fixed = self._on_parse_error(
+                                clean_output, _first_parse_error,  # type: ignore[possibly-undefined]
+                            )
+                        # Ensure callback result is a model, not a raw dict
                         if fixed is not None:
+                            if isinstance(fixed, dict):
+                                fixed = self._response_format.model_validate(fixed)
+                            elif not isinstance(fixed, BaseModel):
+                                fixed = self._response_format.model_validate(fixed)
                             return RunResult(
                                 output=fixed,
                                 parsed=fixed,
