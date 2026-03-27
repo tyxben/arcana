@@ -85,6 +85,7 @@ asyncio.run(main())
 | `max_turns` | `20` | Maximum execution turns |
 | `max_cost_usd` | `1.0` | Budget cap in USD |
 | `auto_route` | `True` | Enable intent routing (bypasses agent loop for simple queries) |
+| `response_format` | `None` | Pydantic `BaseModel` class for structured output |
 | `stream` | `False` | Reserved for future streaming support |
 | `engine` | `"conversation"` | `"conversation"` (V2) or `"adaptive"` (V1) |
 
@@ -149,6 +150,55 @@ asyncio.run(main())
 
 Both sync and async tool functions are supported. Arcana infers the JSON
 schema for tool parameters from the function signature automatically.
+
+---
+
+## Structured Output
+
+Pass a Pydantic model as `response_format` to get typed results instead of
+free-form text. Tools remain available -- the LLM can still call tools
+during execution and returns the structured object at the end.
+
+```python
+import asyncio
+from pydantic import BaseModel
+import arcana
+
+class Summary(BaseModel):
+    title: str
+    key_points: list[str]
+    sentiment: str
+
+async def main():
+    result = await arcana.run(
+        "Summarize this article: ...",
+        response_format=Summary,
+        api_key="sk-xxx",
+    )
+
+    # result.parsed is always Summary | None, never a raw dict
+    if result.parsed:
+        print(result.parsed.title)
+        for point in result.parsed.key_points:
+            print(f"  - {point}")
+
+asyncio.run(main())
+```
+
+`result.parsed` contains the validated Pydantic instance, or `None` if
+parsing failed. The raw text is still available in `result.output`.
+
+For custom error recovery, pass `on_parse_error`:
+
+```python
+result = await arcana.run(
+    "Summarize this article: ...",
+    response_format=Summary,
+    on_parse_error=lambda raw, err: Summary(
+        title="Parse failed", key_points=[raw[:200]], sentiment="unknown"
+    ),
+)
+```
 
 ---
 
@@ -237,6 +287,72 @@ async for event in runtime.stream("Summarize this article"):
 ```
 
 Streaming is supported with the `conversation` engine only.
+
+### Pipeline
+
+`runtime.chain()` runs a sequence of steps, automatically passing each
+step's output as context to the next. Each step can have its own budget
+cap, and the chain has an overall budget.
+
+```python
+import asyncio
+import arcana
+
+async def main():
+    runtime = arcana.Runtime(providers={"deepseek": "sk-xxx"})
+    result = await runtime.chain([
+        arcana.ChainStep(
+            name="research",
+            goal="Research the topic: AI agents",
+            budget=arcana.Budget(max_cost_usd=0.50),
+        ),
+        arcana.ChainStep(
+            name="write",
+            goal="Write a blog post based on the research",
+            budget=arcana.Budget(max_cost_usd=0.30),
+        ),
+    ], budget=arcana.Budget(max_cost_usd=1.00))
+
+    print(result.steps["write"])  # Final output
+
+asyncio.run(main())
+```
+
+The chain-level budget acts as a hard ceiling. If a step exhausts its own
+budget, execution moves to the next step. If the chain budget is exceeded,
+the entire chain stops.
+
+### Batch Processing
+
+`runtime.run_batch()` runs many tasks concurrently with controlled
+parallelism. Each task is a dict of `run()` keyword arguments.
+
+```python
+import asyncio
+import arcana
+from pydantic import BaseModel
+
+class Summary(BaseModel):
+    title: str
+    key_points: list[str]
+    sentiment: str
+
+async def main():
+    runtime = arcana.Runtime(providers={"deepseek": "sk-xxx"})
+
+    articles = ["Article 1 text...", "Article 2 text...", "Article 3 text..."]
+    tasks = [
+        {"goal": f"Summarize: {article}", "response_format": Summary}
+        for article in articles
+    ]
+    batch = await runtime.run_batch(tasks, concurrency=10)
+    print(f"{batch.succeeded}/{len(batch.results)} succeeded, cost: ${batch.total_cost_usd:.4f}")
+
+asyncio.run(main())
+```
+
+Failed tasks do not block the batch. Inspect individual results via
+`batch.results` -- each entry has `.success`, `.output`, and `.error`.
 
 ### Inspecting the runtime
 

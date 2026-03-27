@@ -4,7 +4,7 @@ This document covers the complete public API of the `arcana` package -- everythi
 exported from `import arcana`. Internal modules, private helpers, and contract
 sub-types are intentionally omitted.
 
-Version: 0.1.0b5
+Version: 0.2.0
 
 ---
 
@@ -21,8 +21,10 @@ Version: 0.1.0b5
   - [RunResult (sdk)](#runresult-sdk)
   - [RunResult (runtime)](#runresult-runtime)
   - [TeamResult](#teamresult)
+  - [BatchResult](#batchresult)
 - [Configuration](#configuration)
   - [AgentConfig](#agentconfig)
+  - [ChainStep](#chainstep)
   - [MCPServerConfig](#mcpserverconfig)
 - [Graph Engine](#graph-engine)
   - [StateGraph](#stategraph)
@@ -316,6 +318,83 @@ async def team(
 
 **Returns:** [`TeamResult`](#teamresult)
 
+#### `Runtime.chain()`
+
+Run a sequential pipeline of steps with automatic context passing. Each step's
+output flows as context to the next. Parallel branches (nested lists) run
+concurrently.
+
+```python
+async def chain(
+    self,
+    steps: list[ChainStep | list[ChainStep]],
+    *,
+    budget: Budget | None = None,
+) -> ChainResult
+```
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `steps` | `list[ChainStep \| list[ChainStep]]` | required | Steps to execute. Nested lists run in parallel. |
+| `budget` | `Budget \| None` | `None` | Budget for the entire chain. |
+
+**Returns:** `ChainResult` with per-step outputs accessible via `result.steps["name"]`.
+
+**Example**
+
+```python
+result = await runtime.chain([
+    arcana.ChainStep(name="research", goal="Find key facts about quantum computing"),
+    [  # parallel branch
+        arcana.ChainStep(name="summary", goal="Write a concise summary"),
+        arcana.ChainStep(name="critique", goal="Identify gaps and biases",
+                         budget=arcana.Budget(max_cost_usd=0.50)),
+    ],
+    arcana.ChainStep(name="final", goal="Integrate summary and critique into a report"),
+])
+print(result.steps["final"])
+```
+
+#### `Runtime.run_batch()`
+
+Run multiple independent tasks concurrently. Individual failures do not crash
+the batch -- the corresponding `RunResult` will have `success=False`.
+
+```python
+async def run_batch(
+    self,
+    tasks: list[dict[str, Any]],
+    *,
+    concurrency: int = 5,
+) -> BatchResult
+```
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `tasks` | `list[dict[str, Any]]` | required | List of task dicts. Each must have a `"goal"` key. Optional keys match `run()` parameters (`tools`, `system`, `provider`, `model`, `response_format`, etc.). |
+| `concurrency` | `int` | `5` | Maximum number of concurrent runs. |
+
+**Returns:** [`BatchResult`](#batchresult)
+
+**Example**
+
+```python
+from pydantic import BaseModel
+
+class Summary(BaseModel):
+    title: str
+    key_points: list[str]
+
+results = await runtime.run_batch([
+    {"goal": "Summarize article 1", "response_format": Summary},
+    {"goal": "Summarize article 2", "response_format": Summary},
+    {"goal": "Summarize article 3", "response_format": Summary},
+], concurrency=10)
+
+print(f"{results.succeeded}/{len(results.results)} succeeded")
+print(f"Total cost: ${results.total_cost_usd:.4f}")
+```
+
 #### `Runtime.graph()`
 
 Create a `StateGraph` connected to this runtime's resources.
@@ -470,7 +549,7 @@ runtime = arcana.Runtime(
 > | `arcana.RunResult` | `import arcana; arcana.RunResult` | `arcana.run()` (SDK convenience function) |
 > | `arcana.RuntimeResult` | `import arcana; arcana.RuntimeResult` | `Runtime.run()`, `Session.run()` |
 >
-> Both have the same fields (`output`, `success`, `steps`, `tokens_used`,
+> Both have the same fields (`output`, `parsed`, `success`, `steps`, `tokens_used`,
 > `cost_usd`, `run_id`), but they are **different classes** -- `isinstance`
 > checks will not match across them.
 >
@@ -487,6 +566,7 @@ Import path: `arcana.RunResult` (this is the SDK version).
 ```python
 class RunResult(BaseModel):
     output: Any = None
+    parsed: Any = None
     success: bool = False
     steps: int = 0
     tokens_used: int = 0
@@ -498,7 +578,8 @@ class RunResult(BaseModel):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `output` | `Any` | `None` | The agent's final output (usually a string). |
+| `output` | `Any` | `None` | The agent's final output (usually a string, or the parsed model when `response_format` succeeds). |
+| `parsed` | `BaseModel \| None` | `None` | Validated Pydantic instance when `response_format` is set and parsing succeeds. Always `BaseModel \| None` -- never a raw dict. |
 | `success` | `bool` | `False` | Whether the task completed successfully. |
 | `steps` | `int` | `0` | Number of execution steps taken. |
 | `tokens_used` | `int` | `0` | Total tokens consumed (input + output). |
@@ -517,6 +598,7 @@ Import path: `arcana.RuntimeResult` (aliased from `arcana.runtime_core.RunResult
 ```python
 class RunResult(BaseModel):
     output: Any = None
+    parsed: Any = None
     success: bool = False
     steps: int = 0
     tokens_used: int = 0
@@ -583,6 +665,31 @@ for entry in result.conversation_log:
 
 ---
 
+### `BatchResult`
+
+Returned by `Runtime.run_batch()`. Aggregates results from all tasks in the batch.
+
+```python
+class BatchResult(BaseModel):
+    results: list[RunResult] = []
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    succeeded: int = 0
+    failed: int = 0
+```
+
+**Fields**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `results` | `list[RunResult]` | `[]` | All results, preserving input order. Failed tasks have `success=False`. |
+| `total_tokens` | `int` | `0` | Total tokens consumed across all tasks. |
+| `total_cost_usd` | `float` | `0.0` | Estimated total cost in USD. |
+| `succeeded` | `int` | `0` | Number of tasks that completed successfully. |
+| `failed` | `int` | `0` | Number of tasks that failed. |
+
+---
+
 ## Configuration
 
 ### `AgentConfig`
@@ -605,6 +712,39 @@ class AgentConfig(BaseModel):
 | `prompt` | `str` | required | System prompt defining this agent's role and personality. |
 | `model` | `str \| None` | `None` | Override the runtime's default model for this agent. |
 | `provider` | `str \| None` | `None` | Override the runtime's default provider for this agent. |
+
+---
+
+### `ChainStep`
+
+Configuration for a single step in a `Runtime.chain()` pipeline.
+
+```python
+class ChainStep(BaseModel):
+    name: str
+    goal: str
+    system: str | None = None
+    response_format: type[BaseModel] | None = None
+    tools: list[Callable] | None = None
+    provider: str | None = None
+    model: str | None = None
+    on_parse_error: Callable[[str, Exception], BaseModel | None] | None = None
+    budget: Budget | None = None
+```
+
+**Fields**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `str` | required | Unique name for this step (used as key in `ChainResult.steps`). |
+| `goal` | `str` | required | Prompt for this step. Previous step output is injected as context automatically. |
+| `system` | `str \| None` | `None` | System prompt override for this step. |
+| `response_format` | `type[BaseModel] \| None` | `None` | Pydantic model for structured output. |
+| `tools` | `list[Callable] \| None` | `None` | Additional tools for this step only. |
+| `provider` | `str \| None` | `None` | Override provider for this step. |
+| `model` | `str \| None` | `None` | Override model for this step. |
+| `on_parse_error` | `Callable \| None` | `None` | Callback for structured output parse failures. |
+| `budget` | `Budget \| None` | `None` | Per-step budget cap. Capped by chain-level remaining budget. Steps without `budget` share the chain pool. |
 
 ---
 

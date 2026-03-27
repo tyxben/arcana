@@ -107,9 +107,11 @@ result = await arcana.run(
     response_format=Summary,
     api_key="sk-xxx",
 )
-print(result.output.title)       # str
-print(result.output.key_points)  # list[str]
+print(result.parsed.title)       # str
+print(result.parsed.key_points)  # list[str]
 ```
+
+> `result.parsed` is always `BaseModel | None` -- never a raw dict. It is `None` when no `response_format` is set or when parsing fails. `result.output` contains the same parsed model when successful, or the raw text when parsing fails.
 
 ### Multimodal
 
@@ -133,11 +135,27 @@ result = await runtime.chain([
     arcana.ChainStep(name="research", goal="Find key facts about quantum computing"),
     [  # parallel branch
         arcana.ChainStep(name="summary", goal="Write a concise summary"),
-        arcana.ChainStep(name="critique", goal="Identify gaps and biases"),
+        arcana.ChainStep(name="critique", goal="Identify gaps and biases",
+                         budget=arcana.Budget(max_cost_usd=0.50)),
     ],
     arcana.ChainStep(name="final", goal="Integrate summary and critique into a report"),
 ])
 print(result.steps["final"])
+```
+
+### Batch Processing
+
+Process many independent tasks concurrently with automatic throttling.
+
+```python
+results = await runtime.run_batch([
+    {"goal": "Summarize article 1", "response_format": Summary},
+    {"goal": "Summarize article 2", "response_format": Summary},
+    {"goal": "Summarize article 3", "response_format": Summary},
+], concurrency=10)
+
+print(f"{results.succeeded}/{len(results.results)} succeeded")
+print(f"Total cost: ${results.total_cost_usd:.4f}")
 ```
 
 ### Multi-Agent Teams

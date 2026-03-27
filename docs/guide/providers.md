@@ -52,6 +52,33 @@ There are two ways to use providers:
 - **`arcana.Runtime()` (production)** -- Create once at app startup, reuse across
   requests.
 
+### Structured Output Support
+
+All providers support `response_format`, but the mechanism varies:
+
+| Strategy | Providers | How it works |
+|----------|-----------|--------------|
+| Native `json_schema` | OpenAI, Gemini | Provider API enforces the schema natively |
+| Fallback `json_object` | DeepSeek, Ollama, Kimi, GLM, MiniMax | `response_format={"type": "json_object"}` + schema in system prompt |
+| System prompt injection | Anthropic | JSON schema injected into system prompt (no native API support) |
+
+### Batch Generation
+
+Every provider exposes `batch_generate(requests, config, concurrency=5)` for
+concurrent LLM calls. It reuses the existing `generate()` logic under the hood,
+gating concurrency with an `asyncio.Semaphore`. This is also available on the
+registry level via `ModelGatewayRegistry.batch_generate()`.
+
+```python
+from arcana.contracts.llm import LLMRequest, ModelConfig
+
+responses = await registry.batch_generate(
+    requests=[LLMRequest(messages=[...]), LLMRequest(messages=[...])],
+    config=ModelConfig(model="deepseek-chat"),
+    concurrency=5,
+)
+```
+
 ---
 
 ## DeepSeek
@@ -287,6 +314,15 @@ thinking, prompt caching, computer use, PDF input.
 - Error mapping is comprehensive: rate limit (429), auth (401), not found (404),
   content filter, context length, and overloaded (529) errors are all mapped to
   the appropriate `ProviderError` subclass.
+
+### Structured Output (v0.2.0)
+
+As of v0.2.0, Anthropic supports `response_format` for structured output.
+Because the Anthropic Messages API has no native `response_format` parameter,
+Arcana injects the JSON schema into the system prompt and instructs the model to
+respond with conforming JSON. This is the same fallback strategy used by
+DeepSeek, Ollama, Kimi, GLM, and MiniMax. Structured output works with and
+without tools -- the two capabilities coexist.
 
 ---
 

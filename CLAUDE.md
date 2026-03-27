@@ -111,12 +111,14 @@ V1 path (still compatible):
 - `replay.py`: Trace replay for debugging
 - `progress.py`: Progress tracking
 
-**runtime_core.py** - `Runtime`, `Session`, `ChatSession`, `ChatResponse`, `Budget`, `AgentConfig`, `ChainStep`, `ChainResult`:
+**runtime_core.py** - `Runtime`, `Session`, `ChatSession`, `ChatResponse`, `Budget`, `AgentConfig`, `ChainStep`, `ChainResult`, `BatchResult`:
 - `Runtime`: Long-lived resource container (providers, tools, budget, trace)
 - `Runtime.run()`: Single-shot task execution
 - `Runtime.chat()`: Multi-turn conversational sessions (`ChatSession.send()` / `ChatSession.stream()`)
 - `Runtime.chain()`: Sequential pipeline with automatic context passing between steps
+- `Runtime.run_batch()`: Concurrent task execution, returns list of `BatchResult`
 - `Runtime.session()`: Manual session control for advanced usage
+- `ChainStep.budget`: Optional per-step budget override (scopes cost/turn limits to individual steps)
 
 **routing/** - Intent classification and routing:
 - `classifier.py`: Rule-based + LLM fallback intent classifier
@@ -129,6 +131,7 @@ V1 path (still compatible):
 - `ModelGatewayRegistry`: Multi-provider routing with fallback chains
 - `OpenAICompatibleProvider`: Universal adapter for OpenAI-format APIs, with prompt caching support
 - Provider factories: DeepSeek, OpenAI, Anthropic, Kimi, GLM, MiniMax, Gemini, Ollama
+- `batch_generate()`: Available on both individual providers and `ModelGatewayRegistry` -- concurrent LLM calls via `asyncio.Semaphore`
 
 **tool_gateway/** - Tool execution with auth, validation, audit:
 - `gateway.py`: `ToolGateway` with `call_many_concurrent()` for parallel execution via `asyncio.gather`
@@ -192,7 +195,7 @@ Environment variables are still supported as a fallback:
 These providers have been tested with real API keys:
 - DeepSeek (deepseek-chat) -- direct answer + tools + multi-step
 - OpenAI (gpt-4o-mini) -- direct answer + tools
-- Anthropic (claude-sonnet-4) -- direct answer
+- Anthropic (claude-sonnet-4) -- direct answer + structured output
 
 ## SDK Interface (`sdk.py`)
 
@@ -208,6 +211,10 @@ Key parameters for `arcana.run()`:
 - `system`: System prompt for the run (overrides `RuntimeConfig.system_prompt`)
 - `context`: Additional context (dict or string) injected into the goal
 - `on_parse_error`: Callback `(raw_string, error) -> BaseModel | None` for structured output parse failures. **Scope**: fires only on `json.JSONDecodeError` or `pydantic.ValidationError` (LLM returned text that doesn't match the schema). Does NOT fire on provider-level format rejection (`ProviderError`) -- those are handled by provider capability detection / auto-downgrade.
+
+Runtime methods also include:
+- `runtime.run_batch(tasks, ...)`: Execute multiple tasks concurrently. Returns list of `BatchResult` (each wraps success/failure per task).
+- `BatchResult` is exported from the SDK (`arcana.BatchResult`).
 
 ## Constitution
 
