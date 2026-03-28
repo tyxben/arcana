@@ -337,8 +337,10 @@ class OpenAICompatibleProvider(ModelGateway):
             if config.extra_params:
                 params.update(config.extra_params)
 
-            # Make API call
-            response = await self.client.chat.completions.create(**params)
+            # Make API call with per-request timeout (seconds)
+            response = await self.client.chat.completions.create(
+                **params, timeout=config.timeout_ms / 1000,
+            )
 
         except RateLimitError as e:
             raise ProviderError(
@@ -528,7 +530,9 @@ class OpenAICompatibleProvider(ModelGateway):
         if config.extra_params:
             params.update(config.extra_params)
 
-        stream_response = await self.client.chat.completions.create(**params)
+        stream_response = await self.client.chat.completions.create(
+            **params, timeout=config.timeout_ms / 1000,
+        )
 
         # Track tool call state across incremental deltas
         tool_call_state: dict[int, dict[str, str]] = {}
@@ -585,6 +589,11 @@ class OpenAICompatibleProvider(ModelGateway):
                         "model": chunk.model or config.model_id,
                     },
                 )
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client to release connection pool resources."""
+        if self.client is not None:
+            await self.client.close()
 
     async def health_check(self) -> bool:
         """Check if the API is accessible."""

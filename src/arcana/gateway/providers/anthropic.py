@@ -560,7 +560,9 @@ class AnthropicProvider:
 
         params = to_anthropic_request(request, config)
         try:
-            raw = await self._client.messages.create(**params)
+            raw = await self._client.messages.create(
+                **params, timeout=config.timeout_ms / 1000,
+            )
         except Exception as exc:
             raise _map_anthropic_error(exc) from exc
         return from_anthropic_response(raw)
@@ -577,13 +579,22 @@ class AnthropicProvider:
 
         params = to_anthropic_request(request, config)
         try:
-            async with self._client.messages.stream(**params) as stream:
+            async with self._client.messages.stream(
+                **params, timeout=config.timeout_ms / 1000,
+            ) as stream:
                 async for event in stream:
                     chunk = from_anthropic_stream_event(event)
                     if chunk is not None:
                         yield chunk
         except Exception as exc:
             raise _map_anthropic_error(exc) from exc
+
+    # -- close --------------------------------------------------------------
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client to release connection pool resources."""
+        if self._client is not None:
+            await self._client.close()
 
     # -- health_check -------------------------------------------------------
 

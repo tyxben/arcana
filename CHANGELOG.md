@@ -2,6 +2,30 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [0.2.1] - 2026-03-28
+
+### Fixed — Production High Availability
+- **Provider connection leak**: `Runtime.close()` now cascades to all provider HTTP clients (AsyncOpenAI, AsyncAnthropic). Previously only closed MCP connections, leaking connection pools in long-running apps
+- **Budget race condition**: `Runtime._total_tokens_used` and `_total_cost_usd` now protected by `threading.Lock`. Concurrent `run()` calls no longer corrupt cumulative budget counters
+- **timeout_ms actually wired**: `ModelConfig.timeout_ms` now passed to provider SDK `create()` calls as per-request timeout. Previously the config existed but was silently ignored (SDK defaulted to 600s)
+- **Cancellation safety**: `asyncio.CancelledError` and `KeyboardInterrupt` in `Runtime.run()` and `ConversationAgent` now record partial budget and leave state consistent before re-raising
+
+### Added — Developer Experience
+- **`arcana init`**: CLI scaffold command generates `main.py` + `.env.example` + `agent.yaml` for 30-second quickstart
+- **`Runtime.on()` / `Runtime.off()`**: Event hook API for runtime lifecycle events (`run_start`, `run_end`, `error`). Supports sync and async callbacks, chainable
+- **`ChatSession(max_history=N)`**: Sliding window on message history to prevent OOM in long conversations. System messages always preserved. `runtime.chat(max_history=100)`
+- **LangChain adapter test suite**: 18 tests covering spec extraction, execution, error handling, protocol compliance
+- **SECURITY.md**: Honest security model documentation — what Arcana secures and what it doesn't
+- **CI coverage reporting**: pytest-cov + Codecov upload in GitHub Actions
+- **Dynamic README badges**: PyPI version, CI status, coverage — no more stale static badges
+
+### Changed
+- Example 13 rewritten to use `runtime.chat()` / `ChatSession.send()` instead of manual LLM message management
+
+### Stats
+- Tests: 1164 → 1234 (+70 new tests)
+- All 1234 tests passing, 0 failures
+
 ## [0.2.0] - 2026-03-27
 
 ### Fixed — Structured Output Reliability

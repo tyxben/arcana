@@ -2,10 +2,11 @@
 
 **Agent runtime that lets LLMs think, not just execute.**
 
-[![Version](https://img.shields.io/badge/version-0.1.0b13-blue)](https://pypi.org/project/arcana-agent/)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1135%20passing-brightgreen)]()
+[![PyPI](https://img.shields.io/pypi/v/arcana-agent)](https://pypi.org/project/arcana-agent/)
+[![Python](https://img.shields.io/pypi/pyversions/arcana-agent)](https://pypi.org/project/arcana-agent/)
+[![License](https://img.shields.io/github/license/tyxben/arcana)](./LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/tyxben/arcana/ci.yml?label=tests)](https://github.com/tyxben/arcana/actions)
+[![Coverage](https://img.shields.io/codecov/c/github/tyxben/arcana)](https://codecov.io/gh/tyxben/arcana)
 
 ---
 

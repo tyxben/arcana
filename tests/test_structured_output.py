@@ -287,7 +287,7 @@ class TestRuntimeRunWithResponseFormat:
     @pytest.mark.asyncio
     async def test_runtime_run_passes_response_format(self) -> None:
         """Runtime.run() should pass response_format through to session."""
-        from arcana.runtime_core import RunResult, Runtime, Session
+        from arcana.runtime_core import RunResult, Runtime, Session, _EventBus
 
         with patch.object(Runtime, "_create_session") as mock_create_session, \
              patch.object(Runtime, "__init__", return_value=None):
@@ -305,8 +305,11 @@ class TestRuntimeRunWithResponseFormat:
             rt._mcp_client = None
             rt._tool_registry = None
             rt._memory_store = None
+            import threading
             rt._total_tokens_used = 0
             rt._total_cost_usd = 0.0
+            rt._totals_lock = threading.Lock()
+            rt._events = _EventBus()
 
             result = await rt.run(
                 "Extract person info",
@@ -324,7 +327,7 @@ class TestRuntimeRunWithResponseFormat:
     @pytest.mark.asyncio
     async def test_runtime_run_without_response_format(self) -> None:
         """Runtime.run() without response_format defaults to None."""
-        from arcana.runtime_core import RunResult, Runtime, Session
+        from arcana.runtime_core import RunResult, Runtime, Session, _EventBus
 
         with patch.object(Runtime, "_create_session") as mock_create_session, \
              patch.object(Runtime, "__init__", return_value=None):
@@ -342,8 +345,11 @@ class TestRuntimeRunWithResponseFormat:
             rt._mcp_client = None
             rt._tool_registry = None
             rt._memory_store = None
+            import threading
             rt._total_tokens_used = 0
             rt._total_cost_usd = 0.0
+            rt._totals_lock = threading.Lock()
+            rt._events = _EventBus()
 
             result = await rt.run("Just a question")
 
@@ -492,8 +498,10 @@ class TestToolsWithResponseFormat:
             rt._mcp_configs = None
             rt._mcp_client = None
             rt._memory_store = None
+            import threading
             rt._total_tokens_used = 0
             rt._total_cost_usd = 0.0
+            rt._totals_lock = threading.Lock()
 
             rt._create_session(
                 response_format=Person,
@@ -532,7 +540,7 @@ class TestOnParseErrorCallback:
 
     def _build_runtime(self) -> Any:
         """Create a minimal Runtime with mocked internals."""
-        from arcana.runtime_core import Budget, Runtime, RuntimeConfig
+        from arcana.runtime_core import Budget, Runtime, RuntimeConfig, _EventBus
 
         rt = Runtime.__new__(Runtime)
         rt._config = RuntimeConfig(default_provider="test")
@@ -545,8 +553,11 @@ class TestOnParseErrorCallback:
         rt._mcp_configs = []
         rt._mcp_client = None
         rt._memory_store = None
+        import threading
         rt._total_tokens_used = 0
         rt._total_cost_usd = 0.0
+        rt._totals_lock = threading.Lock()
+        rt._events = _EventBus()
 
         # _resolve_model_config needs to return something valid
         mock_model_config = MagicMock()
@@ -1160,7 +1171,7 @@ class TestParsedAlwaysModel:
     """Guarantee result.parsed is BaseModel | None, never a raw dict."""
 
     def _build_runtime(self) -> Any:
-        from arcana.runtime_core import Budget, Runtime, RuntimeConfig
+        from arcana.runtime_core import Budget, Runtime, RuntimeConfig, _EventBus
 
         rt = Runtime.__new__(Runtime)
         rt._config = RuntimeConfig(default_provider="test")
@@ -1173,8 +1184,11 @@ class TestParsedAlwaysModel:
         rt._mcp_configs = []
         rt._mcp_client = None
         rt._memory_store = None
+        import threading
         rt._total_tokens_used = 0
         rt._total_cost_usd = 0.0
+        rt._totals_lock = threading.Lock()
+        rt._events = _EventBus()
         rt._resolve_model_config = MagicMock(return_value=MagicMock())
         return rt
 

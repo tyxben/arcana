@@ -1,10 +1,11 @@
-"""
-Arcana: Interactive Chat Session
+"""Example 13: Interactive Chat Session.
 
-Demonstrates runtime.chat() for multi-turn conversation.
-The agent maintains context across messages and can use tools.
+Demonstrates multi-turn conversation using runtime.chat() with
+persistent history, shared budget, and automatic context management.
 
-This uses the ChatSession API for clean multi-turn interaction.
+The ChatSession maintains conversation history across send() calls,
+so the LLM sees full context from previous turns. Budget accumulates
+across the entire session. Tools remain available in every turn.
 
 Usage:
     export DEEPSEEK_API_KEY=sk-xxx
@@ -44,58 +45,27 @@ async def main():
         budget=arcana.Budget(max_cost_usd=1.0),
     )
 
-    # --- Programmatic multi-turn via runtime.chat() ---
-    # NOTE: runtime.chat() is being implemented by another agent.
-    # When available, usage will be:
-    #
-    #   async with runtime.chat(system_prompt="You are a math tutor.") as chat:
-    #       r = await chat.send("What is 15% of 240?")
-    #       print(f"Agent: {r.content}")
-    #
-    #       r = await chat.send("Now add tax of 8% to that")
-    #       print(f"Agent: {r.content}")
-    #
-    #       r = await chat.send("Summarize the calculation steps")
-    #       print(f"Agent: {r.content}")
-    #
-    #       print(f"\nTotal: {chat.total_tokens} tokens, ${chat.total_cost_usd:.4f}")
+    print("Chat session started. Type 'exit' to quit.\n")
 
-    # --- Working implementation using raw LLM messages ---
-    # This demonstrates multi-turn context without the ChatSession wrapper.
-    from arcana.contracts.llm import LLMRequest, Message, MessageRole
+    async with runtime.chat(
+        system_prompt="You are a helpful math tutor. Use the calculator tool when you need to compute.",
+    ) as session:
+        while True:
+            user_input = input("You: ")
+            if user_input.strip().lower() in ("exit", "quit"):
+                break
 
-    model_config = runtime._resolve_model_config()
-    messages = [
-        Message(role=MessageRole.SYSTEM, content="You are a helpful math tutor. Use the calculator tool when you need to compute."),
-    ]
+            response = await session.send(user_input)
+            print(f"Agent: {response.content}")
+            print(f"  ({response.tokens_used} tokens, ${response.cost_usd:.4f})")
+            if response.tool_calls_made:
+                print(f"  (used {response.tool_calls_made} tool call(s))")
+            print()
 
-    questions = [
-        "What is 15% of 240?",
-        "Now add tax of 8% to that",
-        "Summarize the calculation steps",
-    ]
-
-    total_tokens = 0
-    for q in questions:
-        print(f"You: {q}")
-        messages.append(Message(role=MessageRole.USER, content=q))
-
-        response = await runtime._gateway.generate(
-            request=LLMRequest(messages=messages),
-            config=model_config,
-        )
-
-        assistant_text = response.content or ""
-        messages.append(Message(role=MessageRole.ASSISTANT, content=assistant_text))
-
-        tokens = response.usage.total_tokens if response.usage else 0
-        total_tokens += tokens
-
-        print(f"Agent: {assistant_text}")
-        print(f"  ({tokens} tokens)")
-        print()
-
-    print(f"Total: {total_tokens} tokens across {len(questions)} turns")
+        print("\nSession summary:")
+        print(f"  Messages: {session.message_count}")
+        print(f"  Total cost: ${session.total_cost_usd:.4f}")
+        print(f"  Total tokens: {session.total_tokens}")
 
     await runtime.close()
 

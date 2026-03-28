@@ -15,6 +15,7 @@ from arcana.runtime_core import ChainResult as ChainResult
 from arcana.runtime_core import ChainStep as ChainStep
 from arcana.runtime_core import ChatResponse as ChatResponse
 from arcana.runtime_core import ChatSession as ChatSession
+from arcana.runtime_core import EventCallback as EventCallback
 from arcana.runtime_core import RunResult as RuntimeResult  # noqa: F401
 from arcana.runtime_core import Runtime as Runtime
 from arcana.runtime_core import Session as Session

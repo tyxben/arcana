@@ -560,6 +560,108 @@ def providers() -> None:
     console.print(table)
 
 
+@app.command()
+def init(
+    directory: str = typer.Argument(".", help="Directory to initialize (default: current)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files"),
+) -> None:
+    """Scaffold a starter Arcana agent project.
+
+    Usage:
+        arcana init
+        arcana init my-agent
+        arcana init --force
+    """
+    target = Path(directory).resolve()
+    target.mkdir(parents=True, exist_ok=True)
+
+    files: dict[str, str] = {
+        "main.py": _TEMPLATE_MAIN,
+        ".env.example": _TEMPLATE_ENV,
+        "agent.yaml": _TEMPLATE_AGENT_YAML,
+    }
+
+    created: list[str] = []
+    skipped: list[str] = []
+
+    for filename, content in files.items():
+        filepath = target / filename
+        if filepath.exists() and not force:
+            skipped.append(filename)
+            continue
+        filepath.write_text(content)
+        created.append(filename)
+
+    console.print()
+    if created:
+        for f in created:
+            console.print(f"  [green]\u2713[/green] {f}")
+    if skipped:
+        for f in skipped:
+            console.print(f"  [yellow]\u2013[/yellow] {f} [dim](exists, use --force to overwrite)[/dim]")
+
+    console.print()
+    console.print("[bold]Next steps:[/bold]")
+    console.print("  1. Copy .env.example to .env and add your API key")
+    console.print("  2. Run your agent:")
+    console.print("     [dim]arcana run agent.yaml[/dim]")
+    console.print("     [dim]python main.py[/dim]")
+
+
+_TEMPLATE_MAIN = '''\
+"""My Arcana Agent."""
+import arcana
+
+
+@arcana.tool(
+    when_to_use="When you need to do math calculations",
+    what_to_expect="Returns the numeric result",
+)
+def calc(expression: str) -> str:
+    """Evaluate a math expression."""
+    return str(eval(expression))
+
+
+async def main():
+    runtime = arcana.Runtime(
+        providers={"deepseek": "your-api-key-here"},
+        tools=[calc],
+        budget=arcana.Budget(max_cost_usd=1.0),
+    )
+
+    result = await runtime.run("What is 42 * 17 + 5?")
+    print(result.output)
+    print(f"Cost: ${result.cost_usd:.4f}")
+
+    await runtime.close()
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+'''
+
+_TEMPLATE_ENV = '''\
+# LLM Provider API Keys
+DEEPSEEK_API_KEY=your-key-here
+# OPENAI_API_KEY=
+# ANTHROPIC_API_KEY=
+'''
+
+_TEMPLATE_AGENT_YAML = '''\
+# Arcana Agent Configuration
+# Run with: arcana run agent.yaml
+
+goal: "Hello! What can you help me with?"
+provider: deepseek
+max_turns: 10
+max_cost: 1.0
+engine: conversation
+# system_prompt: "You are a helpful assistant."
+# trace: true
+'''
+
+
 @app.command(name="eval")
 def eval_cmd(
     action: str = typer.Argument("run", help="Action: run"),

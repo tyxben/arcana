@@ -29,4 +29,11 @@ jobs:
         run: uv run ruff check .
 
       - name: Test
-        run: uv run pytest -x -q
+        run: uv run pytest -x -q --cov=arcana --cov-report=xml
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_not: false

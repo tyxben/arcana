@@ -8,6 +8,7 @@ See specs/v2-architecture/conversation-loop.md for the full design.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator, Callable
@@ -140,9 +141,28 @@ class ConversationAgent:
     # ------------------------------------------------------------------
 
     async def run(self, goal: str) -> AgentState:
-        """Run to completion by consuming astream()."""
-        async for _event in self.astream(goal):
-            pass  # All side-effects happen inside astream
+        """Run to completion by consuming astream().
+
+        On cancellation (``asyncio.CancelledError``), the partially
+        accumulated state is saved so that callers can still read
+        ``tokens_used`` and ``cost_usd`` for budget tracking.
+        """
+        try:
+            async for _event in self.astream(goal):
+                pass  # All side-effects happen inside astream
+        except asyncio.CancelledError:
+            # astream may not have reached the end, so _state could be
+            # unset.  Preserve whatever partial state we have.
+            if self._state is None:
+                # Build a minimal cancelled state so budget data survives.
+                self._state = AgentState(
+                    run_id="cancelled",
+                    goal=goal,
+                    status=ExecutionStatus.FAILED,
+                    last_error="cancelled",
+                )
+            logger.info("ConversationAgent run cancelled for goal: %.80s", goal)
+            raise
         assert self._state is not None, "astream must set _state before returning"
         return self._state
 
@@ -470,6 +490,9 @@ class ConversationAgent:
                 )
                 if self.budget_tracker:
                     self.budget_tracker.add_usage(facts.usage)
+
+            # Keep _state in sync so cancellation preserves budget data
+            self._state = state
 
             # 13. Checkpoint — persist state for resume on crash/restart
             if self._state_manager:

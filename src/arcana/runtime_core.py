@@ -34,6 +34,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
+from collections import defaultdict
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
@@ -52,6 +54,33 @@ from arcana.contracts.state import AgentState
 from arcana.contracts.streaming import StreamEvent
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Event hook system
+# ---------------------------------------------------------------------------
+
+EventCallback = Callable[..., Any]
+
+
+class _EventBus:
+    """Lightweight pub/sub for runtime events."""
+
+    def __init__(self) -> None:
+        self._listeners: dict[str, list[EventCallback]] = defaultdict(list)
+
+    def on(self, event: str, callback: EventCallback) -> None:
+        self._listeners[event].append(callback)
+
+    def off(self, event: str, callback: EventCallback) -> None:
+        listeners = self._listeners.get(event, [])
+        if callback in listeners:
+            listeners.remove(callback)
+
+    async def emit(self, event: str, **kwargs: Any) -> None:
+        for cb in self._listeners.get(event, []):
+            result = cb(**kwargs)
+            if asyncio.iscoroutine(result):
+                await result
 
 
 class Budget(BaseModel):
@@ -263,7 +292,8 @@ class Runtime:
         self._mcp_configs = mcp_servers or []
         self._mcp_client: Any = None  # MCPClient, set after connect_mcp()
 
-        # Cumulative budget tracking across runs
+        # Cumulative budget tracking across runs (lock protects concurrent run() calls)
+        self._totals_lock = threading.Lock()
         self._total_tokens_used: int = 0
         self._total_cost_usd: float = 0.0
 
@@ -286,6 +316,29 @@ class Runtime:
                 default_budget_tokens=memory_budget_tokens,
                 namespace=self._namespace,
             )
+
+        # Event hooks
+        self._events = _EventBus()
+
+    # ------------------------------------------------------------------
+    # Event hooks
+    # ------------------------------------------------------------------
+
+    def on(self, event: str, callback: EventCallback) -> Runtime:
+        """Subscribe to runtime events. Returns self for chaining.
+
+        Events:
+            "run_start": (run_id: str, goal: str)
+            "run_end": (run_id: str, result: RunResult)
+            "error": (run_id: str, error: Exception)
+        """
+        self._events.on(event, callback)
+        return self
+
+    def off(self, event: str, callback: EventCallback) -> Runtime:
+        """Unsubscribe from runtime events."""
+        self._events.off(event, callback)
+        return self
 
     async def run(
         self,
@@ -386,11 +439,33 @@ class Runtime:
             model=model,
             on_parse_error=on_parse_error,
         )
-        result = await session.run(goal)
 
-        # Accumulate usage into runtime-level totals
-        self._total_tokens_used += result.tokens_used
-        self._total_cost_usd += result.cost_usd
+        run_id = getattr(session, "run_id", "unknown")
+        await self._events.emit("run_start", run_id=run_id, goal=goal)
+
+        result: RunResult | None = None
+        try:
+            result = await session.run(goal)
+        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
+            # Ensure partial budget is still tracked before re-raising
+            logger.info("Run %s cancelled; recording partial budget.", run_id)
+            await self._events.emit("error", run_id=run_id, error=exc)
+            raise
+        except Exception as exc:
+            await self._events.emit("error", run_id=run_id, error=exc)
+            raise
+        finally:
+            # Always accumulate whatever budget was used, even on cancellation.
+            # Session's budget tracker has the authoritative partial usage.
+            if result is not None:
+                with self._totals_lock:
+                    self._total_tokens_used += result.tokens_used
+                    self._total_cost_usd += result.cost_usd
+            elif session.state is not None:
+                # Cancelled before RunResult was built -- pull from AgentState
+                with self._totals_lock:
+                    self._total_tokens_used += session.state.tokens_used
+                    self._total_cost_usd += session.state.cost_usd
 
         # Memory: store result facts
         if self._memory_store and result.success:
@@ -399,6 +474,8 @@ class Runtime:
                 answer=str(result.output) if result.output else "",
                 run_id=result.run_id,
             )
+
+        await self._events.emit("run_end", run_id=run_id, result=result)
 
         return result
 
@@ -503,6 +580,10 @@ class Runtime:
             await self._mcp_client.disconnect_all()
             self._mcp_client = None
 
+        # Close provider HTTP clients to release connection pools
+        if self._gateway is not None:
+            await self._gateway.close()
+
     @asynccontextmanager
     async def session(
         self,
@@ -542,6 +623,7 @@ class Runtime:
         max_turns_per_message: int = 10,
         budget: Budget | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
+        max_history: int | None = None,
     ) -> AsyncGenerator[ChatSession, None]:
         """Create a multi-turn chat session.
 
@@ -549,6 +631,12 @@ class Runtime:
         conversation history across multiple user messages.  Each ``send()``
         is one conversation turn where the agent may use tools before
         responding.
+
+        Args:
+            max_history: Maximum number of non-system messages to retain.
+                When set, older non-system messages are trimmed after each
+                ``send()`` / ``stream()`` call.  System messages are always
+                preserved.  ``None`` (default) means unlimited -- no trimming.
 
         Usage::
 
@@ -563,6 +651,7 @@ class Runtime:
             max_turns_per_message=max_turns_per_message,
             budget=budget,
             input_handler=input_handler,
+            max_history=max_history,
         )
         try:
             yield session
@@ -1062,24 +1151,28 @@ class Runtime:
         """Remaining USD budget, or None if no budget limit is set."""
         if self._budget_policy.max_cost_usd is None:
             return None
-        return max(0.0, self._budget_policy.max_cost_usd - self._total_cost_usd)
+        with self._totals_lock:
+            return max(0.0, self._budget_policy.max_cost_usd - self._total_cost_usd)
 
     @property
     def budget_used_usd(self) -> float:
         """Total USD spent across all runs."""
-        return self._total_cost_usd
+        with self._totals_lock:
+            return self._total_cost_usd
 
     @property
     def tokens_remaining(self) -> int | None:
         """Remaining token budget, or None if no token limit is set."""
         if self._budget_policy.max_tokens is None:
             return None
-        return max(0, self._budget_policy.max_tokens - self._total_tokens_used)
+        with self._totals_lock:
+            return max(0, self._budget_policy.max_tokens - self._total_tokens_used)
 
     @property
     def tokens_used(self) -> int:
         """Total tokens used across all runs."""
-        return self._total_tokens_used
+        with self._totals_lock:
+            return self._total_tokens_used
 
     @property
     def providers(self) -> list[str]:
@@ -1552,12 +1645,14 @@ class ChatSession:
         max_turns_per_message: int = 10,
         budget: Budget | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
+        max_history: int | None = None,
     ) -> None:
         self._runtime = runtime
         self._system_prompt = system_prompt or "You are a helpful assistant."
         self._max_turns = max_turns_per_message
         self._budget_config = budget or runtime._budget_policy
         self._input_handler = input_handler
+        self._max_history: int | None = max_history  # None = unlimited (backward compat)
         self._session_id = str(uuid4())
 
         # Persistent state across send() calls
@@ -1578,6 +1673,22 @@ class ChatSession:
         self._total_tokens = 0
         self._total_cost_usd = 0.0
         self._turn_count = 0
+
+    def _trim_history(self) -> None:
+        """Trim message history to max_history non-system messages.
+
+        System messages are always preserved. When ``max_history`` is ``None``
+        (default), no trimming occurs.
+        """
+        if self._max_history is None or len(self._messages) <= self._max_history:
+            return
+        from arcana.contracts.llm import MessageRole
+
+        system_msgs = [m for m in self._messages if m.role == MessageRole.SYSTEM]
+        non_system = [m for m in self._messages if m.role != MessageRole.SYSTEM]
+        if len(non_system) <= self._max_history:
+            return
+        self._messages = system_msgs + non_system[-self._max_history:]
 
     async def send(self, message: str) -> ChatResponse:
         """Send a message and get the agent's response.
@@ -1743,6 +1854,9 @@ class ChatSession:
         # Update cumulative totals
         self._total_tokens += turn_tokens
         self._total_cost_usd += turn_cost
+
+        # Trim history to stay within max_history limit
+        self._trim_history()
 
         return ChatResponse(
             content=assistant_text,
@@ -1954,6 +2068,9 @@ class ChatSession:
 
         self._total_tokens += turn_tokens
         self._total_cost_usd += turn_cost
+
+        # Trim history to stay within max_history limit
+        self._trim_history()
 
         yield StreamEvent(
             event_type=StreamEventType.RUN_COMPLETE,

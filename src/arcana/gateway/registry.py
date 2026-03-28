@@ -336,6 +336,16 @@ class ModelGatewayRegistry:
         if last_error is not None:
             raise last_error
 
+    async def close(self) -> None:
+        """Close all registered providers that support it.
+
+        Iterates every provider and calls ``close()`` if available,
+        releasing HTTP connection pools and other resources.
+        """
+        for provider in self._providers.values():
+            if hasattr(provider, "close"):
+                await provider.close()
+
     async def health_check_all(self) -> dict[str, bool]:
         """
         Check health of all registered providers.
