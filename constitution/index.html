@@ -1,0 +1,1721 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent Runtime for Production">
+      
+      
+      
+        <link rel="canonical" href="https://tyxben.github.io/arcana/constitution/">
+      
+      
+        <link rel="prev" href="../architecture/">
+      
+      
+        <link rel="next" href="../changelog/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Constitution - Arcana</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#the-arcana-constitution" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Arcana" class="md-header__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Arcana
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Constitution
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guide/quickstart/" class="md-tabs__link">
+          
+  
+  
+  Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Constitution
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Arcana" class="md-nav__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Arcana
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    arcana.run()
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChatSession
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/budget/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Budget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contracts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Constitution
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Constitution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-i-the-core-judgment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter I: The Core Judgment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-ii-the-four-prohibitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter II: The Four Prohibitions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chapter II: The Four Prohibitions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-no-premature-structuring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. No Premature Structuring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-no-controllability-theater" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. No Controllability Theater
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-no-context-hoarding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. No Context Hoarding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-no-mechanical-retry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. No Mechanical Retry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-iii-the-seven-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter III: The Seven Principles
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chapter III: The Seven Principles">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#principle-1-default-to-direct-escalate-to-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 1: Default to Direct, Escalate to Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-2-context-as-working-set-not-archive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 2: Context as Working Set, Not Archive
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-3-tools-as-capabilities-not-interfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 3: Tools as Capabilities, Not Interfaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-4-allow-strategy-leaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 4: Allow Strategy Leaps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-5-structured-actionable-feedback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 5: Structured, Actionable Feedback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-6-runtime-as-os-not-form-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 6: Runtime as OS, Not Form Engine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-7-judge-by-outcomes-not-by-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 7: Judge by Outcomes, Not by Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-8-agent-autonomy-in-collaboration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 8: Agent Autonomy in Collaboration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-iv-the-division-of-responsibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter IV: The Division of Responsibility
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chapter IV: The Division of Responsibility">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-framework-is-responsible-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Framework Is Responsible For:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-llm-is-responsible-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The LLM Is Responsible For:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-user-is-responsible-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The User Is Responsible For:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-inviolable-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Inviolable Rules:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-v-the-contributor-compact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter V: The Contributor Compact
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chapter V: The Contributor Compact">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for-every-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For Every Pull Request
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-fundamental-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Fundamental Question
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-i-the-core-judgment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter I: The Core Judgment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-ii-the-four-prohibitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter II: The Four Prohibitions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chapter II: The Four Prohibitions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-no-premature-structuring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. No Premature Structuring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-no-controllability-theater" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. No Controllability Theater
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-no-context-hoarding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. No Context Hoarding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-no-mechanical-retry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. No Mechanical Retry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-iii-the-seven-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter III: The Seven Principles
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chapter III: The Seven Principles">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#principle-1-default-to-direct-escalate-to-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 1: Default to Direct, Escalate to Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-2-context-as-working-set-not-archive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 2: Context as Working Set, Not Archive
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-3-tools-as-capabilities-not-interfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 3: Tools as Capabilities, Not Interfaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-4-allow-strategy-leaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 4: Allow Strategy Leaps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-5-structured-actionable-feedback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 5: Structured, Actionable Feedback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-6-runtime-as-os-not-form-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 6: Runtime as OS, Not Form Engine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-7-judge-by-outcomes-not-by-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 7: Judge by Outcomes, Not by Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#principle-8-agent-autonomy-in-collaboration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principle 8: Agent Autonomy in Collaboration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-iv-the-division-of-responsibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter IV: The Division of Responsibility
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chapter IV: The Division of Responsibility">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-framework-is-responsible-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Framework Is Responsible For:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-llm-is-responsible-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The LLM Is Responsible For:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-user-is-responsible-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The User Is Responsible For:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-inviolable-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Inviolable Rules:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chapter-v-the-contributor-compact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chapter V: The Contributor Compact
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chapter V: The Contributor Compact">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for-every-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For Every Pull Request
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-fundamental-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Fundamental Question
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="the-arcana-constitution">The Arcana Constitution<a class="headerlink" href="#the-arcana-constitution" title="Permanent link">&para;</a></h1>
+<p>This is not a style guide. This is the architectural law of Arcana. Every line of code, every PR, every design decision must answer to this document.</p>
+<hr />
+<h2 id="chapter-i-the-core-judgment">Chapter I: The Core Judgment<a class="headerlink" href="#chapter-i-the-core-judgment" title="Permanent link">&para;</a></h2>
+<p>Large language models are not assembly line workers. They are reasoning engines.</p>
+<p>The industry keeps making the same mistake: treating LLMs like unreliable employees who need a manager watching every step. This produces frameworks that are elaborate cages -- high ceremony, low capability.</p>
+<p>Arcana starts from a different premise:</p>
+<p><strong>Over-processing suppresses capability. Good constraints release it.</strong></p>
+<p>An LLM forced through a rigid Thought/Action/Observation loop on a question it could answer in one shot is not being "controlled" -- it is being handicapped. An LLM given twenty tools when it needs two is not being "empowered" -- it is being distracted. An LLM retrying the same failed call three times is not being "resilient" -- it is burning money.</p>
+<p>The right mental model is not a pipeline. It is an operating system.</p>
+<p>A pipeline dictates: do step 1, then step 2, then step 3.
+An operating system provides: here are your capabilities, here are your boundaries, go solve the problem.</p>
+<p><strong>Arcana is an operating system for LLM agents.</strong></p>
+<hr />
+<h2 id="chapter-ii-the-four-prohibitions">Chapter II: The Four Prohibitions<a class="headerlink" href="#chapter-ii-the-four-prohibitions" title="Permanent link">&para;</a></h2>
+<p>These are things Arcana will never do. Not "tries to avoid." Never.</p>
+<h3 id="1-no-premature-structuring">1. No Premature Structuring<a class="headerlink" href="#1-no-premature-structuring" title="Permanent link">&para;</a></h3>
+<p>We do not nail down steps before the LLM has assessed the problem.</p>
+<p>A plan created before understanding is a liability. Fixed step sequences assume the problem is known. The LLM should decide whether it needs a plan at all, and if so, what kind.</p>
+<p>Bad: "First create a plan, then execute each step, then verify."
+Good: "Here is the goal. You have tools. You decide the approach."</p>
+<h3 id="2-no-controllability-theater">2. No Controllability Theater<a class="headerlink" href="#2-no-controllability-theater" title="Permanent link">&para;</a></h3>
+<p>Process elegance is not result quality. A beautifully logged ten-step execution that produces a wrong answer is worse than a messy two-step execution that produces a right one.</p>
+<p>We do not add ceremony to make dashboards look good. We do not force structured output when free-form would work better. We do not equate "I can see every step" with "every step is correct."</p>
+<p>Observability serves debugging, not vanity.</p>
+<h3 id="3-no-context-hoarding">3. No Context Hoarding<a class="headerlink" href="#3-no-context-hoarding" title="Permanent link">&para;</a></h3>
+<p>The LLM's context window is working memory, not a warehouse.</p>
+<p>We do not dump all tool schemas upfront. We do not keep the entire conversation history in every call. We do not prepend encyclopedic system prompts "just in case."</p>
+<p>Every token in the context must earn its place in the current reasoning step.</p>
+<h3 id="4-no-mechanical-retry">4. No Mechanical Retry<a class="headerlink" href="#4-no-mechanical-retry" title="Permanent link">&para;</a></h3>
+<p>When a tool call fails, repeating the same call with the same arguments is not recovery. It is denial.</p>
+<p>Error recovery is a diagnostic act. What failed? Why? What class of error is this? What should the LLM try differently? Arcana provides structured error information and lets the LLM decide the recovery strategy -- retry with different arguments, try a different tool, narrow the scope, or accept the failure and move on.</p>
+<hr />
+<h2 id="chapter-iii-the-seven-principles">Chapter III: The Seven Principles<a class="headerlink" href="#chapter-iii-the-seven-principles" title="Permanent link">&para;</a></h2>
+<p>These are the design laws of Arcana. They are not aspirational. They are mandatory.</p>
+<h3 id="principle-1-default-to-direct-escalate-to-agent">Principle 1: Default to Direct, Escalate to Agent<a class="headerlink" href="#principle-1-default-to-direct-escalate-to-agent" title="Permanent link">&para;</a></h3>
+<p>Most requests do not need an agent loop. A question with a known answer should be answered. A single-tool task should call one tool. The full agent loop -- with its budget tracking, progress detection, and multi-step reasoning -- is reserved for problems that actually require it.</p>
+<p>The fastest path that produces a correct result is the right path.</p>
+<h3 id="principle-2-context-as-working-set-not-archive">Principle 2: Context as Working Set, Not Archive<a class="headerlink" href="#principle-2-context-as-working-set-not-archive" title="Permanent link">&para;</a></h3>
+<p>Context is organized around what the LLM needs right now, not what might be useful later.</p>
+<p>Four layers, strict discipline:
+- <strong>Identity</strong>: Fixed. Who you are, what your boundaries are. Always present.
+- <strong>Task</strong>: The current goal and its constraints. Present for the duration.
+- <strong>Working</strong>: What's needed for this specific reasoning step. Changes every step.
+- <strong>External</strong>: Everything else. Retrieved on demand, never preloaded.</p>
+<p>Only the Working layer is actively managed per step. Tool schemas, memory, conversation history -- all External until needed.</p>
+<p>Context is modality-agnostic. Text, images, structured data, and tool results all follow the same working set discipline: include what the current step needs, exclude what it does not.</p>
+<h3 id="principle-3-tools-as-capabilities-not-interfaces">Principle 3: Tools as Capabilities, Not Interfaces<a class="headerlink" href="#principle-3-tools-as-capabilities-not-interfaces" title="Permanent link">&para;</a></h3>
+<p>A tool is not an API wrapper. A tool is a capability the LLM can reason about.</p>
+<p>Every tool must declare not just its schema, but its affordances: when to use it, what to expect from it, what failure means. The LLM should be able to look at a tool and understand not just how to call it, but whether to call it.</p>
+<h3 id="principle-4-allow-strategy-leaps">Principle 4: Allow Strategy Leaps<a class="headerlink" href="#principle-4-allow-strategy-leaps" title="Permanent link">&para;</a></h3>
+<p>The LLM does not owe us a step-by-step trace of its reasoning.</p>
+<p>If the LLM can solve a three-step problem in one step, let it. If the LLM realizes mid-plan that the plan is wrong, let it pivot. If the LLM determines the answer is "I cannot do this," let it say so without forcing it through N more steps.</p>
+<p>Policy asks "what do you want to do next?" It does not say "here is what you must do next."</p>
+<p><strong>Corollary -- Thinking as Signal, Not Contract:</strong> When the LLM voluntarily exposes its reasoning (through extended thinking, chain-of-thought, or similar mechanisms), the runtime may listen to those signals to improve its assessment -- but never to constrain the LLM's strategy. Detecting uncertainty in thinking to lower confidence is listening. Forcing the LLM to "think step by step" before every response is constraining. The distinction is absolute.</p>
+<h3 id="principle-5-structured-actionable-feedback">Principle 5: Structured, Actionable Feedback<a class="headerlink" href="#principle-5-structured-actionable-feedback" title="Permanent link">&para;</a></h3>
+<p>When something goes wrong, the LLM receives:
+- What failed (specific tool, specific step)
+- What kind of failure (validation, timeout, permission, logic)
+- What to prioritize next (not just "try again")</p>
+<p>Feedback is never a raw error string. It is a diagnostic brief the LLM can reason about.</p>
+<h3 id="principle-6-runtime-as-os-not-form-engine">Principle 6: Runtime as OS, Not Form Engine<a class="headerlink" href="#principle-6-runtime-as-os-not-form-engine" title="Permanent link">&para;</a></h3>
+<p>The runtime provides services. It does not impose workflows.</p>
+<p>Runtime services: budget enforcement, trace recording, tool dispatch, capability registry, working set management, error diagnostics.</p>
+<p>These services are always available. None of them dictate the agent's strategy. The LLM calls on them as needed, like a program calls on an operating system.</p>
+<h3 id="principle-7-judge-by-outcomes-not-by-process">Principle 7: Judge by Outcomes, Not by Process<a class="headerlink" href="#principle-7-judge-by-outcomes-not-by-process" title="Permanent link">&para;</a></h3>
+<p>The measure of an agent is whether it achieved the goal, not whether it followed the prescribed steps.</p>
+<p>Metrics that matter:
+- Did it succeed?
+- How much did it cost?
+- Did the user get what they asked for?
+- When it failed, did it eventually recover?</p>
+<p>Metrics that do not matter:
+- Did it follow the ReAct format?
+- Did it use all planned steps?
+- Did it produce pretty logs?</p>
+<h3 id="principle-8-agent-autonomy-in-collaboration">Principle 8: Agent Autonomy in Collaboration<a class="headerlink" href="#principle-8-agent-autonomy-in-collaboration" title="Permanent link">&para;</a></h3>
+<p>When multiple agents collaborate, the framework provides coordination infrastructure -- communication channels, budget allocation, turn scheduling -- but never dictates hierarchy or strategy.</p>
+<p>No agent is subordinate to another by framework decree. If a planner-executor pattern emerges, it is because the agents' prompts define those roles, not because the framework enforces a topology.</p>
+<p>The framework's role: ensure every agent gets its turn, stays within budget, and can see what others have said. The agents' role: decide what to say, when to agree, when to disagree, and when to declare the task complete.</p>
+<hr />
+<h2 id="chapter-iv-the-division-of-responsibility">Chapter IV: The Division of Responsibility<a class="headerlink" href="#chapter-iv-the-division-of-responsibility" title="Permanent link">&para;</a></h2>
+<h3 id="the-framework-is-responsible-for">The Framework Is Responsible For:<a class="headerlink" href="#the-framework-is-responsible-for" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Providing capabilities</strong>: tools, models, memory, retrieval</li>
+<li><strong>Enforcing boundaries</strong>: budgets, permissions, safety rails</li>
+<li><strong>Recording execution</strong>: traces, metrics, diagnostics</li>
+<li><strong>Organizing context</strong>: working set management, compression, retrieval</li>
+<li><strong>Classifying errors</strong>: structured diagnostics, recovery options</li>
+<li><strong>Enabling interaction</strong>: providing mechanisms for the LLM to communicate with the user mid-execution</li>
+</ul>
+<h3 id="the-llm-is-responsible-for">The LLM Is Responsible For:<a class="headerlink" href="#the-llm-is-responsible-for" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Understanding the goal</strong>: what the user actually wants</li>
+<li><strong>Forming strategy</strong>: how to approach the problem</li>
+<li><strong>Making decisions</strong>: which tools, which order, when to stop</li>
+<li><strong>Adapting dynamically</strong>: pivoting when things change or fail</li>
+<li><strong>Judging completion</strong>: knowing when the goal is met</li>
+<li><strong>Deciding when to ask</strong>: choosing whether and when to involve the user</li>
+</ul>
+<h3 id="the-user-is-responsible-for">The User Is Responsible For:<a class="headerlink" href="#the-user-is-responsible-for" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Defining intent</strong>: what they want, not how to get it</li>
+<li><strong>Providing information</strong>: when asked, at their discretion</li>
+<li><strong>Judging outcomes</strong>: accepting, rejecting, or refining results</li>
+</ul>
+<h3 id="the-inviolable-rules">The Inviolable Rules:<a class="headerlink" href="#the-inviolable-rules" title="Permanent link">&para;</a></h3>
+<p>These responsibilities never reverse.</p>
+<p>The framework never decides strategy. The LLM never enforces budgets. The framework never tells the LLM "you must use tool X next." The LLM never decides its own token limit.</p>
+<p><strong>The user is never forced to interact mid-execution.</strong> If no input handler is provided, the LLM proceeds with its best judgment. Interaction is a capability, not a dependency.</p>
+<p><strong>The LLM may ask but must never block on an answer.</strong> A question without a response is a signal to adapt, not a reason to halt. The LLM must always be able to make progress without user input -- asking is an optimization, not a prerequisite.</p>
+<p>When you find yourself writing code where the framework makes a judgment call that belongs to the LLM, stop. Refactor. That is a constitutional violation.</p>
+<hr />
+<h2 id="chapter-v-the-contributor-compact">Chapter V: The Contributor Compact<a class="headerlink" href="#chapter-v-the-contributor-compact" title="Permanent link">&para;</a></h2>
+<h3 id="for-every-pull-request">For Every Pull Request<a class="headerlink" href="#for-every-pull-request" title="Permanent link">&para;</a></h3>
+<p>Before submitting, answer these:</p>
+<ol>
+<li><strong>Direct by default?</strong> Does this feature honor the fast path, or does it force everything through the agent loop?</li>
+<li><strong>Working set discipline?</strong> Does this add to the context only what's needed, or does it hoard?</li>
+<li><strong>Capability, not interface?</strong> If this adds a tool, can the LLM reason about when to use it?</li>
+<li><strong>Strategy freedom?</strong> Does this constrain how the LLM solves problems, or does it expand what problems the LLM can solve?</li>
+<li><strong>Actionable feedback?</strong> If this can fail, does the failure produce something the LLM can act on?</li>
+<li><strong>OS, not workflow?</strong> Is this a service the LLM can call, or a step the LLM is forced through?</li>
+<li><strong>Outcome-oriented?</strong> Does this improve result quality, or just process visibility?</li>
+<li><strong>Agent autonomy?</strong> If this involves multiple agents, does it preserve each agent's freedom to decide its own approach?</li>
+<li><strong>User optionality?</strong> If this involves user interaction, can execution continue without it?</li>
+</ol>
+<h3 id="the-fundamental-question">The Fundamental Question<a class="headerlink" href="#the-fundamental-question" title="Permanent link">&para;</a></h3>
+<p>Every new feature must answer:</p>
+<p><strong>"Is this helping the LLM or constraining it?"</strong></p>
+<p>If the answer is "constraining it for safety" -- that is valid. Safety is a framework responsibility.</p>
+<p>If the answer is "constraining it for predictability" -- that is suspect. Predictability of process is not predictability of outcome.</p>
+<p>If the answer is "constraining it because we don't trust it" -- that is a violation. Build better guardrails, not tighter cages.</p>
+<hr />
+<p><em>This constitution is a living document. It can be amended, but amendments require the same rigor as the original: a clear argument for why the change serves the LLM's capability rather than our comfort.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "search.suggest", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

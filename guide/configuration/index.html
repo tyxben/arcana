@@ -1,0 +1,3794 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent Runtime for Production">
+      
+      
+      
+        <link rel="canonical" href="https://tyxben.github.io/arcana/guide/configuration/">
+      
+      
+        <link rel="prev" href="../quickstart/">
+      
+      
+        <link rel="next" href="../providers/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Configuration - Arcana</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#configuration-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Arcana" class="md-header__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Arcana
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Configuration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../quickstart/" class="md-tabs__link">
+          
+  
+  
+  Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../constitution/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Constitution
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Arcana" class="md-nav__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Arcana
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environment Variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#provider-api-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider API Keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-base-urls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Base URLs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#budget-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trace-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trace Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arcanarun-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        arcana.run() Parameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="arcana.run() Parameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RunResult
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtime-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Runtime Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runtime-constructor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime() Constructor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supported-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Providers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtimerun" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runtime.run()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtimestream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runtime.stream()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtimeteam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runtime.team()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtimesession" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runtime.session()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtimeconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RuntimeConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agentconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AgentConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modelconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provider-specific-request-extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider-Specific Request Extensions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider-Specific Request Extensions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#anthropicrequestext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AnthropicRequestExt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#geminirequestext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GeminiRequestExt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openairequestext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenAIRequestExt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ollamarequestext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OllamaRequestExt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#thinkingconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ThinkingConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#groundingconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GroundingConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tokenbudget-context-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TokenBudget (Context Management)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#toolspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolSpec
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ToolSpec">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arcanatool-decorator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        @arcana.tool Decorator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#toolspec-fields-full-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolSpec Fields (Full Model)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcpserverconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCPServerConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trace-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trace Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Trace Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tracewriter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TraceWriter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#traceconfig-from-utilsconfigpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TraceConfig (from utils/config.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modelgatewayregistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelGatewayRegistry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#budgettracker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BudgetTracker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v1-engine-runtimeconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        V1 Engine RuntimeConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arcanaconfig-file-based-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ArcanaConfig (File-Based Configuration)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ArcanaConfig (File-Based Configuration)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arcanaconfig-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ArcanaConfig Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modelproviderconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelProviderConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#defaultmodelconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DefaultModelConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#budgetconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BudgetConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    arcana.run()
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChatSession
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/budget/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Budget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contracts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../constitution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Constitution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environment Variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#provider-api-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider API Keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-base-urls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Base URLs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#budget-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trace-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trace Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arcanarun-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        arcana.run() Parameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="arcana.run() Parameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RunResult
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtime-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Runtime Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runtime-constructor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime() Constructor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supported-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Providers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtimerun" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runtime.run()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtimestream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runtime.stream()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtimeteam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runtime.team()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtimesession" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        runtime.session()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtimeconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RuntimeConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agentconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AgentConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modelconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provider-specific-request-extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider-Specific Request Extensions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider-Specific Request Extensions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#anthropicrequestext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AnthropicRequestExt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#geminirequestext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GeminiRequestExt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openairequestext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenAIRequestExt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ollamarequestext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OllamaRequestExt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#thinkingconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ThinkingConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#groundingconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GroundingConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tokenbudget-context-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TokenBudget (Context Management)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#toolspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolSpec
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ToolSpec">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arcanatool-decorator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        @arcana.tool Decorator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#toolspec-fields-full-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolSpec Fields (Full Model)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcpserverconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCPServerConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trace-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trace Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Trace Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tracewriter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TraceWriter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#traceconfig-from-utilsconfigpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TraceConfig (from utils/config.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modelgatewayregistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelGatewayRegistry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#budgettracker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BudgetTracker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v1-engine-runtimeconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        V1 Engine RuntimeConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arcanaconfig-file-based-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ArcanaConfig (File-Based Configuration)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ArcanaConfig (File-Based Configuration)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arcanaconfig-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ArcanaConfig Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modelproviderconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelProviderConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#defaultmodelconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DefaultModelConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#budgetconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BudgetConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h1>
+<p>This document is the complete reference for every configuration option in Arcana. All field names, types, and defaults are extracted directly from the source code.</p>
+<hr />
+<h2 id="environment-variables">Environment Variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
+<p>Arcana reads environment variables as a fallback when API keys are not passed directly. The <code>load_config()</code> utility in <code>arcana.utils.config</code> reads these from the process environment or a <code>.env</code> file.</p>
+<blockquote>
+<p><strong>Note:</strong> The environment variables in this section (prefixed with <code>DEFAULT_</code>) are only read by the file-based configuration system (<code>load_config()</code>). They are NOT automatically consumed by <code>arcana.run()</code> or <code>Runtime()</code>. The <code>arcana.run()</code> function has its own defaults (e.g., <code>provider="deepseek"</code>). API key variables (<code>*_API_KEY</code>) ARE automatically read by <code>Runtime</code> as a fallback when no explicit key is provided.</p>
+</blockquote>
+<h3 id="provider-api-keys">Provider API Keys<a class="headerlink" href="#provider-api-keys" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Provider</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DEEPSEEK_API_KEY</code></td>
+<td>DeepSeek</td>
+<td>API key for DeepSeek</td>
+</tr>
+<tr>
+<td><code>OPENAI_API_KEY</code></td>
+<td>OpenAI</td>
+<td>API key for OpenAI</td>
+</tr>
+<tr>
+<td><code>ANTHROPIC_API_KEY</code></td>
+<td>Anthropic</td>
+<td>API key for Anthropic Claude</td>
+</tr>
+<tr>
+<td><code>GEMINI_API_KEY</code></td>
+<td>Gemini</td>
+<td>API key for Google Gemini</td>
+</tr>
+<tr>
+<td><code>KIMI_API_KEY</code></td>
+<td>Kimi (Moonshot)</td>
+<td>API key for Kimi</td>
+</tr>
+<tr>
+<td><code>GLM_API_KEY</code></td>
+<td>GLM (Zhipu AI)</td>
+<td>API key for GLM</td>
+</tr>
+<tr>
+<td><code>MINIMAX_API_KEY</code></td>
+<td>MiniMax</td>
+<td>API key for MiniMax</td>
+</tr>
+</tbody>
+</table>
+<p>When you pass <code>providers={"deepseek": ""}</code> to <code>Runtime()</code> with an empty string, the runtime resolves the key from the environment variable <code>DEEPSEEK_API_KEY</code> (pattern: <code>{PROVIDER_NAME}_API_KEY</code>).</p>
+<h3 id="provider-base-urls">Provider Base URLs<a class="headerlink" href="#provider-base-urls" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GEMINI_BASE_URL</code></td>
+<td><code>https://generativelanguage.googleapis.com/v1beta/openai</code></td>
+<td>Gemini API endpoint</td>
+</tr>
+<tr>
+<td><code>DEEPSEEK_BASE_URL</code></td>
+<td><code>https://api.deepseek.com</code></td>
+<td>DeepSeek API endpoint</td>
+</tr>
+</tbody>
+</table>
+<h3 id="model-defaults">Model Defaults<a class="headerlink" href="#model-defaults" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DEFAULT_PROVIDER</code></td>
+<td><code>"gemini"</code></td>
+<td>Default LLM provider name</td>
+</tr>
+<tr>
+<td><code>DEFAULT_MODEL</code></td>
+<td><code>"gemini-2.0-flash"</code></td>
+<td>Default model ID</td>
+</tr>
+<tr>
+<td><code>DEFAULT_TEMPERATURE</code></td>
+<td><code>0.0</code></td>
+<td>Default sampling temperature</td>
+</tr>
+<tr>
+<td><code>DEFAULT_MAX_TOKENS</code></td>
+<td><code>4096</code></td>
+<td>Default max output tokens</td>
+</tr>
+<tr>
+<td><code>DEFAULT_TIMEOUT_MS</code></td>
+<td><code>30000</code></td>
+<td>Default request timeout in milliseconds</td>
+</tr>
+</tbody>
+</table>
+<h3 id="budget-defaults">Budget Defaults<a class="headerlink" href="#budget-defaults" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MAX_TOKENS_PER_RUN</code></td>
+<td><code>100000</code></td>
+<td>Maximum tokens per run</td>
+</tr>
+<tr>
+<td><code>MAX_COST_PER_RUN_USD</code></td>
+<td><code>1.0</code></td>
+<td>Maximum cost per run in USD</td>
+</tr>
+</tbody>
+</table>
+<h3 id="trace-settings">Trace Settings<a class="headerlink" href="#trace-settings" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TRACE_ENABLED</code></td>
+<td><code>true</code></td>
+<td>Enable or disable trace output</td>
+</tr>
+<tr>
+<td><code>TRACE_DIR</code></td>
+<td><code>"./traces"</code></td>
+<td>Directory for trace JSONL files</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="arcanarun-parameters">arcana.run() Parameters<a class="headerlink" href="#arcanarun-parameters" title="Permanent link">&para;</a></h2>
+<p>The <code>arcana.run()</code> function is the simplest entry point. It creates a temporary <code>Runtime</code> internally, runs the task, and returns a result.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">arcana</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="s2">&quot;Research quantum computing trends&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;deepseek&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">api_key</span><span class="o">=</span><span class="s2">&quot;sk-xxx&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">my_search</span><span class="p">],</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">max_turns</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">max_cost_usd</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>goal</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>What you want the agent to accomplish</td>
+</tr>
+<tr>
+<td><code>tools</code></td>
+<td><code>list[Callable] \| None</code></td>
+<td><code>None</code></td>
+<td>List of <code>@arcana.tool</code> decorated functions</td>
+</tr>
+<tr>
+<td><code>provider</code></td>
+<td><code>str</code></td>
+<td><code>"deepseek"</code></td>
+<td>LLM provider name</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Model ID. Auto-selected from provider default if <code>None</code></td>
+</tr>
+<tr>
+<td><code>api_key</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>API key for the provider. Falls back to environment variable if <code>None</code></td>
+</tr>
+<tr>
+<td><code>max_turns</code></td>
+<td><code>int</code></td>
+<td><code>20</code></td>
+<td>Maximum execution turns</td>
+</tr>
+<tr>
+<td><code>max_cost_usd</code></td>
+<td><code>float</code></td>
+<td><code>1.0</code></td>
+<td>Maximum cost in USD</td>
+</tr>
+<tr>
+<td><code>auto_route</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>Enable intent routing (reserved)</td>
+</tr>
+<tr>
+<td><code>engine</code></td>
+<td><code>str</code></td>
+<td><code>"conversation"</code></td>
+<td>Execution engine: <code>"conversation"</code> (V2) or <code>"adaptive"</code> (V1)</td>
+</tr>
+<tr>
+<td><code>stream</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Enable streaming output (reserved for future use)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="runresult">RunResult<a class="headerlink" href="#runresult" title="Permanent link">&para;</a></h3>
+<p>The return value of <code>arcana.run()</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>output</code></td>
+<td><code>Any</code></td>
+<td><code>None</code></td>
+<td>The agent's final output</td>
+</tr>
+<tr>
+<td><code>success</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Whether the task completed successfully</td>
+</tr>
+<tr>
+<td><code>steps</code></td>
+<td><code>int</code></td>
+<td><code>0</code></td>
+<td>Number of execution steps taken</td>
+</tr>
+<tr>
+<td><code>tokens_used</code></td>
+<td><code>int</code></td>
+<td><code>0</code></td>
+<td>Total tokens consumed</td>
+</tr>
+<tr>
+<td><code>cost_usd</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td>Total cost in USD</td>
+</tr>
+<tr>
+<td><code>run_id</code></td>
+<td><code>str</code></td>
+<td><code>""</code></td>
+<td>Unique run identifier</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="runtime-configuration">Runtime Configuration<a class="headerlink" href="#runtime-configuration" title="Permanent link">&para;</a></h2>
+<p>The <code>Runtime</code> class is the long-lived entry point for production use. Create it once at application startup.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">runtime</span> <span class="o">=</span> <span class="n">arcana</span><span class="o">.</span><span class="n">Runtime</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">providers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;deepseek&quot;</span><span class="p">:</span> <span class="s2">&quot;sk-xxx&quot;</span><span class="p">,</span> <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="s2">&quot;sk-proj-xxx&quot;</span><span class="p">},</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">my_search</span><span class="p">,</span> <span class="n">my_calculator</span><span class="p">],</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">budget</span><span class="o">=</span><span class="n">arcana</span><span class="o">.</span><span class="n">Budget</span><span class="p">(</span><span class="n">max_cost_usd</span><span class="o">=</span><span class="mf">10.0</span><span class="p">),</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">trace</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">memory</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;tenant-42&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="runtime-constructor">Runtime() Constructor<a class="headerlink" href="#runtime-constructor" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>providers</code></td>
+<td><code>dict[str, str] \| None</code></td>
+<td><code>None</code></td>
+<td>Map of provider name to API key (e.g., <code>{"deepseek": "sk-xxx"}</code>)</td>
+</tr>
+<tr>
+<td><code>tools</code></td>
+<td><code>list[Callable] \| None</code></td>
+<td><code>None</code></td>
+<td>List of <code>@arcana.tool</code> decorated functions</td>
+</tr>
+<tr>
+<td><code>mcp_servers</code></td>
+<td><code>list[MCPServerConfig] \| None</code></td>
+<td><code>None</code></td>
+<td>MCP server configurations for external tool sources</td>
+</tr>
+<tr>
+<td><code>budget</code></td>
+<td><code>Budget \| None</code></td>
+<td><code>None</code></td>
+<td>Default budget policy. Uses <code>Budget()</code> defaults if <code>None</code></td>
+</tr>
+<tr>
+<td><code>trace</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Enable JSONL trace output</td>
+</tr>
+<tr>
+<td><code>memory</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Enable cross-run memory</td>
+</tr>
+<tr>
+<td><code>memory_budget_tokens</code></td>
+<td><code>int</code></td>
+<td><code>800</code></td>
+<td>Token budget for memory context injection</td>
+</tr>
+<tr>
+<td><code>config</code></td>
+<td><code>RuntimeConfig \| None</code></td>
+<td><code>None</code></td>
+<td>Advanced runtime configuration. Uses <code>RuntimeConfig()</code> defaults if <code>None</code></td>
+</tr>
+<tr>
+<td><code>namespace</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Namespace for tenant isolation. Memory and trace are partitioned per namespace</td>
+</tr>
+</tbody>
+</table>
+<h3 id="supported-providers">Supported Providers<a class="headerlink" href="#supported-providers" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Provider Name</th>
+<th>Default Model</th>
+<th>Base URL</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"deepseek"</code></td>
+<td><code>deepseek-chat</code></td>
+<td><code>https://api.deepseek.com</code></td>
+<td>Primary verified provider</td>
+</tr>
+<tr>
+<td><code>"openai"</code></td>
+<td><code>gpt-4o-mini</code></td>
+<td><code>https://api.openai.com/v1</code></td>
+<td>Verified</td>
+</tr>
+<tr>
+<td><code>"anthropic"</code></td>
+<td><em>(must specify model)</em></td>
+<td>Anthropic Messages API</td>
+<td>Verified. Uses native SDK, not OpenAI-compatible</td>
+</tr>
+<tr>
+<td><code>"gemini"</code></td>
+<td><code>gemini-2.0-flash</code></td>
+<td><code>https://generativelanguage.googleapis.com/v1beta/openai</code></td>
+<td>Via OpenAI-compatible endpoint</td>
+</tr>
+<tr>
+<td><code>"kimi"</code></td>
+<td><code>moonshot-v1-8k</code></td>
+<td><code>https://api.moonshot.cn/v1</code></td>
+<td>Moonshot AI</td>
+</tr>
+<tr>
+<td><code>"glm"</code></td>
+<td><code>glm-4-flash</code></td>
+<td><code>https://open.bigmodel.cn/api/paas/v4</code></td>
+<td>Zhipu AI</td>
+</tr>
+<tr>
+<td><code>"minimax"</code></td>
+<td><code>abab6.5s-chat</code></td>
+<td><code>https://api.minimax.chat/v1</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>"ollama"</code></td>
+<td><code>llama3.2</code></td>
+<td><code>http://localhost:11434/v1</code></td>
+<td>Local. No API key required</td>
+</tr>
+</tbody>
+</table>
+<h3 id="runtimerun">runtime.run()<a class="headerlink" href="#runtimerun" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>goal</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>What to accomplish</td>
+</tr>
+<tr>
+<td><code>engine</code></td>
+<td><code>str</code></td>
+<td><code>"conversation"</code></td>
+<td><code>"conversation"</code> (V2) or <code>"adaptive"</code> (V1)</td>
+</tr>
+<tr>
+<td><code>max_turns</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Override default max turns from <code>RuntimeConfig</code></td>
+</tr>
+<tr>
+<td><code>budget</code></td>
+<td><code>Budget \| None</code></td>
+<td><code>None</code></td>
+<td>Override default budget for this run</td>
+</tr>
+<tr>
+<td><code>tools</code></td>
+<td><code>list[Callable] \| None</code></td>
+<td><code>None</code></td>
+<td>Additional tools for this run only</td>
+</tr>
+</tbody>
+</table>
+<h3 id="runtimestream">runtime.stream()<a class="headerlink" href="#runtimestream" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>goal</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>What to accomplish</td>
+</tr>
+<tr>
+<td><code>engine</code></td>
+<td><code>str</code></td>
+<td><code>"conversation"</code></td>
+<td>Only <code>"conversation"</code> is supported for streaming</td>
+</tr>
+<tr>
+<td><code>max_turns</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Override default max turns</td>
+</tr>
+</tbody>
+</table>
+<h3 id="runtimeteam">runtime.team()<a class="headerlink" href="#runtimeteam" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>goal</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>The shared objective</td>
+</tr>
+<tr>
+<td><code>agents</code></td>
+<td><code>list[AgentConfig]</code></td>
+<td><em>(required)</em></td>
+<td>List of agent configurations</td>
+</tr>
+<tr>
+<td><code>max_rounds</code></td>
+<td><code>int</code></td>
+<td><code>3</code></td>
+<td>Maximum conversation rounds (each agent speaks once per round)</td>
+</tr>
+<tr>
+<td><code>budget</code></td>
+<td><code>Budget \| None</code></td>
+<td><code>None</code></td>
+<td>Budget for the entire team run</td>
+</tr>
+</tbody>
+</table>
+<h3 id="runtimesession">runtime.session()<a class="headerlink" href="#runtimesession" title="Permanent link">&para;</a></h3>
+<p>Returns an async context manager yielding a <code>Session</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>engine</code></td>
+<td><code>str</code></td>
+<td><code>"conversation"</code></td>
+<td>Execution engine</td>
+</tr>
+<tr>
+<td><code>max_turns</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Override default max turns</td>
+</tr>
+<tr>
+<td><code>budget</code></td>
+<td><code>Budget \| None</code></td>
+<td><code>None</code></td>
+<td>Override default budget</td>
+</tr>
+<tr>
+<td><code>tools</code></td>
+<td><code>list[Callable] \| None</code></td>
+<td><code>None</code></td>
+<td>Additional tools for this session</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="runtimeconfig">RuntimeConfig<a class="headerlink" href="#runtimeconfig" title="Permanent link">&para;</a></h2>
+<p>Advanced runtime-level settings. Passed via <code>config=</code> to <code>Runtime()</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">arcana.runtime_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">RuntimeConfig</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">RuntimeConfig</span><span class="p">(</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">default_provider</span><span class="o">=</span><span class="s2">&quot;openai&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">default_model</span><span class="o">=</span><span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">max_turns</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">trace_dir</span><span class="o">=</span><span class="s2">&quot;./my-traces&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">system_prompt</span><span class="o">=</span><span class="s2">&quot;You are a helpful research assistant.&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">)</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="n">runtime</span> <span class="o">=</span> <span class="n">arcana</span><span class="o">.</span><span class="n">Runtime</span><span class="p">(</span><span class="n">providers</span><span class="o">=</span><span class="p">{</span><span class="o">...</span><span class="p">},</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>default_provider</code></td>
+<td><code>str</code></td>
+<td><code>"deepseek"</code></td>
+<td>Default LLM provider name</td>
+</tr>
+<tr>
+<td><code>default_model</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Default model ID. If <code>None</code>, uses the provider's built-in default</td>
+</tr>
+<tr>
+<td><code>max_turns</code></td>
+<td><code>int</code></td>
+<td><code>20</code></td>
+<td>Default maximum turns per run</td>
+</tr>
+<tr>
+<td><code>trace_dir</code></td>
+<td><code>str</code></td>
+<td><code>"./traces"</code></td>
+<td>Directory for trace output files</td>
+</tr>
+<tr>
+<td><code>system_prompt</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Default system prompt for agents</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="budget">Budget<a class="headerlink" href="#budget" title="Permanent link">&para;</a></h2>
+<p>Budget constraints for a <code>Runtime</code> or individual run. Defined in <code>arcana.runtime_core</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">budget</span> <span class="o">=</span> <span class="n">arcana</span><span class="o">.</span><span class="n">Budget</span><span class="p">(</span><span class="n">max_cost_usd</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span> <span class="n">max_tokens</span><span class="o">=</span><span class="mi">200_000</span><span class="p">)</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">runtime</span> <span class="o">=</span> <span class="n">arcana</span><span class="o">.</span><span class="n">Runtime</span><span class="p">(</span><span class="n">providers</span><span class="o">=</span><span class="p">{</span><span class="o">...</span><span class="p">},</span> <span class="n">budget</span><span class="o">=</span><span class="n">budget</span><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_cost_usd</code></td>
+<td><code>float</code></td>
+<td><code>10.0</code></td>
+<td>Maximum cost in USD</td>
+</tr>
+<tr>
+<td><code>max_tokens</code></td>
+<td><code>int</code></td>
+<td><code>500_000</code></td>
+<td>Maximum total tokens</td>
+</tr>
+</tbody>
+</table>
+<p>There is also a lower-level <code>Budget</code> in <code>arcana.contracts.llm</code> used for individual LLM requests:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_tokens</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Maximum tokens for this request</td>
+</tr>
+<tr>
+<td><code>max_cost_usd</code></td>
+<td><code>float \| None</code></td>
+<td><code>None</code></td>
+<td>Maximum cost for this request</td>
+</tr>
+<tr>
+<td><code>max_time_ms</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Maximum time in milliseconds</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="agentconfig">AgentConfig<a class="headerlink" href="#agentconfig" title="Permanent link">&para;</a></h2>
+<p>Configuration for a single agent in a <code>runtime.team()</code> call.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">agents</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">arcana</span><span class="o">.</span><span class="n">AgentConfig</span><span class="p">(</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>        <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;You are an expert researcher. Find and cite sources.&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>        <span class="n">model</span><span class="o">=</span><span class="s2">&quot;deepseek-chat&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>        <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;deepseek&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="p">),</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="n">arcana</span><span class="o">.</span><span class="n">AgentConfig</span><span class="p">(</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;critic&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>        <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;You are a critical reviewer. Check claims for accuracy.&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="p">),</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="p">]</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">runtime</span><span class="o">.</span><span class="n">team</span><span class="p">(</span><span class="s2">&quot;Analyze quantum computing trends&quot;</span><span class="p">,</span> <span class="n">agents</span><span class="o">=</span><span class="n">agents</span><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>Agent name (visible in team conversation)</td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>System prompt defining this agent's role and personality</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Override model for this agent</td>
+</tr>
+<tr>
+<td><code>provider</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Override provider for this agent</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="modelconfig">ModelConfig<a class="headerlink" href="#modelconfig" title="Permanent link">&para;</a></h2>
+<p>LLM model configuration. Defined in <code>arcana.contracts.llm</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">arcana.contracts.llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelConfig</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">ModelConfig</span><span class="p">(</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;openai&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">model_id</span><span class="o">=</span><span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">temperature</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">max_tokens</span><span class="o">=</span><span class="mi">8192</span><span class="p">,</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">timeout_ms</span><span class="o">=</span><span class="mi">60000</span><span class="p">,</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="n">extra_params</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;top_p&quot;</span><span class="p">:</span> <span class="mf">0.9</span><span class="p">},</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Constraints</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>provider</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td></td>
+<td>Provider name (validated at registry level)</td>
+</tr>
+<tr>
+<td><code>model_id</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td></td>
+<td>Model identifier (e.g., <code>"deepseek-chat"</code>, <code>"gpt-4o"</code>)</td>
+</tr>
+<tr>
+<td><code>temperature</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td><code>&gt;= 0.0</code>, <code>&lt;= 2.0</code></td>
+<td>Sampling temperature</td>
+</tr>
+<tr>
+<td><code>seed</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td></td>
+<td>Random seed for reproducibility</td>
+</tr>
+<tr>
+<td><code>max_tokens</code></td>
+<td><code>int</code></td>
+<td><code>4096</code></td>
+<td><code>&gt; 0</code></td>
+<td>Maximum output tokens</td>
+</tr>
+<tr>
+<td><code>timeout_ms</code></td>
+<td><code>int</code></td>
+<td><code>30000</code></td>
+<td><code>&gt; 0</code></td>
+<td>Request timeout in milliseconds</td>
+</tr>
+<tr>
+<td><code>extra_params</code></td>
+<td><code>dict[str, Any]</code></td>
+<td><code>{}</code></td>
+<td></td>
+<td>Provider-specific parameters passed through to the API</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="provider-specific-request-extensions">Provider-Specific Request Extensions<a class="headerlink" href="#provider-specific-request-extensions" title="Permanent link">&para;</a></h2>
+<p>These are optional fields on <code>LLMRequest</code> that enable provider-specific features. They are only relevant when building custom agents with direct LLM calls.</p>
+<h3 id="anthropicrequestext">AnthropicRequestExt<a class="headerlink" href="#anthropicrequestext" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>system</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>System prompt (Anthropic uses a dedicated field)</td>
+</tr>
+<tr>
+<td><code>thinking</code></td>
+<td><code>ThinkingConfig \| None</code></td>
+<td><code>None</code></td>
+<td>Extended thinking configuration</td>
+</tr>
+<tr>
+<td><code>prompt_caching</code></td>
+<td><code>bool \| None</code></td>
+<td><code>None</code></td>
+<td>Enable prompt caching</td>
+</tr>
+</tbody>
+</table>
+<h3 id="geminirequestext">GeminiRequestExt<a class="headerlink" href="#geminirequestext" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>grounding</code></td>
+<td><code>GroundingConfig \| None</code></td>
+<td><code>None</code></td>
+<td>Google Search grounding configuration</td>
+</tr>
+<tr>
+<td><code>code_execution</code></td>
+<td><code>bool \| None</code></td>
+<td><code>None</code></td>
+<td>Enable server-side code execution</td>
+</tr>
+<tr>
+<td><code>safety_settings</code></td>
+<td><code>list[SafetySetting] \| None</code></td>
+<td><code>None</code></td>
+<td>Safety filter thresholds</td>
+</tr>
+<tr>
+<td><code>thinking</code></td>
+<td><code>ThinkingConfig \| None</code></td>
+<td><code>None</code></td>
+<td>Extended thinking configuration</td>
+</tr>
+<tr>
+<td><code>cached_content</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Cached content resource name</td>
+</tr>
+</tbody>
+</table>
+<h3 id="openairequestext">OpenAIRequestExt<a class="headerlink" href="#openairequestext" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>json_schema</code></td>
+<td><code>dict[str, Any] \| None</code></td>
+<td><code>None</code></td>
+<td>JSON Schema for structured output</td>
+</tr>
+<tr>
+<td><code>parallel_tool_calls</code></td>
+<td><code>bool \| None</code></td>
+<td><code>None</code></td>
+<td>Allow parallel tool calls</td>
+</tr>
+<tr>
+<td><code>logprobs</code></td>
+<td><code>bool \| None</code></td>
+<td><code>None</code></td>
+<td>Return log probabilities</td>
+</tr>
+<tr>
+<td><code>top_logprobs</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Number of top log probabilities per token</td>
+</tr>
+<tr>
+<td><code>prediction</code></td>
+<td><code>dict[str, Any] \| None</code></td>
+<td><code>None</code></td>
+<td>Predicted output for speculative decoding</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ollamarequestext">OllamaRequestExt<a class="headerlink" href="#ollamarequestext" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>keep_alive</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>How long to keep the model loaded (e.g., <code>"5m"</code>)</td>
+</tr>
+<tr>
+<td><code>num_ctx</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Context window size</td>
+</tr>
+<tr>
+<td><code>num_gpu</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Number of GPU layers</td>
+</tr>
+<tr>
+<td><code>raw_mode</code></td>
+<td><code>bool \| None</code></td>
+<td><code>None</code></td>
+<td>Skip prompt templating</td>
+</tr>
+<tr>
+<td><code>options</code></td>
+<td><code>dict[str, Any] \| None</code></td>
+<td><code>None</code></td>
+<td>Additional Ollama model options</td>
+</tr>
+</tbody>
+</table>
+<h3 id="thinkingconfig">ThinkingConfig<a class="headerlink" href="#thinkingconfig" title="Permanent link">&para;</a></h3>
+<p>Used by Anthropic and Gemini for extended thinking / chain-of-thought.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Enable extended thinking</td>
+</tr>
+<tr>
+<td><code>budget_tokens</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Token budget for thinking</td>
+</tr>
+</tbody>
+</table>
+<h3 id="groundingconfig">GroundingConfig<a class="headerlink" href="#groundingconfig" title="Permanent link">&para;</a></h3>
+<p>Used by Gemini for Google Search grounding.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>google_search</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Enable Google Search grounding</td>
+</tr>
+<tr>
+<td><code>dynamic_retrieval_threshold</code></td>
+<td><code>float \| None</code></td>
+<td><code>None</code></td>
+<td>Threshold for dynamic retrieval</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="tokenbudget-context-management">TokenBudget (Context Management)<a class="headerlink" href="#tokenbudget-context-management" title="Permanent link">&para;</a></h2>
+<p>Controls how the context window is allocated for each LLM call. Defined in <code>arcana.contracts.context</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">arcana.contracts.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">TokenBudget</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">budget</span> <span class="o">=</span> <span class="n">TokenBudget</span><span class="p">(</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">total_window</span><span class="o">=</span><span class="mi">128000</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">identity_tokens</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">task_tokens</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">response_reserve</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="n">tool_budget</span><span class="o">=</span><span class="mi">8000</span><span class="p">,</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>total_window</code></td>
+<td><code>int</code></td>
+<td><code>128000</code></td>
+<td>Total context window size in tokens</td>
+</tr>
+<tr>
+<td><code>identity_tokens</code></td>
+<td><code>int</code></td>
+<td><code>200</code></td>
+<td>Tokens reserved for the identity/system layer</td>
+</tr>
+<tr>
+<td><code>task_tokens</code></td>
+<td><code>int</code></td>
+<td><code>300</code></td>
+<td>Tokens reserved for the task description layer</td>
+</tr>
+<tr>
+<td><code>response_reserve</code></td>
+<td><code>int</code></td>
+<td><code>4096</code></td>
+<td>Tokens reserved for the model's response</td>
+</tr>
+<tr>
+<td><code>tool_budget</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Hard cap on tokens for tool definitions. <code>None</code> means no cap</td>
+</tr>
+<tr>
+<td><code>history_budget</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Hard cap on tokens for conversation history. <code>None</code> means no cap</td>
+</tr>
+<tr>
+<td><code>memory_budget</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Hard cap on tokens for memory context. <code>None</code> means no cap</td>
+</tr>
+</tbody>
+</table>
+<p>The computed property <code>working_budget</code> returns the available tokens for working content:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>working_budget = total_window - identity_tokens - task_tokens - response_reserve
+</code></pre></div>
+<hr />
+<h2 id="toolspec">ToolSpec<a class="headerlink" href="#toolspec" title="Permanent link">&para;</a></h2>
+<p>Specification for a tool that the agent can invoke. Defined in <code>arcana.contracts.tool</code>. Normally created via the <code>@arcana.tool</code> decorator, but can be constructed directly for advanced use.</p>
+<h3 id="arcanatool-decorator">@arcana.tool Decorator<a class="headerlink" href="#arcanatool-decorator" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nd">@arcana</span><span class="o">.</span><span class="n">tool</span><span class="p">(</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;web_search&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Search the web for current information&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="n">when_to_use</span><span class="o">=</span><span class="s2">&quot;When you need up-to-date information not in your training data&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    <span class="n">what_to_expect</span><span class="o">=</span><span class="s2">&quot;Returns search results that may need filtering for relevance&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>    <span class="n">failure_meaning</span><span class="o">=</span><span class="s2">&quot;The search service may be unavailable; try rephrasing the query&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    <span class="n">side_effect</span><span class="o">=</span><span class="s2">&quot;read&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>    <span class="n">requires_confirmation</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="p">)</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">web_search</span><span class="p">(</span><span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">max_results</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>    <span class="o">...</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Tool name. Defaults to the function name</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Tool description. Defaults to the function docstring</td>
+</tr>
+<tr>
+<td><code>when_to_use</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Guidance for the LLM on when to call this tool</td>
+</tr>
+<tr>
+<td><code>what_to_expect</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>What the LLM should expect from the output</td>
+</tr>
+<tr>
+<td><code>failure_meaning</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>What a failure from this tool means</td>
+</tr>
+<tr>
+<td><code>side_effect</code></td>
+<td><code>str</code></td>
+<td><code>"read"</code></td>
+<td>Side effect type: <code>"read"</code>, <code>"write"</code>, or <code>"none"</code></td>
+</tr>
+<tr>
+<td><code>requires_confirmation</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Whether to require user confirmation before execution</td>
+</tr>
+</tbody>
+</table>
+<h3 id="toolspec-fields-full-model">ToolSpec Fields (Full Model)<a class="headerlink" href="#toolspec-fields-full-model" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>Tool name</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>Tool description</td>
+</tr>
+<tr>
+<td><code>input_schema</code></td>
+<td><code>dict[str, Any]</code></td>
+<td><em>(required)</em></td>
+<td>JSON Schema for input parameters</td>
+</tr>
+<tr>
+<td><code>output_schema</code></td>
+<td><code>dict[str, Any] \| None</code></td>
+<td><code>None</code></td>
+<td>JSON Schema for output</td>
+</tr>
+<tr>
+<td><code>side_effect</code></td>
+<td><code>SideEffect</code></td>
+<td><code>SideEffect.READ</code></td>
+<td><code>"read"</code>, <code>"write"</code>, or <code>"none"</code></td>
+</tr>
+<tr>
+<td><code>requires_confirmation</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Require user confirmation</td>
+</tr>
+<tr>
+<td><code>capabilities</code></td>
+<td><code>list[str]</code></td>
+<td><code>[]</code></td>
+<td>Capability tags</td>
+</tr>
+<tr>
+<td><code>max_retries</code></td>
+<td><code>int</code></td>
+<td><code>3</code></td>
+<td>Maximum retry attempts on failure</td>
+</tr>
+<tr>
+<td><code>retry_delay_ms</code></td>
+<td><code>int</code></td>
+<td><code>1000</code></td>
+<td>Delay between retries in milliseconds</td>
+</tr>
+<tr>
+<td><code>timeout_ms</code></td>
+<td><code>int</code></td>
+<td><code>30000</code></td>
+<td>Execution timeout in milliseconds</td>
+</tr>
+<tr>
+<td><code>when_to_use</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>LLM affordance: when to use this tool</td>
+</tr>
+<tr>
+<td><code>what_to_expect</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>LLM affordance: expected output</td>
+</tr>
+<tr>
+<td><code>failure_meaning</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>LLM affordance: what failure means</td>
+</tr>
+<tr>
+<td><code>success_next_step</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>LLM affordance: suggested next step on success</td>
+</tr>
+<tr>
+<td><code>category</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Tool category (e.g., <code>"search"</code>, <code>"file"</code>, <code>"code"</code>, <code>"web"</code>, <code>"data"</code>, <code>"shell"</code>)</td>
+</tr>
+<tr>
+<td><code>related_tools</code></td>
+<td><code>list[str]</code></td>
+<td><code>[]</code></td>
+<td>Names of related tools</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="mcpserverconfig">MCPServerConfig<a class="headerlink" href="#mcpserverconfig" title="Permanent link">&para;</a></h2>
+<p>Configuration for connecting to an MCP (Model Context Protocol) server. Defined in <code>arcana.contracts.mcp</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">arcana</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">arcana.contracts.mcp</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServerConfig</span><span class="p">,</span> <span class="n">MCPTransportType</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">runtime</span> <span class="o">=</span> <span class="n">arcana</span><span class="o">.</span><span class="n">Runtime</span><span class="p">(</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    <span class="n">providers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;deepseek&quot;</span><span class="p">:</span> <span class="s2">&quot;sk-xxx&quot;</span><span class="p">},</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>    <span class="n">mcp_servers</span><span class="o">=</span><span class="p">[</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>        <span class="c1"># stdio transport (subprocess)</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>        <span class="n">MCPServerConfig</span><span class="p">(</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;filesystem&quot;</span><span class="p">,</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>            <span class="n">transport</span><span class="o">=</span><span class="n">MCPTransportType</span><span class="o">.</span><span class="n">STDIO</span><span class="p">,</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>            <span class="n">command</span><span class="o">=</span><span class="s2">&quot;npx&quot;</span><span class="p">,</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>            <span class="n">args</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;-y&quot;</span><span class="p">,</span> <span class="s2">&quot;@modelcontextprotocol/server-filesystem&quot;</span><span class="p">,</span> <span class="s2">&quot;/tmp&quot;</span><span class="p">],</span>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>            <span class="n">timeout_ms</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>        <span class="p">),</span>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>        <span class="c1"># HTTP transport</span>
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>        <span class="n">MCPServerConfig</span><span class="p">(</span>
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;remote-tools&quot;</span><span class="p">,</span>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>            <span class="n">transport</span><span class="o">=</span><span class="n">MCPTransportType</span><span class="o">.</span><span class="n">STREAMABLE_HTTP</span><span class="p">,</span>
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>            <span class="n">url</span><span class="o">=</span><span class="s2">&quot;https://mcp.example.com/sse&quot;</span><span class="p">,</span>
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>            <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;Authorization&quot;</span><span class="p">:</span> <span class="s2">&quot;Bearer xxx&quot;</span><span class="p">},</span>
+<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>        <span class="p">),</span>
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>    <span class="p">],</span>
+<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>Server name (used for identification)</td>
+</tr>
+<tr>
+<td><code>transport</code></td>
+<td><code>MCPTransportType</code></td>
+<td><code>MCPTransportType.STDIO</code></td>
+<td>Transport type: <code>"stdio"</code>, <code>"sse"</code>, or <code>"streamable_http"</code></td>
+</tr>
+<tr>
+<td><code>command</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Command to launch the server (stdio transport)</td>
+</tr>
+<tr>
+<td><code>args</code></td>
+<td><code>list[str]</code></td>
+<td><code>[]</code></td>
+<td>Command arguments (stdio transport)</td>
+</tr>
+<tr>
+<td><code>env</code></td>
+<td><code>dict[str, str]</code></td>
+<td><code>{}</code></td>
+<td>Environment variables for the subprocess (stdio transport)</td>
+</tr>
+<tr>
+<td><code>url</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Server URL (HTTP transports)</td>
+</tr>
+<tr>
+<td><code>headers</code></td>
+<td><code>dict[str, str]</code></td>
+<td><code>{}</code></td>
+<td>HTTP headers (HTTP transports)</td>
+</tr>
+<tr>
+<td><code>timeout_ms</code></td>
+<td><code>int</code></td>
+<td><code>30000</code></td>
+<td>Connection/request timeout in milliseconds</td>
+</tr>
+<tr>
+<td><code>reconnect_attempts</code></td>
+<td><code>int</code></td>
+<td><code>3</code></td>
+<td>Number of reconnection attempts</td>
+</tr>
+<tr>
+<td><code>reconnect_delay_ms</code></td>
+<td><code>int</code></td>
+<td><code>1000</code></td>
+<td>Delay between reconnection attempts in milliseconds</td>
+</tr>
+<tr>
+<td><code>capability_prefix</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Prefix added to tool names from this server</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="trace-configuration">Trace Configuration<a class="headerlink" href="#trace-configuration" title="Permanent link">&para;</a></h2>
+<p>Tracing is enabled by passing <code>trace=True</code> to <code>Runtime()</code>. Trace events are written as JSONL (one JSON object per line) to files named <code>{run_id}.jsonl</code> in the trace directory.</p>
+<h3 id="tracewriter">TraceWriter<a class="headerlink" href="#tracewriter" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>trace_dir</code></td>
+<td><code>str \| Path</code></td>
+<td><code>"./traces"</code></td>
+<td>Directory to store trace files</td>
+</tr>
+<tr>
+<td><code>enabled</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>Whether tracing is active</td>
+</tr>
+<tr>
+<td><code>namespace</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Namespace for tenant isolation. When set, files go to <code>{trace_dir}/{namespace}/</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="traceconfig-from-utilsconfigpy">TraceConfig (from utils/config.py)<a class="headerlink" href="#traceconfig-from-utilsconfigpy" title="Permanent link">&para;</a></h3>
+<p>Used by <code>load_config()</code> for file-based configuration.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>Enable trace output</td>
+</tr>
+<tr>
+<td><code>directory</code></td>
+<td><code>Path</code></td>
+<td><code>Path("./traces")</code></td>
+<td>Trace output directory</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="modelgatewayregistry">ModelGatewayRegistry<a class="headerlink" href="#modelgatewayregistry" title="Permanent link">&para;</a></h2>
+<p>The gateway registry manages multiple LLM providers with retry and fallback support.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">arcana.gateway.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelGatewayRegistry</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">gateway</span> <span class="o">=</span> <span class="n">ModelGatewayRegistry</span><span class="p">(</span><span class="n">max_retries</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">retry_base_delay_ms</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_retries</code></td>
+<td><code>int</code></td>
+<td><code>2</code></td>
+<td>Max retry attempts per provider before falling back (<code>0</code> = no retries)</td>
+</tr>
+<tr>
+<td><code>retry_base_delay_ms</code></td>
+<td><code>int</code></td>
+<td><code>500</code></td>
+<td>Base delay for exponential backoff in milliseconds</td>
+</tr>
+</tbody>
+</table>
+<p>Retry delays use exponential backoff: <code>delay = retry_base_delay_ms * 2^(attempt - 1)</code>. If the provider returns a <code>retry_after_ms</code> hint, the larger of the two values is used.</p>
+<hr />
+<h2 id="budgettracker">BudgetTracker<a class="headerlink" href="#budgettracker" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Note:</strong> <code>BudgetTracker</code> is a <code>@dataclass</code>, not a Pydantic <code>BaseModel</code>.</p>
+</blockquote>
+<p>Runtime budget enforcement. Created automatically by <code>Runtime</code>; documented here for advanced use.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">arcana.gateway.budget</span><span class="w"> </span><span class="kn">import</span> <span class="n">BudgetTracker</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">tracker</span> <span class="o">=</span> <span class="n">BudgetTracker</span><span class="p">(</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="n">max_tokens</span><span class="o">=</span><span class="mi">500_000</span><span class="p">,</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="n">max_cost_usd</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="n">max_time_ms</span><span class="o">=</span><span class="mi">300_000</span><span class="p">,</span>  <span class="c1"># 5 minutes</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_tokens</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Maximum token limit</td>
+</tr>
+<tr>
+<td><code>max_cost_usd</code></td>
+<td><code>float \| None</code></td>
+<td><code>None</code></td>
+<td>Maximum cost limit in USD</td>
+</tr>
+<tr>
+<td><code>max_time_ms</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Maximum time limit in milliseconds</td>
+</tr>
+<tr>
+<td><code>tokens_used</code></td>
+<td><code>int</code></td>
+<td><code>0</code></td>
+<td>Tokens consumed so far</td>
+</tr>
+<tr>
+<td><code>cost_usd</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td>Cost consumed so far</td>
+</tr>
+<tr>
+<td><code>start_time_ms</code></td>
+<td><code>int</code></td>
+<td>Current time in milliseconds</td>
+<td>Timestamp (ms) when the tracker was created</td>
+</tr>
+</tbody>
+</table>
+<p>The tracker raises <code>BudgetExceededError</code> when any limit is hit. Check remaining budget with the <code>tokens_remaining</code>, <code>cost_remaining</code>, and <code>time_remaining_ms</code> properties.</p>
+<hr />
+<h2 id="v1-engine-runtimeconfig">V1 Engine RuntimeConfig<a class="headerlink" href="#v1-engine-runtimeconfig" title="Permanent link">&para;</a></h2>
+<p>The V1 adaptive engine uses a separate <code>RuntimeConfig</code> defined in <code>arcana.contracts.runtime</code>. This is only relevant when using <code>engine="adaptive"</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_steps</code></td>
+<td><code>int</code></td>
+<td><code>100</code></td>
+<td>Maximum execution steps</td>
+</tr>
+<tr>
+<td><code>max_consecutive_errors</code></td>
+<td><code>int</code></td>
+<td><code>3</code></td>
+<td>Stop after this many consecutive errors</td>
+</tr>
+<tr>
+<td><code>max_consecutive_no_progress</code></td>
+<td><code>int</code></td>
+<td><code>3</code></td>
+<td>Stop after this many turns with no progress</td>
+</tr>
+<tr>
+<td><code>checkpoint_interval_steps</code></td>
+<td><code>int</code></td>
+<td><code>5</code></td>
+<td>Steps between automatic checkpoints</td>
+</tr>
+<tr>
+<td><code>checkpoint_on_error</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>Create checkpoint on error</td>
+</tr>
+<tr>
+<td><code>checkpoint_budget_thresholds</code></td>
+<td><code>list[float]</code></td>
+<td><code>[0.5, 0.75, 0.9]</code></td>
+<td>Budget usage fractions that trigger checkpoints</td>
+</tr>
+<tr>
+<td><code>checkpoint_on_plan_step</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>Checkpoint after each plan step</td>
+</tr>
+<tr>
+<td><code>checkpoint_on_verification</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>Checkpoint after verification steps</td>
+</tr>
+<tr>
+<td><code>step_retry_count</code></td>
+<td><code>int</code></td>
+<td><code>2</code></td>
+<td>Number of retries per failed step</td>
+</tr>
+<tr>
+<td><code>step_retry_delay_ms</code></td>
+<td><code>int</code></td>
+<td><code>1000</code></td>
+<td>Delay between step retries in milliseconds</td>
+</tr>
+<tr>
+<td><code>progress_window_size</code></td>
+<td><code>int</code></td>
+<td><code>5</code></td>
+<td>Number of recent steps to evaluate for progress</td>
+</tr>
+<tr>
+<td><code>similarity_threshold</code></td>
+<td><code>float</code></td>
+<td><code>0.95</code></td>
+<td>Similarity threshold for detecting loops (no-progress detection)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="arcanaconfig-file-based-configuration">ArcanaConfig (File-Based Configuration)<a class="headerlink" href="#arcanaconfig-file-based-configuration" title="Permanent link">&para;</a></h2>
+<p>The <code>load_config()</code> function in <code>arcana.utils.config</code> loads a full configuration from environment variables and <code>.env</code> files. This is useful for applications that prefer declarative configuration over programmatic setup.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">arcana.utils.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_config</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">load_config</span><span class="p">(</span><span class="n">env_file</span><span class="o">=</span><span class="s2">&quot;.env.production&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">default_model</span><span class="o">.</span><span class="n">provider</span><span class="p">)</span>   <span class="c1"># &quot;gemini&quot;</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">budget</span><span class="o">.</span><span class="n">max_cost_per_run_usd</span><span class="p">)</span>  <span class="c1"># 1.0</span>
+</code></pre></div>
+<h3 id="arcanaconfig-structure">ArcanaConfig Structure<a class="headerlink" href="#arcanaconfig-structure" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>ArcanaConfig
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>  gemini: ModelProviderConfig
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>  deepseek: ModelProviderConfig
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>  openai: ModelProviderConfig
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>  anthropic: ModelProviderConfig
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>  trace: TraceConfig
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>  default_model: DefaultModelConfig
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>  budget: BudgetConfig
+</code></pre></div>
+<h3 id="modelproviderconfig">ModelProviderConfig<a class="headerlink" href="#modelproviderconfig" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>api_key</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Provider API key</td>
+</tr>
+<tr>
+<td><code>base_url</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Provider base URL</td>
+</tr>
+</tbody>
+</table>
+<h3 id="defaultmodelconfig">DefaultModelConfig<a class="headerlink" href="#defaultmodelconfig" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>provider</code></td>
+<td><code>str</code></td>
+<td><code>"gemini"</code></td>
+<td>Default provider name</td>
+</tr>
+<tr>
+<td><code>model_id</code></td>
+<td><code>str</code></td>
+<td><code>"gemini-2.0-flash"</code></td>
+<td>Default model ID</td>
+</tr>
+<tr>
+<td><code>temperature</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td>Default temperature</td>
+</tr>
+<tr>
+<td><code>max_tokens</code></td>
+<td><code>int</code></td>
+<td><code>4096</code></td>
+<td>Default max output tokens</td>
+</tr>
+<tr>
+<td><code>timeout_ms</code></td>
+<td><code>int</code></td>
+<td><code>30000</code></td>
+<td>Default timeout in milliseconds</td>
+</tr>
+</tbody>
+</table>
+<h3 id="budgetconfig">BudgetConfig<a class="headerlink" href="#budgetconfig" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_tokens_per_run</code></td>
+<td><code>int</code></td>
+<td><code>100000</code></td>
+<td>Maximum tokens per run</td>
+</tr>
+<tr>
+<td><code>max_cost_per_run_usd</code></td>
+<td><code>float</code></td>
+<td><code>1.0</code></td>
+<td>Maximum cost per run in USD</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

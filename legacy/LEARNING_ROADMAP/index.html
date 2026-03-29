@@ -1,0 +1,1825 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent Runtime for Production">
+      
+      
+      
+        <link rel="canonical" href="https://tyxben.github.io/arcana/legacy/LEARNING_ROADMAP/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Arcana 学习路线图 - Arcana</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#arcana" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Arcana" class="md-header__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Arcana
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Arcana 学习路线图
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guide/quickstart/" class="md-tabs__link">
+          
+  
+  
+  Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../constitution/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Constitution
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Arcana" class="md-nav__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Arcana
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    arcana.run()
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChatSession
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/budget/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Budget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contracts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../constitution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Constitution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📚 学习资源导航
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="📚 学习资源导航">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        核心知识文档
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        规范文档
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🗓️ 14 周学习计划
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="🗓️ 14 周学习计划">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-week-1-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: 基础设施（Week 1-2）✅
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-week-3-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: 执行引擎（Week 3-4）✅
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-week-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: 工具系统（Week 5）🔜
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-week-6-7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: 知识系统（Week 6-7）🔜
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-week-8-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5: 编排系统（Week 8-10）🔜
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-6-week-11-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6: 治理系统（Week 11-12）🔜
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-7-week-13-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 7: 项目整合（Week 13-14）🔜
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📊 当前进度
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🎯 学习方法建议
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="🎯 学习方法建议">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 先理论后实践
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 问题驱动学习
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 对比学习
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 面试准备策略
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔍 深度学习资源
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="🔍 深度学习资源">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        推荐论文
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        开源项目研究
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        技术博客
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        💡 实战项目建议
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="💡 实战项目建议">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        小项目（练手）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        中型项目（深化）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        大型项目（综合）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ✅ 自测清单
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="✅ 自测清单">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#week-1-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Week 1-2 自测
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#week-3-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Week 3-4 自测
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#week-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Week 5+ 自测（待补充）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🎓 进阶路径
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="🎓 进阶路径">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agent-week-1-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        初级 Agent 工程师（Week 1-4）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-week-5-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        中级 Agent 工程师（Week 5-10）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-week-11-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        高级 Agent 架构师（Week 11-14+）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📞 学习支持
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="📞 学习支持">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        遇到问题？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        贡献文档
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_19" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🎉 总结
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="arcana">Arcana 学习路线图<a class="headerlink" href="#arcana" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>从零到高级 Agent 工程师的完整学习路径</p>
+</blockquote>
+<hr />
+<h2 id="_1">📚 学习资源导航<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<h3 id="_2">核心知识文档<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong><a href="../KNOWLEDGE/">KNOWLEDGE.md</a></strong> - Agent 平台工程知识体系</li>
+<li>全面的知识点覆盖（1500+ 行）</li>
+<li>Model Gateway、Tool Gateway、RAG 等核心模块</li>
+<li>面试高频问题汇总</li>
+<li>
+<p>技术栈选型与原因</p>
+</li>
+<li>
+<p><strong><a href="../RUNTIME_KNOWLEDGE/">RUNTIME_KNOWLEDGE.md</a></strong> - Agent Runtime 详解</p>
+</li>
+<li>Runtime 核心概念与架构</li>
+<li>Policy-Step-Reducer 模式深入分析</li>
+<li>
+<p>执行控制、进度检测、错误处理</p>
+</li>
+<li>
+<p><strong><a href="../WEEK3-4_RUNTIME_LEARNING/">WEEK3-4_RUNTIME_LEARNING.md</a></strong> - Week 3-4 学习要点 ⭐ NEW</p>
+</li>
+<li>Policy-Step-Reducer 模式详解</li>
+<li>Schema Validation 实现细节</li>
+<li>Replay 机制设计思路</li>
+<li>错误分类与处理策略</li>
+<li>面试高频问题与实战经验</li>
+</ol>
+<h3 id="_3">规范文档<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><a href="./specs/trace_spec.md">specs/trace_spec.md</a></strong> - Trace 系统规范</li>
+<li><strong><a href="./specs/tool_spec.md">specs/tool_spec.md</a></strong> - Tool 契约规范</li>
+<li><strong><a href="./specs/state_spec.md">specs/state_spec.md</a></strong> - State 状态规范</li>
+<li><strong><a href="./specs/rag_spec.md">specs/rag_spec.md</a></strong> - RAG 系统规范</li>
+</ul>
+<hr />
+<h2 id="14">🗓️ 14 周学习计划<a class="headerlink" href="#14" title="Permanent link">&para;</a></h2>
+<h3 id="phase-1-week-1-2">Phase 1: 基础设施（Week 1-2）✅<a class="headerlink" href="#phase-1-week-1-2" title="Permanent link">&para;</a></h3>
+<p><strong>学习目标</strong>：
+- 理解"平台优先"思想
+- 掌握 Contract-First 设计
+- 建立可观测性基础</p>
+<p><strong>知识点</strong>：
+- Canonical Hash 规范
+- JSONL 事件日志
+- Model Gateway 抽象
+- Budget Tracking</p>
+<p><strong>产出</strong>：
+- ✅ Trace Writer/Reader
+- ✅ Model Gateway + 多 Provider
+- ✅ Budget Tracker
+- ✅ 完整文档</p>
+<p><strong>学习资料</strong>：
+- <a href="../KNOWLEDGE/#1-核心概念">KNOWLEDGE.md - 核心概念</a>
+- <a href="../KNOWLEDGE/#2-trace-系统审计与可追溯">KNOWLEDGE.md - Trace 系统</a>
+- <a href="../KNOWLEDGE/#3-model-gateway模型网关">KNOWLEDGE.md - Model Gateway</a></p>
+<hr />
+<h3 id="phase-2-week-3-4">Phase 2: 执行引擎（Week 3-4）✅<a class="headerlink" href="#phase-2-week-3-4" title="Permanent link">&para;</a></h3>
+<p><strong>学习目标</strong>：
+- 掌握状态机设计模式
+- 理解执行控制机制
+- 学会调试与复现技巧</p>
+<p><strong>核心知识点</strong>：</p>
+<ol>
+<li><strong>Policy-Step-Reducer 模式</strong></li>
+<li>Redux 单向数据流思想</li>
+<li>关注点分离</li>
+<li>
+<p>纯函数 Reducer</p>
+</li>
+<li>
+<p><strong>Schema Validation</strong></p>
+</li>
+<li>LLM 输出不稳定问题</li>
+<li>宽容解析策略</li>
+<li>
+<p>自动重试机制</p>
+</li>
+<li>
+<p><strong>Replay 机制</strong></p>
+</li>
+<li>确定性保证（temperature=0 + seed）</li>
+<li>Cache 索引设计</li>
+<li>
+<p>分歧点检测</p>
+</li>
+<li>
+<p><strong>错误处理</strong></p>
+</li>
+<li>9 种错误类型分类</li>
+<li>指数退避重试</li>
+<li>升级策略</li>
+</ol>
+<p><strong>产出</strong>：
+- ✅ Agent 执行引擎
+- ✅ Progress Detector
+- ✅ Schema Validator
+- ✅ Replay Engine
+- ✅ Error Handler
+- ✅ 集成测试 + Demo</p>
+<p><strong>学习资料</strong>：
+- 📖 <strong><a href="../WEEK3-4_RUNTIME_LEARNING/">WEEK3-4_RUNTIME_LEARNING.md</a></strong> - 必读！
+- <a href="../RUNTIME_KNOWLEDGE/">RUNTIME_KNOWLEDGE.md</a></p>
+<p><strong>面试准备</strong>：
+- Q: 解释 Policy-Step-Reducer 模式
+- Q: Schema Validation 为什么要自动重试？
+- Q: Replay 如何保证确定性？
+- Q: 错误分类的意义是什么？
+- Q: ProgressDetector 如何检测死循环？</p>
+<hr />
+<h3 id="phase-3-week-5">Phase 3: 工具系统（Week 5）🔜<a class="headerlink" href="#phase-3-week-5" title="Permanent link">&para;</a></h3>
+<p><strong>学习目标</strong>：
+- 掌握 Capability-based 权限模型
+- 理解幂等性设计
+- 学会注入防护</p>
+<p><strong>核心知识点</strong>：</p>
+<ol>
+<li><strong>Tool Contract</strong></li>
+<li>Input/Output Schema</li>
+<li>Side Effect 分类（read/write）</li>
+<li>
+<p>Idempotency Key</p>
+</li>
+<li>
+<p><strong>权限系统</strong></p>
+</li>
+<li>Capability 授权</li>
+<li>最小权限原则</li>
+<li>
+<p>审计日志</p>
+</li>
+<li>
+<p><strong>安全防护</strong></p>
+</li>
+<li>Prompt 注入检测</li>
+<li>参数校验</li>
+<li>写操作保护（HITL）</li>
+</ol>
+<p><strong>即将产出</strong>：
+- Tool Gateway 接口
+- Capability Manager
+- Idempotency Handler
+- 注入防护规则</p>
+<p><strong>预习资料</strong>：
+- <a href="../KNOWLEDGE/#4-tool-gateway工具网关">KNOWLEDGE.md - Tool Gateway</a></p>
+<hr />
+<h3 id="phase-4-week-6-7">Phase 4: 知识系统（Week 6-7）🔜<a class="headerlink" href="#phase-4-week-6-7" title="Permanent link">&para;</a></h3>
+<p><strong>Week 6: RAG v1</strong>
+- 索引与检索
+- Rerank 策略
+- Citation 约束</p>
+<p><strong>Week 7: Memory</strong>
+- Working Memory
+- Long-term Memory
+- Episodic Memory
+- 记忆污染处理</p>
+<p><strong>预习资料</strong>：
+- <a href="../KNOWLEDGE/#6-rag-系统">KNOWLEDGE.md - RAG 系统</a></p>
+<hr />
+<h3 id="phase-5-week-8-10">Phase 5: 编排系统（Week 8-10）🔜<a class="headerlink" href="#phase-5-week-8-10" title="Permanent link">&para;</a></h3>
+<p><strong>Week 8: Plan-and-Execute</strong>
+- Planner/Executor/Verifier
+- 验收条件
+- 重规划机制</p>
+<p><strong>Week 9-10: Orchestrator</strong>
+- 任务队列
+- 并发控制
+- 配额管理
+- 背压策略</p>
+<hr />
+<h3 id="phase-6-week-11-12">Phase 6: 治理系统（Week 11-12）🔜<a class="headerlink" href="#phase-6-week-11-12" title="Permanent link">&para;</a></h3>
+<p><strong>Week 11-12: Observability + Multi-Agent</strong>
+- Trace Viewer
+- Eval Harness
+- 对抗集
+- Multi-Agent 协作协议</p>
+<hr />
+<h3 id="phase-7-week-13-14">Phase 7: 项目整合（Week 13-14）🔜<a class="headerlink" href="#phase-7-week-13-14" title="Permanent link">&para;</a></h3>
+<p><strong>Week 13-14: Capstone</strong>
+- 端到端 Demo
+- 生产强化
+- 文档完善
+- 架构决策记录（ADR）</p>
+<hr />
+<h2 id="_4">📊 当前进度<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>✅ Week 1-2:  Contracts + Trace + Model Gateway  [████████████████████] 100%
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>✅ Week 3-4:  Agent Runtime                       [████████████████████] 100%
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>🔜 Week 5:    Tool Gateway                        [                    ]   0%
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>⏳ Week 6-14: RAG + Memory + Orchestrator         [                    ]   0%
+</code></pre></div>
+<p><strong>总体进度</strong>: 28% (4/14 周)</p>
+<hr />
+<h2 id="_5">🎯 学习方法建议<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
+<h3 id="1">1. 先理论后实践<a class="headerlink" href="#1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>每个模块学习流程：
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>1. 阅读知识文档（理解&quot;为什么&quot;）
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>2. 查看代码实现（理解&quot;怎么做&quot;）
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>3. 运行测试和 Demo（验证理解）
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>4. 独立实现小功能（深化掌握）
+</code></pre></div>
+<h3 id="2">2. 问题驱动学习<a class="headerlink" href="#2" title="Permanent link">&para;</a></h3>
+<p><strong>好问题示例</strong>：
+- "为什么需要 Canonical Hash？"
+- "Schema Validation 失败后如何重试？"
+- "Replay 如何保证确定性？"
+- "什么时候需要 HITL？"</p>
+<h3 id="3">3. 对比学习<a class="headerlink" href="#3" title="Permanent link">&para;</a></h3>
+<p><strong>横向对比</strong>：
+| Arcana | LangChain | AutoGPT |
+|--------|-----------|---------|
+| 平台化设计 | 框架化 | 应用化 |
+| 可控可测 | 易用性强 | 自主性强 |
+| 生产导向 | 快速原型 | 演示导向 |</p>
+<p><strong>纵向对比</strong>：
+- Week 1 的 Trace vs Week 11 的 Trace Viewer
+- Week 3 的简单 State vs Week 9 的 Checkpoint
+- Week 5 的 Tool vs Week 12 的 Multi-Agent Tool 共享</p>
+<h3 id="4">4. 面试准备策略<a class="headerlink" href="#4" title="Permanent link">&para;</a></h3>
+<p><strong>高频题目分类</strong>：
+1. <strong>架构设计</strong>：为什么这么设计？有什么好处？
+2. <strong>技术选型</strong>：为什么选 X 而不是 Y？
+3. <strong>故障排查</strong>：出了问题怎么调试？
+4. <strong>性能优化</strong>：如何提高性能？
+5. <strong>安全考虑</strong>：如何防止注入/越权？</p>
+<p><strong>回答框架</strong>：
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>1. 背景/问题
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>2. 方案/设计
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>3. 实现细节
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>4. 权衡与取舍
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>5. 实际效果
+</code></pre></div></p>
+<hr />
+<h2 id="_6">🔍 深度学习资源<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
+<h3 id="_7">推荐论文<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
+<p><strong>Agent 相关</strong>：
+- ReAct: Synergizing Reasoning and Acting
+- Reflexion: Language Agents with Verbal Reinforcement Learning
+- AutoGPT: An Autonomous GPT-4 Experiment</p>
+<p><strong>RAG 相关</strong>：
+- Self-RAG: Learning to Retrieve, Generate, and Critique
+- Dense Passage Retrieval for Open-Domain Question Answering</p>
+<p><strong>Tool Use</strong>：
+- Toolformer: Language Models Can Teach Themselves to Use Tools
+- Gorilla: Large Language Model Connected with Massive APIs</p>
+<h3 id="_8">开源项目研究<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h3>
+<p><strong>必看</strong>：
+- LangChain/LangGraph - 学习编排思想
+- DSPy - 学习优化思想
+- AutoGPT - 学习自主 Agent 设计</p>
+<p><strong>进阶</strong>：
+- Semantic Kernel (Microsoft)
+- Haystack (deepset)
+- BabyAGI</p>
+<h3 id="_9">技术博客<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h3>
+<p><strong>官方文档</strong>：
+- Anthropic: Claude Best Practices
+- OpenAI: Function Calling Guide
+- Google: Gemini Agent Patterns</p>
+<p><strong>社区博客</strong>：
+- Pinecone: Vector DB Tutorials
+- LangChain Blog
+- Hugging Face Blog</p>
+<hr />
+<h2 id="_10">💡 实战项目建议<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h2>
+<h3 id="_11">小项目（练手）<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>简单 RAG 问答</strong></li>
+<li>索引本地文档</li>
+<li>实现检索+回答</li>
+<li>
+<p>强制引用约束</p>
+</li>
+<li>
+<p><strong>带预算的 Agent</strong></p>
+</li>
+<li>设定 token 限制</li>
+<li>实现降级策略</li>
+<li>
+<p>记录成本</p>
+</li>
+<li>
+<p><strong>Tool Calling Agent</strong></p>
+</li>
+<li>集成 2-3 个工具</li>
+<li>实现权限控制</li>
+<li>记录审计日志</li>
+</ol>
+<h3 id="_12">中型项目（深化）<a class="headerlink" href="#_12" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>可 Replay 的 Agent</strong></li>
+<li>完整的 Trace 系统</li>
+<li>Replay Engine</li>
+<li>
+<p>分歧点检测</p>
+</li>
+<li>
+<p><strong>Multi-Agent 协作</strong></p>
+</li>
+<li>Planner + Executor + Critic</li>
+<li>协作协议</li>
+<li>冲突解决</li>
+</ol>
+<h3 id="_13">大型项目（综合）<a class="headerlink" href="#_13" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>企业知识助手</strong></li>
+<li>RAG + 工具编排</li>
+<li>HITL + 审计</li>
+<li>
+<p>回归门禁</p>
+</li>
+<li>
+<p><strong>Agent Platform</strong></p>
+</li>
+<li>完整的 Orchestrator</li>
+<li>多租户隔离</li>
+<li>可观测性平台</li>
+</ol>
+<hr />
+<h2 id="_14">✅ 自测清单<a class="headerlink" href="#_14" title="Permanent link">&para;</a></h2>
+<h3 id="week-1-2">Week 1-2 自测<a class="headerlink" href="#week-1-2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] 能解释为什么需要 Canonical Hash</li>
+<li>[ ] 能说出 JSONL 的 3 个优点</li>
+<li>[ ] 能实现一个简单的 ModelGateway Provider</li>
+<li>[ ] 能设计 Budget Tracker 的数据结构</li>
+</ul>
+<h3 id="week-3-4">Week 3-4 自测<a class="headerlink" href="#week-3-4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] 能画出 Policy-Step-Reducer 的数据流图</li>
+<li>[ ] 能解释 Schema Validation 的重试策略</li>
+<li>[ ] 能说出 Replay 确定性的 3 个保证</li>
+<li>[ ] 能列举 5 种以上错误类型</li>
+<li>[ ] 能实现一个简单的 ProgressDetector</li>
+</ul>
+<h3 id="week-5">Week 5+ 自测（待补充）<a class="headerlink" href="#week-5" title="Permanent link">&para;</a></h3>
+<hr />
+<h2 id="_15">🎓 进阶路径<a class="headerlink" href="#_15" title="Permanent link">&para;</a></h2>
+<h3 id="agent-week-1-4">初级 Agent 工程师（Week 1-4）<a class="headerlink" href="#agent-week-1-4" title="Permanent link">&para;</a></h3>
+<p><strong>能力要求</strong>：
+- ✅ 理解 Agent 基本架构
+- ✅ 能使用现有 Agent 框架
+- ✅ 能调试简单的 Agent 问题</p>
+<p><strong>对应岗位</strong>：
+- Agent 应用开发
+- AI 产品工程师（初级）</p>
+<h3 id="agent-week-5-10">中级 Agent 工程师（Week 5-10）<a class="headerlink" href="#agent-week-5-10" title="Permanent link">&para;</a></h3>
+<p><strong>能力要求</strong>：
+- 能设计 Agent 系统架构
+- 能实现核心模块（Tool/RAG/Memory）
+- 能处理生产环境问题</p>
+<p><strong>对应岗位</strong>：
+- Agent 平台工程师
+- AI 基础设施工程师
+- 高级后端工程师（AI 方向）</p>
+<h3 id="agent-week-11-14">高级 Agent 架构师（Week 11-14+）<a class="headerlink" href="#agent-week-11-14" title="Permanent link">&para;</a></h3>
+<p><strong>能力要求</strong>：
+- 能设计大规模 Agent 平台
+- 能权衡技术选型
+- 能指导团队实施</p>
+<p><strong>对应岗位</strong>：
+- Agent 平台架构师
+- AI Infra Tech Lead
+- 资深/专家工程师（AI 方向）</p>
+<hr />
+<h2 id="_16">📞 学习支持<a class="headerlink" href="#_16" title="Permanent link">&para;</a></h2>
+<h3 id="_17">遇到问题？<a class="headerlink" href="#_17" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>查文档</strong>：先看对应周的学习文档</li>
+<li><strong>看代码</strong>：阅读相关模块的实现</li>
+<li><strong>跑测试</strong>：运行测试理解行为</li>
+<li><strong>问 AI</strong>：Claude/GPT 可以解答具体问题</li>
+</ol>
+<h3 id="_18">贡献文档<a class="headerlink" href="#_18" title="Permanent link">&para;</a></h3>
+<p>发现文档有误或可以改进？欢迎提交 PR！</p>
+<hr />
+<h2 id="_19">🎉 总结<a class="headerlink" href="#_19" title="Permanent link">&para;</a></h2>
+<p><strong>学习原则</strong>：
+1. <strong>理解为先</strong>：不要死记硬背，理解"为什么"
+2. <strong>实践验证</strong>：动手实现才能真正掌握
+3. <strong>持续总结</strong>：每周整理知识点和心得
+4. <strong>面试导向</strong>：注重高频问题的准备</p>
+<p><strong>下一步</strong>：
+- 📖 完成当前周的学习文档阅读
+- 💻 运行对应的 Demo 和测试
+- ✍️ 总结学习笔记和疑问
+- 🚀 开始下一周的学习</p>
+<p>祝学习顺利！🎯</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

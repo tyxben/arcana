@@ -1,0 +1,2408 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent Runtime for Production">
+      
+      
+      
+        <link rel="canonical" href="https://tyxben.github.io/arcana/changelog/">
+      
+      
+        <link rel="prev" href="../constitution/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Changelog - Arcana</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Arcana" class="md-header__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Arcana
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guide/quickstart/" class="md-tabs__link">
+          
+  
+  
+  Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../constitution/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Constitution
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Arcana" class="md-nav__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Arcana
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    arcana.run()
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChatSession
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/budget/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Budget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contracts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../constitution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Constitution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#021-2026-03-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.2.1] - 2026-03-28
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.2.1] - 2026-03-28">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed-production-high-availability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed — Production High Availability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-developer-experience" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Developer Experience
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#020-2026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.2.0] - 2026-03-27
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.2.0] - 2026-03-27">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed-structured-output-reliability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed — Structured Output Reliability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-batch-api-budget-granularity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Batch API &amp; Budget Granularity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta8-2026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.8] - 2026-03-27
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.8] - 2026-03-27">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-team-dual-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Team Dual Mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta7-2026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.7] - 2026-03-27
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.7] - 2026-03-27">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed-provider-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed — Provider Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta6-2026-03-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.6] - 2026-03-26
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.6] - 2026-03-26">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-pipeline-budget-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Pipeline &amp; Budget Control
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta5-2026-03-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.5] - 2026-03-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.5] - 2026-03-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta4-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.4] - 2026-03-24
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.4] - 2026-03-24">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta3-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.3] - 2026-03-24
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.3] - 2026-03-24">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-llm-capability-amplification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — LLM Capability Amplification
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-interactive-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Interactive Capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed-constitution-v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed — Constitution v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta1-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.1] - 2026-03-18
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.1] - 2026-03-18">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-alpha2-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-alpha.2] - 2026-03-18
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-alpha.2] - 2026-03-18">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-alpha1-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-alpha.1] - 2026-03-18
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-alpha.1] - 2026-03-18">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Added">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#v2-execution-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        V2 Execution Engine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v2-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        V2 Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SDK
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#code-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v1-preserved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        V1 (Preserved)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#021-2026-03-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.2.1] - 2026-03-28
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.2.1] - 2026-03-28">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed-production-high-availability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed — Production High Availability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-developer-experience" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Developer Experience
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#020-2026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.2.0] - 2026-03-27
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.2.0] - 2026-03-27">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed-structured-output-reliability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed — Structured Output Reliability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-batch-api-budget-granularity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Batch API &amp; Budget Granularity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta8-2026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.8] - 2026-03-27
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.8] - 2026-03-27">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-team-dual-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Team Dual Mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta7-2026-03-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.7] - 2026-03-27
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.7] - 2026-03-27">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed-provider-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed — Provider Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta6-2026-03-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.6] - 2026-03-26
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.6] - 2026-03-26">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-pipeline-budget-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Pipeline &amp; Budget Control
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta5-2026-03-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.5] - 2026-03-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.5] - 2026-03-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta4-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.4] - 2026-03-24
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.4] - 2026-03-24">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta3-2026-03-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.3] - 2026-03-24
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.3] - 2026-03-24">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added-llm-capability-amplification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — LLM Capability Amplification
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-interactive-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Interactive Capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed-constitution-v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed — Constitution v2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#added-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added — Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stats_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-beta1-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-beta.1] - 2026-03-18
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-beta.1] - 2026-03-18">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-alpha2-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-alpha.2] - 2026-03-18
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-alpha.2] - 2026-03-18">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-alpha1-2026-03-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [0.1.0-alpha.1] - 2026-03-18
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.1.0-alpha.1] - 2026-03-18">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Added">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#v2-execution-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        V2 Execution Engine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v2-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        V2 Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SDK
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#code-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v1-preserved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        V1 (Preserved)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<p>All notable changes to Arcana will be documented in this file.</p>
+<h2 id="021-2026-03-28">[0.2.1] - 2026-03-28<a class="headerlink" href="#021-2026-03-28" title="Permanent link">&para;</a></h2>
+<h3 id="fixed-production-high-availability">Fixed — Production High Availability<a class="headerlink" href="#fixed-production-high-availability" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Provider connection leak</strong>: <code>Runtime.close()</code> now cascades to all provider HTTP clients (AsyncOpenAI, AsyncAnthropic). Previously only closed MCP connections, leaking connection pools in long-running apps</li>
+<li><strong>Budget race condition</strong>: <code>Runtime._total_tokens_used</code> and <code>_total_cost_usd</code> now protected by <code>threading.Lock</code>. Concurrent <code>run()</code> calls no longer corrupt cumulative budget counters</li>
+<li><strong>timeout_ms actually wired</strong>: <code>ModelConfig.timeout_ms</code> now passed to provider SDK <code>create()</code> calls as per-request timeout. Previously the config existed but was silently ignored (SDK defaulted to 600s)</li>
+<li><strong>Cancellation safety</strong>: <code>asyncio.CancelledError</code> and <code>KeyboardInterrupt</code> in <code>Runtime.run()</code> and <code>ConversationAgent</code> now record partial budget and leave state consistent before re-raising</li>
+</ul>
+<h3 id="added-developer-experience">Added — Developer Experience<a class="headerlink" href="#added-developer-experience" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>arcana init</code></strong>: CLI scaffold command generates <code>main.py</code> + <code>.env.example</code> + <code>agent.yaml</code> for 30-second quickstart</li>
+<li><strong><code>Runtime.on()</code> / <code>Runtime.off()</code></strong>: Event hook API for runtime lifecycle events (<code>run_start</code>, <code>run_end</code>, <code>error</code>). Supports sync and async callbacks, chainable</li>
+<li><strong><code>ChatSession(max_history=N)</code></strong>: Sliding window on message history to prevent OOM in long conversations. System messages always preserved. <code>runtime.chat(max_history=100)</code></li>
+<li><strong>LangChain adapter test suite</strong>: 18 tests covering spec extraction, execution, error handling, protocol compliance</li>
+<li><strong>SECURITY.md</strong>: Honest security model documentation — what Arcana secures and what it doesn't</li>
+<li><strong>CI coverage reporting</strong>: pytest-cov + Codecov upload in GitHub Actions</li>
+<li><strong>Dynamic README badges</strong>: PyPI version, CI status, coverage — no more stale static badges</li>
+</ul>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Example 13 rewritten to use <code>runtime.chat()</code> / <code>ChatSession.send()</code> instead of manual LLM message management</li>
+</ul>
+<h3 id="stats">Stats<a class="headerlink" href="#stats" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Tests: 1164 → 1234 (+70 new tests)</li>
+<li>All 1234 tests passing, 0 failures</li>
+</ul>
+<h2 id="020-2026-03-27">[0.2.0] - 2026-03-27<a class="headerlink" href="#020-2026-03-27" title="Permanent link">&para;</a></h2>
+<h3 id="fixed-structured-output-reliability">Fixed — Structured Output Reliability<a class="headerlink" href="#fixed-structured-output-reliability" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>result.parsed</code> always returns <code>BaseModel | None</code></strong>: Fixed bug where <code>parsed</code> could be a raw <code>dict</code> when provider degrades to <code>json_object</code> mode. Now handles dict inputs, validates <code>on_parse_error</code> callback returns, and guarantees type consistency</li>
+<li><strong>Anthropic structured output</strong>: <code>AnthropicProvider</code> now supports <code>response_format</code> — injects JSON schema into system prompt (same fallback strategy as DeepSeek/Ollama/Kimi). Works with and without tools</li>
+</ul>
+<h3 id="added-batch-api-budget-granularity">Added — Batch API &amp; Budget Granularity<a class="headerlink" href="#added-batch-api-budget-granularity" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>Runtime.run_batch(tasks, concurrency=5)</code></strong>: Run multiple independent tasks concurrently with <code>asyncio.Semaphore</code>. Individual failures don't crash the batch. Returns <code>BatchResult</code> with results, succeeded/failed counts, total tokens/cost</li>
+<li><strong>Provider-level <code>batch_generate()</code></strong>: <code>OpenAICompatibleProvider.batch_generate(requests, config, concurrency=5)</code> for concurrent LLM calls. Registry-level fallback when provider doesn't implement batch</li>
+<li><strong><code>ChainStep.budget</code></strong>: Per-step budget in <code>chain()</code> pipelines. Each step can have its own budget cap, always capped by chain-level remaining budget. Steps without budget share the chain pool</li>
+</ul>
+<h3 id="stats_1">Stats<a class="headerlink" href="#stats_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Tests: 1164, all passing</li>
+</ul>
+<h2 id="010-beta8-2026-03-27">[0.1.0-beta.8] - 2026-03-27<a class="headerlink" href="#010-beta8-2026-03-27" title="Permanent link">&para;</a></h2>
+<h3 id="added-team-dual-mode">Added — Team Dual Mode<a class="headerlink" href="#added-team-dual-mode" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>runtime.team(mode="shared"|"session")</code></strong>: Two collaboration modes. <code>"shared"</code> (default) — all agents share one conversation history. <code>"session"</code> — each agent has an independent context; other agents' messages arrive as user messages</li>
+</ul>
+<h3 id="stats_2">Stats<a class="headerlink" href="#stats_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Tests: 1135, all passing</li>
+</ul>
+<h2 id="010-beta7-2026-03-27">[0.1.0-beta.7] - 2026-03-27<a class="headerlink" href="#010-beta7-2026-03-27" title="Permanent link">&para;</a></h2>
+<h3 id="fixed-provider-compatibility">Fixed — Provider Compatibility<a class="headerlink" href="#fixed-provider-compatibility" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Cost estimation</strong>: <code>TokenUsage.cost_estimate</code> now uses realistic mid-range pricing ($0.15/M input, $0.60/M output) instead of placeholder values</li>
+<li><strong>Zero-token warning</strong>: When a provider reports 0 tokens, the runtime estimates from response length and logs a warning instead of silently tracking $0</li>
+<li><strong>Structured output + json_schema auto-downgrade</strong>: Providers that don't support <code>json_schema</code> response format (DeepSeek, Ollama, Kimi, GLM, MiniMax) automatically fall back to <code>json_object</code> with schema instructions injected into system prompt</li>
+<li><strong>Provider model config</strong>: <code>providers</code> dict now accepts <code>{"provider": {"api_key": "...", "model": "..."}}</code> to override default model per provider</li>
+<li><strong>Tool call logging</strong>: Debug-level logs for all tool calls and results (name, arguments, output)</li>
+</ul>
+<h2 id="010-beta6-2026-03-26">[0.1.0-beta.6] - 2026-03-26<a class="headerlink" href="#010-beta6-2026-03-26" title="Permanent link">&para;</a></h2>
+<h3 id="added-pipeline-budget-control">Added — Pipeline &amp; Budget Control<a class="headerlink" href="#added-pipeline-budget-control" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Parallel chain branches</strong>: <code>runtime.chain()</code> now accepts nested lists for parallel execution — <code>[ChainStep, [ChainStep, ChainStep], ChainStep]</code> runs the inner list concurrently with <code>asyncio.gather</code></li>
+<li><strong>Per-run provider/model selection</strong>: <code>runtime.run(provider="openai", model="gpt-4o")</code> overrides default provider/model for a single run. Also available on <code>runtime.stream()</code> and <code>ChainStep</code></li>
+<li><strong>Budget scoping</strong>: <code>async with runtime.budget_scope(max_cost_usd=0.50) as scoped:</code> isolates budget for a subset of runs</li>
+<li><strong><code>on_parse_error</code> callback</strong>: <code>runtime.run(response_format=MyModel, on_parse_error=fix_fn)</code> — fires on <code>json.JSONDecodeError</code> or <code>pydantic.ValidationError</code>, NOT on provider-level format rejection</li>
+<li><strong><code>result.parsed</code> field</strong>: <code>RunResult.parsed</code> holds the validated Pydantic model (separate from <code>result.output</code> for backward compatibility)</li>
+<li><strong><code>Tool</code> class</strong>: Non-decorator tool registration — <code>Tool(fn=my_func, when_to_use="...")</code> for when <code>@arcana.tool</code> is not practical</li>
+</ul>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>ChainStep</code> now supports <code>provider</code>, <code>model</code>, and <code>on_parse_error</code> fields</li>
+<li>Tools and structured output coexist — agent uses tools during reasoning and returns structured output on the final turn</li>
+<li><code>BudgetScope</code> exported from <code>arcana</code> package</li>
+</ul>
+<h2 id="010-beta5-2026-03-25">[0.1.0-beta.5] - 2026-03-25<a class="headerlink" href="#010-beta5-2026-03-25" title="Permanent link">&para;</a></h2>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>8 user-reported issues: SDK <code>system</code> and <code>context</code> parameters, fallback chain logging, budget tracking across runs, <code>runtime.fallback_order</code> property, provider <code>get_fallback_chain()</code> method, Tool wrapper support in registry</li>
+</ul>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>arcana.run(system=..., context=...)</code></strong>: System prompt and context injection available at SDK level</li>
+<li><strong><code>runtime.budget_remaining_usd</code></strong> / <strong><code>runtime.tokens_used</code></strong>: Runtime-level cumulative budget tracking properties</li>
+<li><strong>Auto fallback chain</strong>: Multiple providers automatically form a fallback chain based on registration order</li>
+</ul>
+<h2 id="010-beta4-2026-03-24">[0.1.0-beta.4] - 2026-03-24<a class="headerlink" href="#010-beta4-2026-03-24" title="Permanent link">&para;</a></h2>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>14 mypy strict errors regressed after beta.3</li>
+<li><code>ChatSession.send()</code> now uses <code>generate()</code> instead of <code>stream()</code> for reliable usage tracking</li>
+<li>CI lint errors (unused imports, import sorting, bare except)</li>
+</ul>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Automated PyPI publish workflow (CI)</li>
+<li>Integration verification tests for b7 features</li>
+</ul>
+<h2 id="010-beta3-2026-03-24">[0.1.0-beta.3] - 2026-03-24<a class="headerlink" href="#010-beta3-2026-03-24" title="Permanent link">&para;</a></h2>
+<h3 id="added-llm-capability-amplification">Added — LLM Capability Amplification<a class="headerlink" href="#added-llm-capability-amplification" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Parallel Tool Execution</strong>: Multiple tool calls in a single turn now run concurrently via <code>asyncio.gather</code>, with order-preserving results and individual failure isolation</li>
+<li><strong>Prompt Caching</strong>: Anthropic system prompt + tool schemas automatically tagged with <code>cache_control</code>; OpenAI <code>cached_tokens</code> tracked. Up to 90% input token savings on multi-turn runs</li>
+<li><strong>Thinking-Informed Assessment</strong>: <code>_assess_turn</code> now analyzes extended thinking blocks for uncertainty, verification intent, and incomplete information signals. Adjusts confidence and completion accordingly</li>
+<li><strong>Structured Output</strong>: <code>arcana.run(response_format=MyModel)</code> returns validated Pydantic instances. Provider-level <code>json_schema</code> mode for OpenAI-compatible APIs</li>
+<li><strong>Multimodal Input</strong>: <code>arcana.run(images=[...])</code> accepts URLs, file paths, and data URIs. OpenAI ↔ Anthropic content block format auto-conversion</li>
+<li><strong>LLM-Driven Context Compression</strong>: <code>WorkingSetBuilder</code> can use a cheap LLM to produce semantic summaries instead of keyword-based truncation. Async <code>abuild_conversation_context()</code> with graceful fallback</li>
+</ul>
+<h3 id="added-interactive-capabilities">Added — Interactive Capabilities<a class="headerlink" href="#added-interactive-capabilities" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>ask_user</code> Built-in Tool</strong>: LLM can ask clarifying questions mid-execution. Intercepted at runtime level (bypasses ToolGateway). Sync/async <code>input_handler</code> callback. Graceful fallback when no handler provided</li>
+<li><strong><code>runtime.chat()</code></strong>: Multi-turn conversational sessions with persistent history, shared budget, context compression, and streaming support. <code>ChatSession.send()</code> / <code>ChatSession.stream()</code></li>
+<li><strong>CLI <code>arcana chat</code></strong>: Interactive terminal chat with Rich formatting, per-turn token/cost stats, budget enforcement</li>
+<li><strong>Examples 13-14</strong>: Interactive chat and ask_user demonstrations</li>
+</ul>
+<h3 id="changed-constitution-v2">Changed — Constitution v2<a class="headerlink" href="#changed-constitution-v2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Principle 2</strong> expanded: context is modality-agnostic (text, images, structured data)</li>
+<li><strong>Principle 4</strong> corollary: thinking is signal, not contract — runtime may listen but never constrain</li>
+<li><strong>Principle 8</strong> added: agent autonomy in collaboration — framework provides coordination, never hierarchy</li>
+<li><strong>Chapter IV</strong> expanded: User role defined (intent, information, judgment). Two new inviolable rules: user never forced to interact; LLM asks but never blocks</li>
+<li><strong>Contributor Compact</strong>: Questions 8-9 added (agent autonomy, user optionality)</li>
+</ul>
+<h3 id="added-documentation">Added — Documentation<a class="headerlink" href="#added-documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>docs/guide/quickstart.md</code> — Installation → Deployment guide</li>
+<li><code>docs/guide/configuration.md</code> — Full configuration reference (16 sections)</li>
+<li><code>docs/guide/providers.md</code> — 8 provider setup guides with fallback chains</li>
+<li><code>docs/guide/api.md</code> — Public API reference (881 lines)</li>
+</ul>
+<h3 id="stats_3">Stats<a class="headerlink" href="#stats_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Tests: 878 → 1045 (+167 new tests)</li>
+<li>All 1045 tests passing, 0 failures</li>
+<li>9 new features, 4 documentation files</li>
+</ul>
+<h2 id="010-beta1-2026-03-18">[0.1.0-beta.1] - 2026-03-18<a class="headerlink" href="#010-beta1-2026-03-18" title="Permanent link">&para;</a></h2>
+<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Runtime + Session</strong>: Long-lived resource container, create once use everywhere</li>
+<li><strong>Runtime.team()</strong>: Multi-agent collaboration (constitutional — Runtime provides comm, agents decide strategy)</li>
+<li><strong>Runtime.stream()</strong>: Async generator for streaming</li>
+<li><strong>Runtime.graph()</strong>: StateGraph factory</li>
+<li><strong>Memory v2</strong>: Relevance-based retrieval (keyword + recency + importance + token budget)</li>
+<li><strong>MCP Client</strong>: stdio transport, MCPToolProvider → ToolGateway bridge</li>
+<li><strong>CLI</strong>: <code>arcana run/trace/providers/version</code></li>
+<li><strong>ConversationAgent (V2)</strong>: TurnFacts/TurnAssessment separation, 51% token savings</li>
+<li><strong>108 new tests</strong>: All user-facing modules now covered (713 total)</li>
+<li><strong>Actionable error messages</strong>: 8 files improved</li>
+<li><strong>Intent Router</strong>: Default on in ConversationAgent</li>
+<li><strong>Diagnostic Recovery</strong>: Structured diagnosis in V2</li>
+</ul>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>arcana.run()</code> delegates to Runtime, accepts <code>api_key</code> param</li>
+<li>Default engine is V2 ConversationAgent</li>
+<li>Hardcoded model IDs removed — user explicit &gt; provider default &gt; error</li>
+<li>README → "Agent Runtime for Production"</li>
+</ul>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>AdaptivePolicy execution closure</li>
+<li>Memory injection through direct_answer fast path</li>
+<li>Tool results use native OpenAI format</li>
+<li>single_tool argument generation</li>
+</ul>
+<h2 id="010-alpha2-2026-03-18">[0.1.0-alpha.2] - 2026-03-18<a class="headerlink" href="#010-alpha2-2026-03-18" title="Permanent link">&para;</a></h2>
+<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>arcana.run()</code> now accepts <code>api_key</code> parameter — no .env file needed</li>
+<li>Default engine switched to ConversationAgent (V2)</li>
+<li><code>max_steps</code> renamed to <code>max_turns</code> in <code>arcana.run()</code></li>
+<li><code>engine="conversation"</code> (default) or <code>engine="adaptive"</code> (V1)</li>
+</ul>
+<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>SDK no longer forces environment variables for API keys</li>
+<li>OpenAI and Anthropic providers now work in <code>arcana.run()</code></li>
+<li>Clear error message when no API key provided</li>
+</ul>
+<h2 id="010-alpha1-2026-03-18">[0.1.0-alpha.1] - 2026-03-18<a class="headerlink" href="#010-alpha1-2026-03-18" title="Permanent link">&para;</a></h2>
+<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
+<h4 id="v2-execution-engine">V2 Execution Engine<a class="headerlink" href="#v2-execution-engine" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong>ConversationAgent</strong>: LLM-native execution model with TurnFacts/TurnAssessment separation</li>
+<li><strong>TurnFacts</strong>: Raw provider output, zero interpretation</li>
+<li><strong>TurnAssessment</strong>: Runtime completion/failure judgment, separate from facts</li>
+<li>13-step turn contract with 7 invariants</li>
+<li>Streaming via <code>ConversationAgent.astream()</code></li>
+</ul>
+<h4 id="v2-architecture">V2 Architecture<a class="headerlink" href="#v2-architecture" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong>CONSTITUTION.md</strong>: 7 design principles, 4 prohibitions</li>
+<li><strong>Intent Router</strong>: Rule-based + LLM + Hybrid classifiers, 4 execution paths</li>
+<li><strong>Adaptive Policy</strong>: 6 strategy types (direct_answer, single_tool, sequential, parallel, plan_and_execute, pivot)</li>
+<li><strong>Lazy Tool Loading</strong>: Keyword-based tool selection, affordance fields on ToolSpec</li>
+<li><strong>Diagnostic Recovery</strong>: 7 error categories, structured feedback, RecoveryTracker</li>
+<li><strong>Multi-Model Routing</strong>: 5 model roles, complexity-based selection</li>
+<li><strong>Working Set Builder</strong>: 4-layer context management (identity/task/working/external)</li>
+</ul>
+<h4 id="provider-infrastructure">Provider Infrastructure<a class="headerlink" href="#provider-infrastructure" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong>BaseProvider Protocol</strong>: Replaces ABC, maps to Rust trait</li>
+<li><strong>AnthropicProvider</strong>: Native Claude support with extended thinking</li>
+<li><strong>Chinese Providers</strong>: Kimi (Moonshot), GLM (Zhipu), MiniMax factory functions</li>
+<li><strong>Capability Registry</strong>: 22 capabilities across 8 providers</li>
+<li><strong>Error Hierarchy</strong>: RateLimitError, AuthenticationError, ModelNotFoundError, ContentFilterError, ContextLengthError</li>
+<li><strong>StreamChunk</strong>: Unified streaming data model</li>
+</ul>
+<h4 id="sdk">SDK<a class="headerlink" href="#sdk" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>arcana.run()</code>: Zero-config entry point</li>
+<li><code>@arcana.tool</code>: Decorator with affordance fields (when_to_use, what_to_expect, failure_meaning)</li>
+<li><code>RunResult</code>: Structured result with output, steps, tokens, cost</li>
+<li>Budget tracking wired into SDK</li>
+</ul>
+<h4 id="evaluation">Evaluation<a class="headerlink" href="#evaluation" title="Permanent link">&para;</a></h4>
+<ul>
+<li>EvalMetrics: first_attempt_success, goal_achievement_rate, cost_per_success</li>
+<li>RuleJudge + LLMJudge + HybridJudge</li>
+<li>EvalRunnerV2 with suite reporting</li>
+</ul>
+<h4 id="code-quality">Code Quality<a class="headerlink" href="#code-quality" title="Permanent link">&para;</a></h4>
+<ul>
+<li>605 tests, 0 failures</li>
+<li>Verified with real APIs: DeepSeek, OpenAI (gpt-4o-mini), Anthropic (claude-sonnet-4)</li>
+<li>AgentState immutable pattern</li>
+<li>ToolProvider ABC → Protocol</li>
+<li>asyncio.Lock replaces threading.Lock</li>
+</ul>
+<h3 id="v1-preserved">V1 (Preserved)<a class="headerlink" href="#v1-preserved" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Agent + AdaptivePolicy + StepExecutor + Reducer pipeline</li>
+<li>ReAct and PlanExecute policies</li>
+<li>Graph engine (StateGraph, CompiledGraph)</li>
+<li>Multi-agent orchestration (TeamOrchestrator)</li>
+<li>JSONL Trace system</li>
+<li>Budget tracking</li>
+<li>Checkpoint/Resume</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "search.suggest", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

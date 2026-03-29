@@ -1,0 +1,1810 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agent Runtime for Production">
+      
+      
+      
+        <link rel="canonical" href="https://tyxben.github.io/arcana/legacy/TUTORIAL/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Arcana Agent Framework 深度教程 - Arcana</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#arcana-agent-framework" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Arcana" class="md-header__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Arcana
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Arcana Agent Framework 深度教程
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guide/quickstart/" class="md-tabs__link">
+          
+  
+  
+  Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../constitution/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Constitution
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Arcana" class="md-nav__button md-logo" aria-label="Arcana" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Arcana
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/tyxben/arcana" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    tyxben/arcana
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    arcana.run()
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChatSession
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/budget/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Budget
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contracts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../constitution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Constitution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        总目录
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="总目录">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        第一章：架构总览与 Contracts 层
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-gateway-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        第二章：Model Gateway 与 Provider 系统
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        第三章：Runtime 引擎
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#graph-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        第四章：Graph Engine 声明式图编排引擎
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        第五章：平台服务层
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        快速导航：按主题查找
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="快速导航：按主题查找">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        设计模式
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        生产关键能力
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        核心源文件索引
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        技术栈总览
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        生产部署 Checklist
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="生产部署 Checklist">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        必须完成
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        强烈建议
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        可选增强
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        阅读建议
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="arcana-agent-framework">Arcana Agent Framework 深度教程<a class="headerlink" href="#arcana-agent-framework" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>Arcana</strong> — 一个<strong>可控、可复现、可评测</strong>的 Agent 平台框架</p>
+<p>本教程从架构设计到每一行核心代码，带你理解一个生产级 Agent 框架是如何构建的。</p>
+</blockquote>
+<hr />
+<h2 id="_1">总目录<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>点击链接跳转到对应章节的详细文档。每章都是独立的 Markdown 文件，包含完整的代码分析和 <code>file:line</code> 引用。</p>
+</blockquote>
+<h3 id="contracts"><a href="../tutorial_part1/">第一章：架构总览与 Contracts 层</a><a class="headerlink" href="#contracts" title="Permanent link">&para;</a></h3>
+<p>框架的基石——理解 Arcana 的设计哲学和数据合约。</p>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../tutorial_part1/#1-框架总览">1. 框架总览</a></td>
+<td>设计哲学：可控、可复现、可评测；Contracts-First 方法论</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part1/#2-架构分层">2. 架构分层</a></td>
+<td>层次结构图、模块依赖关系</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part1/#3-contracts-层详解">3. Contracts 层详解</a></td>
+<td>13 个合约文件逐一剖析（trace/tool/state/llm/runtime/plan/graph/rag/memory/multi_agent/orchestrator/eval）</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part1/#4-trace-系统">4. Trace 系统</a></td>
+<td>TraceWriter/TraceReader 深度分析，JSONL 审计日志</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part1/#5-canonical-hashing">5. Canonical Hashing</a></td>
+<td>值规范化、浮点精度、SHA-256 截断、为什么需要 Canonical JSON</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part1/#6-配置系统">6. 配置系统</a></td>
+<td>ArcanaConfig、环境变量加载、单例模式</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part1/#7-本章小结">7. 本章小结</a></td>
+<td>设计模式汇总、关键收获</td>
+</tr>
+</tbody>
+</table>
+<p><strong>核心技术点</strong>：Pydantic v2 Schema、JSONL 追加写入、SHA-256 Canonical Hash、枚举驱动设计</p>
+<hr />
+<h3 id="model-gateway-provider"><a href="../tutorial_part2/">第二章：Model Gateway 与 Provider 系统</a><a class="headerlink" href="#model-gateway-provider" title="Permanent link">&para;</a></h3>
+<p>统一模型接入层——如何用一个类对接 8+ 家 LLM 供应商。</p>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../tutorial_part2/#1-model-gateway-概述">1. Model Gateway 概述</a></td>
+<td>为什么需要网关？三大核心问题（锁定、成本、单点故障）</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part2/#2-抽象基类设计">2. 抽象基类设计</a></td>
+<td>ModelGateway ABC、generate() 接口、异常体系与 retryable 标志</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part2/#3-provider-适配器模式">3. Provider 适配器模式</a></td>
+<td>OpenAICompatibleProvider 一个类通吃所有供应商、消息转换、工厂函数</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part2/#4-注册表与路由">4. 注册表与路由</a></td>
+<td>ModelGatewayRegistry、fallback chain、路由决策流程图</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part2/#5-预算控制">5. 预算控制</a></td>
+<td>BudgetTracker 三维限制（token/cost/time）、线程安全、预测性检查</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part2/#6-trace-集成">6. Trace 集成</a></td>
+<td>自动追踪、request_digest/response_digest</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part2/#7-设计模式总结">7. 设计模式总结</a></td>
+<td>Strategy、Adapter、Registry、Factory、Chain of Responsibility、Null Object</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part2/#8-生产注意事项">8. 生产注意事项</a></td>
+<td>限流退避、熔断器、成本优化、供应商多样性、安全性</td>
+</tr>
+</tbody>
+</table>
+<p><strong>核心技术点</strong>：AsyncIO、OpenAI SDK 复用、Pydantic model_copy()、threading.Lock 线程安全</p>
+<hr />
+<h3 id="runtime"><a href="../tutorial_part3/">第三章：Runtime 引擎</a><a class="headerlink" href="#runtime" title="Permanent link">&para;</a></h3>
+<p>Agent 执行的心脏——状态机驱动的自治循环。</p>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../tutorial_part3/#1-runtime-引擎概述">1. Runtime 引擎概述</a></td>
+<td>状态机执行模型、状态转换图</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#2-agent-主循环">2. Agent 主循环</a></td>
+<td>初始化、run loop、5 种停止条件、checkpoint 策略、resume</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#3-策略模式-policy">3. 策略模式 (Policy)</a></td>
+<td>BasePolicy → ReActPolicy（Think-Act-Observe）→ PlanExecutePolicy（Plan-Execute-Verify）</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#4-步骤执行器-stepexecutor">4. 步骤执行器 (StepExecutor)</a></td>
+<td>LLM 调用 + 验证重试、工具执行、响应解析</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#5-状态归约器-reducer">5. 状态归约器 (Reducer)</a></td>
+<td>DefaultReducer、PlanReducer、继承组合</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#6-状态管理器-statemanager">6. 状态管理器 (StateManager)</a></td>
+<td>状态转换验证、checkpoint JSONL 持久化、哈希完整性校验</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#7-进度检测-progressdetector">7. 进度检测 (ProgressDetector)</a></td>
+<td>重复检测、循环模式检测、输出相似度检测</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#8-输出验证-validator">8. 输出验证 (Validator)</a></td>
+<td>JSON Schema 校验、Markdown 提取、带错误提示的重试</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#9-replay-引擎">9. Replay 引擎</a></td>
+<td>ReplayCache、确定性回放、分歧点检测、逐步状态重建</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#10-错误处理">10. 错误处理</a></td>
+<td>异常层级、ErrorType 分类、RetryStrategy 指数退避+抖动</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#11-hook-系统">11. Hook 系统</a></td>
+<td>Protocol-based RuntimeHook、MemoryHook 集成</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#12-验证器-verifier">12. 验证器 (Verifier)</a></td>
+<td>GoalVerifier 词汇重叠判定</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#13-数据流图">13. 数据流图</a></td>
+<td>完整请求流 ASCII 图、组件交互序列图</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part3/#14-生产注意事项">14. 生产注意事项</a></td>
+<td>预算、checkpoint 存储、错误升级、Hook 性能、幂等</td>
+</tr>
+</tbody>
+</table>
+<p><strong>核心技术点</strong>：有限状态机、策略模式、Protocol 类型协议、指数退避+抖动、Canonical Hash 去重</p>
+<hr />
+<h3 id="graph-engine"><a href="../tutorial_part4/">第四章：Graph Engine 声明式图编排引擎</a><a class="headerlink" href="#graph-engine" title="Permanent link">&para;</a></h3>
+<p>复杂工作流的解决方案——声明式图编排 + 人机协作。</p>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../tutorial_part4/#1-graph-engine-概述">1. Graph Engine 概述</a></td>
+<td>Runtime vs Graph 对比表、何时用哪个</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#2-stategraph-构建器">2. StateGraph 构建器</a></td>
+<td>Builder 模式、add_node/add_edge/add_conditional_edges、编译验证</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#3-compiledgraph-编译产物">3. CompiledGraph</a></td>
+<td>ainvoke/astream/aresume 三大执行方法</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#4-graphexecutor-执行引擎">4. GraphExecutor 执行引擎</a></td>
+<td>执行循环 6 步、路由机制（条件边 &gt; 直接边）、状态初始化、恢复执行</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#5-noderunner-节点执行器">5. NodeRunner</a></td>
+<td>同步/异步兼容、输出规范化、追踪集成</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#6-流式执行-streaming">6. 流式执行 (Streaming)</a></td>
+<td>生产者-消费者架构、三种模式（values/updates/messages）、消息去重</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#7-checkpointer-状态持久化">7. Checkpointer</a></td>
+<td>JSON 文件持久化、save/load/delete</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#8-中断与恢复-interrupt">8. 中断与恢复 (Interrupt)</a></td>
+<td>GraphInterrupt 异常、Command（resume/update/goto）、Human-in-the-Loop 完整流程</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#9-reducers-状态合并策略">9. Reducers</a></td>
+<td>5 种内置 Reducer、Annotated 声明、add_messages 去重</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#10-预置图-prebuilt">10. 预置图 (Prebuilt)</a></td>
+<td>ReAct Agent、Plan-Execute Agent 模板</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#11-节点类型">11. 节点类型</a></td>
+<td>LLMNode、ToolNode、SubgraphNode</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#12-与-langgraph-的对比">12. 与 LangGraph 的对比</a></td>
+<td>API 相似性、关键差异、设计哲学对比</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part4/#13-生产注意事项">13. 生产注意事项</a></td>
+<td>Checkpointer 替换、max_iterations、错误处理、图验证局限</td>
+</tr>
+</tbody>
+</table>
+<p><strong>核心技术点</strong>：Builder 模式、AsyncGenerator 流式、asyncio.Queue 生产者-消费者、BFS 可达性验证、Annotated 类型元编程</p>
+<hr />
+<h3 id="_2"><a href="../tutorial_part5/">第五章：平台服务层</a><a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<p>Tool Gateway、Memory、RAG、Storage、Multi-Agent、Orchestrator、Observability、Eval——完整的平台治理能力。</p>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../tutorial_part5/#1-tool-gateway工具网关">1. Tool Gateway（工具网关）</a></td>
+<td>7 步授权流水线、Capability 权限模型、幂等性缓存、写操作确认、读写分离并发、LangChain 适配器</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part5/#2-memory-系统">2. Memory 系统</a></td>
+<td>三层架构（Working/Long-Term/Episodic）、Write Governance 置信度门控、记忆去污染</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part5/#3-rag-流水线">3. RAG 流水线</a></td>
+<td>分块策略（固定/段落/递归）、OpenAI Embedder、BM25 混合重排、CitationVerifier 引用验证</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part5/#4-storage-抽象层">4. Storage 抽象层</a></td>
+<td>StorageBackend + VectorStore 双抽象、InMemory 实现、ChromaDB 实现、懒导入</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part5/#5-multi-agent-协作">5. Multi-Agent 协作</a></td>
+<td>PEC 模式（Planner-Executor-Critic）、RoleConfig、MessageBus、预算与错误控制</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part5/#6-orchestrator编排器">6. Orchestrator（编排器）</a></td>
+<td>TaskGraph DAG + 环路检测、优先级调度、Semaphore 并发池、指数退避重试</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part5/#7-observability可观测性">7. Observability（可观测性）</a></td>
+<td>MetricsCollector P50/P95/P99、MetricsHook 实时监控、告警建议</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part5/#8-eval-harness评测框架">8. Eval Harness（评测框架）</a></td>
+<td>EvalRunner 6 种判定标准、RegressionGate 绝对+相对检查</td>
+</tr>
+<tr>
+<td><a href="../tutorial_part5/#9-生产部署全景">9. 生产部署全景</a></td>
+<td>8 个模块的开发 vs 生产环境对比表</td>
+</tr>
+</tbody>
+</table>
+<p><strong>核心技术点</strong>：Pipeline 模式、Capability-based AuthZ、BM25 算法、asyncio.Semaphore、DFS 环路检测、百分位数统计</p>
+<hr />
+<h2 id="_3">快速导航：按主题查找<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+<h3 id="_4">设计模式<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模式</th>
+<th>位置</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Contracts-First</td>
+<td><a href="../tutorial_part1/#1-框架总览">Part 1</a></td>
+<td>先定义 Schema，再写实现</td>
+</tr>
+<tr>
+<td>Strategy</td>
+<td><a href="../tutorial_part2/#7-设计模式总结">Part 2</a>, <a href="../tutorial_part3/#3-策略模式-policy">Part 3</a></td>
+<td>Provider/Policy 可互换</td>
+</tr>
+<tr>
+<td>Adapter</td>
+<td><a href="../tutorial_part2/#3-provider-适配器模式">Part 2</a></td>
+<td>OpenAI 格式统一适配</td>
+</tr>
+<tr>
+<td>Registry</td>
+<td><a href="../tutorial_part2/#4-注册表与路由">Part 2</a></td>
+<td>Provider/Tool 注册与路由</td>
+</tr>
+<tr>
+<td>Builder</td>
+<td><a href="../tutorial_part4/#2-stategraph-构建器">Part 4</a></td>
+<td>StateGraph 声明式构建</td>
+</tr>
+<tr>
+<td>Observer/Hook</td>
+<td><a href="../tutorial_part3/#11-hook-系统">Part 3</a></td>
+<td>Runtime 生命周期回调</td>
+</tr>
+<tr>
+<td>Pipeline</td>
+<td><a href="../tutorial_part5/#1-tool-gateway工具网关">Part 5</a></td>
+<td>Tool Gateway 7 步流水线</td>
+</tr>
+<tr>
+<td>State Machine</td>
+<td><a href="../tutorial_part3/#1-runtime-引擎概述">Part 3</a></td>
+<td>Agent 状态转换</td>
+</tr>
+<tr>
+<td>Null Object</td>
+<td><a href="../tutorial_part2/#5-预算控制">Part 2</a></td>
+<td>BudgetTracker 无限制模式</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_5">生产关键能力<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>位置</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>预算控制</td>
+<td><a href="../tutorial_part2/#5-预算控制">Part 2 §5</a></td>
+<td>Token/Cost/Time 三维限制</td>
+</tr>
+<tr>
+<td>故障转移</td>
+<td><a href="../tutorial_part2/#4-注册表与路由">Part 2 §4</a></td>
+<td>Fallback chain 自动切换</td>
+</tr>
+<tr>
+<td>幂等性</td>
+<td><a href="../tutorial_part5/#1-tool-gateway工具网关">Part 5 §1.4</a></td>
+<td>Tool Gateway 幂等缓存</td>
+</tr>
+<tr>
+<td>审计追踪</td>
+<td><a href="../tutorial_part1/#4-trace-系统">Part 1 §4</a></td>
+<td>JSONL Trace 全链路</td>
+</tr>
+<tr>
+<td>循环检测</td>
+<td><a href="../tutorial_part3/#7-进度检测-progressdetector">Part 3 §7</a></td>
+<td>3 种检测机制</td>
+</tr>
+<tr>
+<td>确定性回放</td>
+<td><a href="../tutorial_part3/#9-replay-引擎">Part 3 §9</a></td>
+<td>Replay 引擎</td>
+</tr>
+<tr>
+<td>人机协作</td>
+<td><a href="../tutorial_part4/#8-中断与恢复-interrupt">Part 4 §8</a></td>
+<td>Graph Interrupt/Resume</td>
+</tr>
+<tr>
+<td>质量门禁</td>
+<td><a href="../tutorial_part5/#8-eval-harness评测框架">Part 5 §8</a></td>
+<td>RegressionGate</td>
+</tr>
+<tr>
+<td>记忆治理</td>
+<td><a href="../tutorial_part5/#2-memory-系统">Part 5 §2.5</a></td>
+<td>Write Governance</td>
+</tr>
+<tr>
+<td>引用验证</td>
+<td><a href="../tutorial_part5/#3-rag-流水线">Part 5 §3.6</a></td>
+<td>CitationVerifier</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_6">核心源文件索引<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>章节</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>contracts/*.py</code></td>
+<td><a href="../tutorial_part1/#3-contracts-层详解">Part 1 §3</a></td>
+<td>全部数据模型</td>
+</tr>
+<tr>
+<td><code>trace/writer.py</code></td>
+<td><a href="../tutorial_part1/#4-trace-系统">Part 1 §4</a></td>
+<td>JSONL 事件写入</td>
+</tr>
+<tr>
+<td><code>utils/hashing.py</code></td>
+<td><a href="../tutorial_part1/#5-canonical-hashing">Part 1 §5</a></td>
+<td>Canonical Hash</td>
+</tr>
+<tr>
+<td><code>gateway/base.py</code></td>
+<td><a href="../tutorial_part2/#2-抽象基类设计">Part 2 §2</a></td>
+<td>ModelGateway ABC</td>
+</tr>
+<tr>
+<td><code>gateway/providers/openai_compatible.py</code></td>
+<td><a href="../tutorial_part2/#3-provider-适配器模式">Part 2 §3</a></td>
+<td>万能 Provider</td>
+</tr>
+<tr>
+<td><code>gateway/registry.py</code></td>
+<td><a href="../tutorial_part2/#4-注册表与路由">Part 2 §4</a></td>
+<td>路由 + Fallback</td>
+</tr>
+<tr>
+<td><code>gateway/budget.py</code></td>
+<td><a href="../tutorial_part2/#5-预算控制">Part 2 §5</a></td>
+<td>预算追踪器</td>
+</tr>
+<tr>
+<td><code>runtime/agent.py</code></td>
+<td><a href="../tutorial_part3/#2-agent-主循环">Part 3 §2</a></td>
+<td>主执行循环</td>
+</tr>
+<tr>
+<td><code>runtime/policies/react.py</code></td>
+<td><a href="../tutorial_part3/#3-策略模式-policy">Part 3 §3</a></td>
+<td>ReAct 策略</td>
+</tr>
+<tr>
+<td><code>runtime/progress.py</code></td>
+<td><a href="../tutorial_part3/#7-进度检测-progressdetector">Part 3 §7</a></td>
+<td>循环检测</td>
+</tr>
+<tr>
+<td><code>runtime/replay.py</code></td>
+<td><a href="../tutorial_part3/#9-replay-引擎">Part 3 §9</a></td>
+<td>确定性回放</td>
+</tr>
+<tr>
+<td><code>graph/state_graph.py</code></td>
+<td><a href="../tutorial_part4/#2-stategraph-构建器">Part 4 §2</a></td>
+<td>图构建器</td>
+</tr>
+<tr>
+<td><code>graph/executor.py</code></td>
+<td><a href="../tutorial_part4/#4-graphexecutor-执行引擎">Part 4 §4</a></td>
+<td>图执行引擎</td>
+</tr>
+<tr>
+<td><code>graph/interrupt.py</code></td>
+<td><a href="../tutorial_part4/#8-中断与恢复-interrupt">Part 4 §8</a></td>
+<td>中断/恢复</td>
+</tr>
+<tr>
+<td><code>graph/reducers.py</code></td>
+<td><a href="../tutorial_part4/#9-reducers-状态合并策略">Part 4 §9</a></td>
+<td>状态合并</td>
+</tr>
+<tr>
+<td><code>tool_gateway/gateway.py</code></td>
+<td><a href="../tutorial_part5/#1-tool-gateway工具网关">Part 5 §1</a></td>
+<td>工具授权流水线</td>
+</tr>
+<tr>
+<td><code>memory/manager.py</code></td>
+<td><a href="../tutorial_part5/#2-memory-系统">Part 5 §2</a></td>
+<td>记忆统一门面</td>
+</tr>
+<tr>
+<td><code>rag/retriever.py</code></td>
+<td><a href="../tutorial_part5/#3-rag-流水线">Part 5 §3</a></td>
+<td>RAG 检索核心</td>
+</tr>
+<tr>
+<td><code>orchestrator/orchestrator.py</code></td>
+<td><a href="../tutorial_part5/#6-orchestrator编排器">Part 5 §6</a></td>
+<td>任务编排</td>
+</tr>
+<tr>
+<td><code>eval/gate.py</code></td>
+<td><a href="../tutorial_part5/#8-eval-harness评测框架">Part 5 §8</a></td>
+<td>质量门禁</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_7">技术栈总览<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>技术</th>
+<th>用途</th>
+<th>为什么选它</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Python 3.11+</strong></td>
+<td>主语言</td>
+<td>asyncio 原生支持、类型提示成熟</td>
+</tr>
+<tr>
+<td><strong>Pydantic v2</strong></td>
+<td>数据合约</td>
+<td>快速校验、JSON Schema 生成、跨语言迁移基础</td>
+</tr>
+<tr>
+<td><strong>AsyncIO</strong></td>
+<td>并发模型</td>
+<td>LLM 调用 I/O 密集，异步提升吞吐</td>
+</tr>
+<tr>
+<td><strong>httpx</strong></td>
+<td>HTTP 客户端</td>
+<td>异步原生、比 requests 更现代</td>
+</tr>
+<tr>
+<td><strong>OpenAI SDK</strong></td>
+<td>LLM 调用</td>
+<td>复用成熟连接池和重试机制</td>
+</tr>
+<tr>
+<td><strong>JSONL</strong></td>
+<td>Trace 存储</td>
+<td>追加写入、人类可读、流式解析</td>
+</tr>
+<tr>
+<td><strong>SHA-256</strong></td>
+<td>内容哈希</td>
+<td>密码学安全、确定性、标准化</td>
+</tr>
+<tr>
+<td><strong>threading.Lock</strong></td>
+<td>线程安全</td>
+<td>保护 BudgetTracker、幂等缓存等共享状态</td>
+</tr>
+<tr>
+<td><strong>asyncio.Semaphore</strong></td>
+<td>并发控制</td>
+<td>ExecutorPool 槽位管理</td>
+</tr>
+<tr>
+<td><strong>ChromaDB</strong></td>
+<td>向量存储</td>
+<td>开源、支持持久化、HNSW 索引</td>
+</tr>
+<tr>
+<td><strong>pytest + pytest-asyncio</strong></td>
+<td>测试</td>
+<td>异步测试原生支持</td>
+</tr>
+<tr>
+<td><strong>ruff</strong></td>
+<td>Lint/Format</td>
+<td>极快、替代 flake8+black+isort</td>
+</tr>
+<tr>
+<td><strong>mypy (strict)</strong></td>
+<td>类型检查</td>
+<td>编译期捕获类型错误</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="checklist">生产部署 Checklist<a class="headerlink" href="#checklist" title="Permanent link">&para;</a></h2>
+<p>在将 Arcana 部署到生产环境前，确认以下事项：</p>
+<h3 id="_8">必须完成<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] <strong>存储替换</strong>：将 InMemoryBackend 替换为 PostgreSQL/Redis</li>
+<li>[ ] <strong>向量库</strong>：将 InMemoryVectorStore 替换为 ChromaDB（持久模式）/ pgvector</li>
+<li>[ ] <strong>密钥管理</strong>：从 .env 迁移到 Vault / AWS Secrets Manager</li>
+<li>[ ] <strong>预算配置</strong>：为每种任务类型设置 token/cost/time 上限</li>
+<li>[ ] <strong>Fallback 链</strong>：配置跨供应商的故障转移链</li>
+<li>[ ] <strong>质量门禁</strong>：在 CI 中集成 EvalRunner + RegressionGate</li>
+</ul>
+<h3 id="_9">强烈建议<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] <strong>熔断器</strong>：为频繁失败的 Provider 添加 Circuit Breaker</li>
+<li>[ ] <strong>指标导出</strong>：将 MetricsCollector 输出接入 Prometheus/Datadog</li>
+<li>[ ] <strong>幂等缓存</strong>：将 Tool Gateway 缓存迁移到 Redis + TTL</li>
+<li>[ ] <strong>Checkpointer</strong>：将 JSON 文件 Checkpointer 替换为 Redis/PostgreSQL</li>
+<li>[ ] <strong>消息总线</strong>：将 MessageBus 从进程内 Queue 迁移到 Redis Streams</li>
+<li>[ ] <strong>日志级别</strong>：生产环境设为 WARNING，开发环境 DEBUG</li>
+</ul>
+<h3 id="_10">可选增强<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] <strong>OpenTelemetry</strong>：分布式追踪集成</li>
+<li>[ ] <strong>PII 检测</strong>：Trace 中的敏感信息过滤</li>
+<li>[ ] <strong>RBAC</strong>：基于角色的工具访问控制（替代 Capability-based）</li>
+<li>[ ] <strong>Grafana 仪表盘</strong>：实时监控面板</li>
+<li>[ ] <strong>对抗测试集</strong>：注入、越权、循环、超时等异常场景</li>
+<li>[ ] <strong>Trusted Execution</strong>：敏感工具隔离执行（TEE/签名 receipt）</li>
+</ul>
+<hr />
+<h2 id="_11">阅读建议<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>初学者</strong>：按顺序 Part 1 → 2 → 3 → 4 → 5 阅读，每章结束后看"本章小结"</li>
+<li><strong>赶时间</strong>：只看本文件的目录 + 每章的"小结"部分</li>
+<li><strong>面试准备</strong>：重点看设计模式表格 + 生产注意事项</li>
+<li><strong>想动手</strong>：先跑 <code>examples/</code> 下的 demo，然后对照源码阅读对应章节</li>
+<li><strong>找特定内容</strong>：用上面的"按主题查找"表格快速定位</li>
+</ol>
+<hr />
+<blockquote>
+<p>本教程由 5 个并行 Agent 分析 90+ 个源文件后生成，涵盖 6800+ 行技术文档。</p>
+</blockquote>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
