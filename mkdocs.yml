@@ -10,6 +10,16 @@ theme:
     - scheme: slate
       primary: deep purple
       accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  font: false
   features:
     - navigation.tabs
     - navigation.sections
@@ -23,6 +33,7 @@ nav:
     - Quick Start: guide/quickstart.md
     - Configuration: guide/configuration.md
     - Providers: guide/providers.md
+  - Examples: examples/index.md
   - API Reference:
     - Overview: api/index.md
     - arcana.run(): api/sdk.md
@@ -37,6 +48,7 @@ nav:
 
 plugins:
   - search
+  - social
   - mkdocstrings:
       handlers:
         python:
@@ -63,3 +75,10 @@ markdown_extensions:
       permalink: true
   - pymdownx.snippets:
       base_path: ["."]
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/tyxben/arcana
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/arcana-agent/

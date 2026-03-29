@@ -8,31 +8,43 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/tyxben/arcana/ci.yml?label=tests)](https://github.com/tyxben/arcana/actions)
 [![Coverage](https://img.shields.io/codecov/c/github/tyxben/arcana)](https://codecov.io/gh/tyxben/arcana)
 
----
+Give your LLM a runtime with budget, tools, and trace -- then let it decide how to solve the problem.
 
-## The Problem
-
-Most agent frameworks treat LLMs as unreliable workers that need a manager watching every step. They force rigid formats -- ReAct loops, JSON command schemas, mechanical retries -- and dump entire tool catalogs into every prompt. The result is high ceremony, low capability. The framework spends its complexity constraining the LLM instead of releasing it.
-
-## The Arcana Approach
-
-Arcana is an operating system for LLM agents, not a pipeline. The LLM decides strategy; the runtime provides services -- budget enforcement, tool dispatch, trace recording, context management. The framework never interprets LLM output: raw facts (`TurnFacts`) and runtime assessment (`TurnAssessment`) are kept visibly separate. Eight design principles and four prohibitions, codified in a [Constitution](constitution.md), govern every line of code.
-
----
-
-## Quick Start
-
-```bash
-pip install arcana-agent
-```
+[Get Started](guide/quickstart.md){ .md-button .md-button--primary }
+[GitHub](https://github.com/tyxben/arcana){ .md-button }
 
 ```python
+import asyncio
 import arcana
 
-result = await arcana.run("Summarize this article", api_key="sk-xxx")
-print(result.output)
-print(f"Cost: ${result.cost_usd:.4f} | Tokens: {result.tokens_used}")
+async def main():
+    result = await arcana.run("Summarize the key benefits of Rust", api_key="sk-xxx")
+    print(result.output)
+    print(f"Cost: ${result.cost_usd:.4f} | Tokens: {result.tokens_used}")
+
+asyncio.run(main())
 ```
+
+---
+
+## Installation
+
+```bash
+pip install arcana-agent                   # Core (DeepSeek, OpenAI)
+pip install arcana-agent[anthropic]        # + Claude support
+pip install arcana-agent[gemini]           # + Gemini support
+pip install arcana-agent[all-providers]    # All providers
+pip install arcana-agent[ui]              # + Trace Web UI
+```
+
+Or with uv:
+
+```bash
+uv add arcana-agent
+uv add arcana-agent --extra all-providers
+```
+
+Requires Python 3.11+.
 
 ---
 
@@ -80,17 +92,6 @@ async with runtime.chat() as c:
     print(c.total_cost_usd)
 ```
 
-### Ask User
-
-The LLM can ask clarifying questions mid-execution. If no handler is provided, it proceeds with best judgment -- interaction is a capability, not a dependency.
-
-```python
-result = await runtime.run(
-    "Book a restaurant for dinner",
-    input_handler=lambda q: input(f"Agent asks: {q}\n> "),
-)
-```
-
 ### Structured Output
 
 Return validated Pydantic instances instead of raw text.
@@ -112,112 +113,26 @@ print(result.parsed.title)       # str
 print(result.parsed.key_points)  # list[str]
 ```
 
-> `result.parsed` is always `BaseModel | None` -- never a raw dict. It is `None` when no `response_format` is set or when parsing fails. `result.output` contains the same parsed model when successful, or the raw text when parsing fails.
+!!! info
+    `result.parsed` is always `BaseModel | None` -- never a raw dict. It is `None` when no `response_format` is set or when parsing fails. `result.output` contains the same parsed model when successful, or the raw text when parsing fails.
 
-### Multimodal
+---
 
-Pass images alongside text. URLs, local file paths, and data URIs all work.
+## More Capabilities
 
-```python
-result = await arcana.run(
-    "Describe what you see in this image",
-    images=["https://example.com/photo.jpg"],
-    provider="openai",
-    api_key="sk-proj-xxx",
-)
-```
-
-### Pipeline
-
-Sequential steps with optional parallel branches. Each step's output flows as context to the next.
-
-```python
-result = await runtime.chain([
-    arcana.ChainStep(name="research", goal="Find key facts about quantum computing"),
-    [  # parallel branch
-        arcana.ChainStep(name="summary", goal="Write a concise summary"),
-        arcana.ChainStep(name="critique", goal="Identify gaps and biases",
-                         budget=arcana.Budget(max_cost_usd=0.50)),
-    ],
-    arcana.ChainStep(name="final", goal="Integrate summary and critique into a report"),
-])
-print(result.steps["final"])
-```
-
-### Batch Processing
-
-Process many independent tasks concurrently with automatic throttling.
-
-```python
-results = await runtime.run_batch([
-    {"goal": "Summarize article 1", "response_format": Summary},
-    {"goal": "Summarize article 2", "response_format": Summary},
-    {"goal": "Summarize article 3", "response_format": Summary},
-], concurrency=10)
-
-print(f"{results.succeeded}/{len(results.results)} succeeded")
-print(f"Total cost: ${results.total_cost_usd:.4f}")
-```
-
-### Multi-Agent Teams
-
-Runtime provides communication and budget. Agents decide strategy -- no forced hierarchy.
-
-```python
-result = await runtime.team(
-    "Design a landing page for an AI product",
-    agents=[
-        arcana.AgentConfig(name="designer", prompt="You are a senior UX designer."),
-        arcana.AgentConfig(name="copywriter", prompt="You are a conversion copywriter."),
-        arcana.AgentConfig(name="critic", prompt="You find weaknesses and suggest improvements."),
-    ],
-    max_rounds=3,
-    mode="shared",
-)
-```
-
-### Budget Scoping
-
-Isolate budget for a subset of runs without affecting the global runtime budget.
-
-```python
-async with runtime.budget_scope(max_cost_usd=0.50) as scoped:
-    r1 = await scoped.run("Classify this document")
-    r2 = await scoped.run("Extract key entities")
-    print(f"Scoped cost: ${scoped.budget_used_usd:.4f}")
-```
-
-### Graph Orchestration
-
-For workflows that need explicit state machines. Available when you need it, never forced.
-
-```python
-from arcana import StateGraph, START, END
-
-graph = runtime.graph(state_schema=MyState)
-graph.add_node("research", research_fn)
-graph.add_node("write", write_fn)
-graph.add_edge(START, "research")
-graph.add_edge("research", "write")
-graph.add_edge("write", END)
-
-app = graph.compile()
-result = await app.ainvoke(initial_state)
-```
+Arcana also supports multimodal input, ask-user interaction, sequential pipelines with parallel branches, batch processing, multi-agent teams, budget scoping, and graph orchestration. See the [Quick Start guide](guide/quickstart.md) for details on each.
 
 ---
 
 ## What Makes Arcana Different
 
-| | LangChain | CrewAI | AutoGPT | **Arcana** |
-|---|---|---|---|---|
-| **LLM autonomy** | Framework-driven chains | Role-locked agents | Fully autonomous, no guardrails | LLM decides strategy within runtime boundaries |
-| **Token efficiency** | Full context every call | Full prompt per agent | Unbounded context growth | Working-set discipline -- only what this step needs |
-| **Thinking signals** | Ignored | Ignored | Ignored | Runtime listens to thinking for confidence, never constrains |
-| **Tool management** | All tools in every prompt | Per-agent tool sets | All tools always | Dynamic per-turn exposure with affordances |
-| **User interaction** | Not built in | Not built in | Not built in | `ask_user` built-in, graceful fallback if no handler |
-| **Pipelines** | Chain + glue code | Sequential tasks | No pipelines | `chain()` with auto context passing + parallel branches |
-| **Default path** | Chain/graph required | Crew required | Agent loop always | Direct answer when possible, agent loop when needed |
+| | Traditional Frameworks | **Arcana** |
+|---|---|---|
+| **LLM autonomy** | Framework-driven chains or role-locked agents | LLM decides strategy within runtime boundaries |
+| **Token efficiency** | Full context every call | Working-set discipline -- only what this step needs |
+| **Tool management** | All tools in every prompt | Dynamic per-turn exposure with affordances |
+| **User interaction** | Not built in | `ask_user` built-in, graceful fallback if no handler |
+| **Default path** | Chain/graph/crew required | Direct answer when possible, agent loop when needed |
 
 ---
 
@@ -243,24 +158,11 @@ All providers use a single OpenAI-compatible adapter. Adding a new provider is o
 
 ---
 
-## Installation
+## Why Arcana
 
-```bash
-pip install arcana-agent                   # Core (DeepSeek, OpenAI)
-pip install arcana-agent[anthropic]        # + Claude support
-pip install arcana-agent[gemini]           # + Gemini support
-pip install arcana-agent[all-providers]    # All providers
-pip install arcana-agent[ui]              # + Trace Web UI
-```
+Most agent frameworks treat LLMs as unreliable workers that need a manager watching every step. They force rigid formats -- ReAct loops, JSON command schemas, mechanical retries -- and dump entire tool catalogs into every prompt. The result is high ceremony, low capability. The framework spends its complexity constraining the LLM instead of releasing it.
 
-Or with uv:
-
-```bash
-uv add arcana-agent
-uv add arcana-agent --extra all-providers
-```
-
-Requires Python 3.11+.
+Arcana takes the opposite approach: it is an operating system for LLM agents, not a pipeline. The LLM decides strategy; the runtime provides services -- budget enforcement, tool dispatch, trace recording, context management. The framework never interprets LLM output: raw facts (`TurnFacts`) and runtime assessment (`TurnAssessment`) are kept visibly separate. Eight design principles and four prohibitions, codified in a [Constitution](constitution.md), govern every line of code.
 
 ---
 

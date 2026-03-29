@@ -659,7 +659,7 @@ await runtime.close()
 
 - **[Architecture](../architecture.md)** -- full system design, layer
   structure, and design principles.
-- **[Examples](../../examples/)** -- runnable examples covering every
+- **[Examples](../examples/index.md)** -- runnable examples covering every
   feature, from hello world to graph orchestration.
 - **[Providers Guide](../guide/providers.md)** -- detailed provider
   configuration and supported models.
