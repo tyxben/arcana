@@ -30,6 +30,9 @@ htmlcov/
 traces/
 *.jsonl
 
+# Docs build output
+site/
+
 # OS files
 .DS_Store
 Thumbs.db

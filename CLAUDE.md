@@ -28,6 +28,12 @@ uv run pytest tests/integration/ -v
 
 # Run demo
 uv run python examples/demo_trace.py
+
+# Build docs
+uv sync --extra docs && uv run mkdocs build
+
+# Serve docs locally
+uv run mkdocs serve
 ```
 
 ## Architecture Overview

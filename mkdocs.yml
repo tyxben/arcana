@@ -1,0 +1,65 @@
+site_name: Arcana
+site_description: Agent Runtime for Production
+site_url: https://tyxben.github.io/arcana
+repo_url: https://github.com/tyxben/arcana
+repo_name: tyxben/arcana
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Guide:
+    - Quick Start: guide/quickstart.md
+    - Configuration: guide/configuration.md
+    - Providers: guide/providers.md
+  - API Reference:
+    - Overview: api/index.md
+    - arcana.run(): api/sdk.md
+    - Runtime: api/runtime.md
+    - ChatSession: api/chat.md
+    - Budget: api/budget.md
+    - Tools: api/tools.md
+    - Contracts: api/contracts.md
+  - Architecture: architecture.md
+  - Constitution: constitution.md
+  - Changelog: changelog.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            show_root_heading: true
+            show_symbol_type_heading: true
+            heading_level: 2
+            members_order: source
+            docstring_style: google
+            show_signature_annotations: true
+            separate_signature: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - toc:
+      permalink: true
+  - pymdownx.snippets:
+      base_path: ["."]

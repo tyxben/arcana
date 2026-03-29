@@ -43,6 +43,11 @@ dev = [
     "anthropic>=0.42",
     "google-genai>=1.0",
 ]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
+]
 
 [project.scripts]
 arcana = "arcana.cli.main:app"
