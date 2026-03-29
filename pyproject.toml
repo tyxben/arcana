@@ -54,7 +54,7 @@ arcana = "arcana.cli.main:app"
 
 [project.urls]
 Homepage = "https://github.com/tyxben/arcana"
-Documentation = "https://github.com/tyxben/arcana"
+Documentation = "https://tyxben.github.io/arcana/"
 Repository = "https://github.com/tyxben/arcana"
 
 [build-system]
