@@ -21,19 +21,22 @@ export DEEPSEEK_API_KEY=sk-xxx
 
 | Example | Description |
 |---------|-------------|
-| [`01_hello.py`][01] | **Hello World** -- the simplest agent: one LLM call, one response. |
+| [`01_hello.py`][01] | **Hello World** -- the simplest agent: one LLM call, one response. Supports `--provider openai`. |
 | [`02_with_tools.py`][02] | **Tools via SDK** -- define a tool with `@arcana.tool` and call `arcana.run()`. |
+| [`18_provider_switching.py`][18] | **Provider Switching** -- DeepSeek, OpenAI, Anthropic usage with both `arcana.run()` and `Runtime`. |
 | [`06_conversation_agent.py`][06] | **ConversationAgent** -- V2 engine with direct answer, tool usage, and streaming events. |
 | [`07_full_demo.py`][07] | **Full Demo** -- end-to-end integration: intent routing, adaptive policy, tools, and the full SDK API. |
 
 [01]: https://github.com/tyxben/arcana/blob/main/examples/01_hello.py
 [02]: https://github.com/tyxben/arcana/blob/main/examples/02_with_tools.py
+[18]: https://github.com/tyxben/arcana/blob/main/examples/18_provider_switching.py
 [06]: https://github.com/tyxben/arcana/blob/main/examples/06_conversation_agent.py
 [07]: https://github.com/tyxben/arcana/blob/main/examples/07_full_demo.py
 
 ### Quick taste -- Tools with the SDK
 
 ```python
+import asyncio
 import arcana
 
 @arcana.tool(
@@ -44,15 +47,18 @@ def calculator(expression: str) -> str:
     """Evaluate a math expression."""
     return str(eval(expression))
 
-result = await arcana.run(
-    "What is (15 * 37) + (89 * 2)?",
-    tools=[calculator],
-    provider="deepseek",
-    api_key="sk-xxx",
-    max_turns=5,
-)
-print(f"Answer: {result.output}")
-print(f"Steps: {result.steps}, Tokens: {result.tokens_used}")
+async def main():
+    result = await arcana.run(
+        "What is (15 * 37) + (89 * 2)?",
+        tools=[calculator],
+        provider="deepseek",
+        api_key="sk-xxx",
+        max_turns=5,
+    )
+    print(f"Answer: {result.output}")
+    print(f"Steps: {result.steps}, Tokens: {result.tokens_used}")
+
+asyncio.run(main())
 ```
 
 ---
@@ -78,26 +84,30 @@ print(f"Steps: {result.steps}, Tokens: {result.tokens_used}")
 ### Quick taste -- Multi-turn chat session
 
 ```python
+import asyncio
 import arcana
 
-runtime = arcana.Runtime(
-    providers={"deepseek": api_key},
-    tools=[calculator],
-    budget=arcana.Budget(max_cost_usd=1.0),
-)
+async def main():
+    runtime = arcana.Runtime(
+        providers={"deepseek": "sk-xxx"},
+        tools=[calculator],
+        budget=arcana.Budget(max_cost_usd=1.0),
+    )
 
-async with runtime.chat(
-    system_prompt="You are a helpful math tutor.",
-) as session:
-    response = await session.send("What is 123 * 456?")
-    print(response.content)
+    async with runtime.chat(
+        system_prompt="You are a helpful math tutor.",
+    ) as session:
+        response = await session.send("What is 123 * 456?")
+        print(response.content)
 
-    response = await session.send("Now divide that by 3")
-    print(response.content)
+        response = await session.send("Now divide that by 3")
+        print(response.content)
 
-    print(f"Total cost: ${session.total_cost_usd:.4f}")
+        print(f"Total cost: ${session.total_cost_usd:.4f}")
 
-await runtime.close()
+    await runtime.close()
+
+asyncio.run(main())
 ```
 
 ---

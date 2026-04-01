@@ -194,10 +194,13 @@ Any model available on your OpenAI account. Common choices:
 | Model | Description |
 |-------|-------------|
 | `gpt-4o-mini` | Fast, cost-effective (default) |
-| `gpt-4o` | Most capable GPT-4 |
-| `gpt-4-turbo` | GPT-4 Turbo |
-| `o1` | Reasoning model |
+| `gpt-4o` | Most capable GPT-4o |
+| `gpt-4.1` | Latest GPT-4 flagship |
+| `gpt-4.1-mini` | Balanced speed/capability |
+| `gpt-4.1-nano` | Ultra-fast, lowest cost |
+| `o3` | Full reasoning model |
 | `o3-mini` | Small reasoning model |
+| `o4-mini` | Latest small reasoning model |
 
 To use a specific model, pass it via `model=` in `arcana.run()` or set
 `default_model` in `RuntimeConfig`.

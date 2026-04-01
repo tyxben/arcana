@@ -101,8 +101,7 @@ async def demo_3_tool_decorator():
     print("Demo 3: SDK Tool Decorator")
     print("=" * 60)
 
-    from arcana.contracts.tool import ToolCall
-    from arcana.sdk import _FunctionToolProvider, tool
+    from arcana.sdk import tool
 
     @tool(
         when_to_use="When you need to do math",
@@ -118,15 +117,11 @@ async def demo_3_tool_decorator():
     print(f"  When to use: {spec.when_to_use}")
     print(f"  Input schema: {spec.input_schema}")
 
-    # Test execution
-    provider = _FunctionToolProvider(spec=spec, func=calculator)
-    call = ToolCall(id="test-1", name="calculator", arguments={"expression": "2 + 3 * 4"})
-    result = await provider.execute(call)
-
-    print(f"  Result: {result.output}")
-    assert result.success
-    assert result.output == "14"
-    print("  [OK] Tool decorator + execution works!")
+    # Test direct call
+    result = calculator("2 + 3 * 4")
+    print(f"  Result: {result}")
+    assert result == "14"
+    print("  [OK] Tool decorator works!")
 
 
 async def demo_4_lazy_tools():

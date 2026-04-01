@@ -1,6 +1,6 @@
 """Arcana Agent Platform - A controllable, reproducible, and evaluable Agent Platform."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 from arcana.contracts.mcp import MCPServerConfig as MCPServerConfig
 from arcana.contracts.streaming import StreamEvent as StreamEvent

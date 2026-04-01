@@ -27,11 +27,27 @@ pip install arcana-agent
 ```
 
 ```python
+import asyncio
 import arcana
 
-result = await arcana.run("Summarize this article", api_key="sk-xxx")
-print(result.output)
-print(f"Cost: ${result.cost_usd:.4f} | Tokens: {result.tokens_used}")
+async def main():
+    result = await arcana.run("Summarize this article", api_key="sk-xxx")
+    print(result.output)
+    print(f"Cost: ${result.cost_usd:.4f} | Tokens: {result.tokens_used}")
+
+asyncio.run(main())
+```
+
+Use a different provider:
+
+```python
+import asyncio, arcana
+
+# OpenAI
+result = asyncio.run(arcana.run("Hello", provider="openai", api_key="sk-proj-xxx"))
+
+# Anthropic (pip install arcana-agent[anthropic])
+result = asyncio.run(arcana.run("Hello", provider="anthropic", model="claude-sonnet-4-20250514", api_key="sk-ant-xxx"))
 ```
 
 ---
