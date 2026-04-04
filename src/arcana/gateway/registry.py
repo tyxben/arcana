@@ -146,12 +146,12 @@ class ModelGatewayRegistry:
         return provider_name, provider
 
     def _compute_retry_delay(self, attempt: int, error: ProviderError) -> float:
-        """Compute retry delay with exponential backoff."""
+        """Compute retry delay with exponential backoff (capped at 60s)."""
         delay: float = self._retry_base_delay_ms * (2 ** (attempt - 1)) / 1000
         if error.retry_after_ms is not None:
             hint: float = error.retry_after_ms / 1000
             delay = max(delay, hint)
-        return delay
+        return min(delay, 60.0)
 
     async def generate(
         self,
@@ -341,10 +341,15 @@ class ModelGatewayRegistry:
 
         Iterates every provider and calls ``close()`` if available,
         releasing HTTP connection pools and other resources.
+        Exceptions from individual providers are logged but do not
+        prevent other providers from being closed.
         """
-        for provider in self._providers.values():
+        for name, provider in self._providers.items():
             if hasattr(provider, "close"):
-                await provider.close()
+                try:
+                    await provider.close()
+                except Exception:
+                    logger.warning("Failed to close provider '%s'", name, exc_info=True)
 
     async def health_check_all(self) -> dict[str, bool]:
         """

@@ -305,10 +305,10 @@ class TestRuntimeRunWithResponseFormat:
             rt._mcp_client = None
             rt._tool_registry = None
             rt._memory_store = None
-            import threading
+            import asyncio as _asyncio
             rt._total_tokens_used = 0
             rt._total_cost_usd = 0.0
-            rt._totals_lock = threading.Lock()
+            rt._totals_lock = _asyncio.Lock()
             rt._events = _EventBus()
 
             result = await rt.run(
@@ -345,10 +345,10 @@ class TestRuntimeRunWithResponseFormat:
             rt._mcp_client = None
             rt._tool_registry = None
             rt._memory_store = None
-            import threading
+            import asyncio as _asyncio
             rt._total_tokens_used = 0
             rt._total_cost_usd = 0.0
-            rt._totals_lock = threading.Lock()
+            rt._totals_lock = _asyncio.Lock()
             rt._events = _EventBus()
 
             result = await rt.run("Just a question")
@@ -498,10 +498,10 @@ class TestToolsWithResponseFormat:
             rt._mcp_configs = None
             rt._mcp_client = None
             rt._memory_store = None
-            import threading
+            import asyncio as _asyncio
             rt._total_tokens_used = 0
             rt._total_cost_usd = 0.0
-            rt._totals_lock = threading.Lock()
+            rt._totals_lock = _asyncio.Lock()
 
             rt._create_session(
                 response_format=Person,
@@ -553,10 +553,10 @@ class TestOnParseErrorCallback:
         rt._mcp_configs = []
         rt._mcp_client = None
         rt._memory_store = None
-        import threading
+        import asyncio as _asyncio
         rt._total_tokens_used = 0
         rt._total_cost_usd = 0.0
-        rt._totals_lock = threading.Lock()
+        rt._totals_lock = _asyncio.Lock()
         rt._events = _EventBus()
 
         # _resolve_model_config needs to return something valid
@@ -1184,10 +1184,10 @@ class TestParsedAlwaysModel:
         rt._mcp_configs = []
         rt._mcp_client = None
         rt._memory_store = None
-        import threading
+        import asyncio as _asyncio
         rt._total_tokens_used = 0
         rt._total_cost_usd = 0.0
-        rt._totals_lock = threading.Lock()
+        rt._totals_lock = _asyncio.Lock()
         rt._events = _EventBus()
         rt._resolve_model_config = MagicMock(return_value=MagicMock())
         return rt

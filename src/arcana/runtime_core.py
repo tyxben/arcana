@@ -34,7 +34,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import threading
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -172,9 +171,9 @@ class BudgetScope:
         """Run with scoped budget enforcement."""
         from arcana.gateway.base import BudgetExceededError
 
-        if self._max_cost_usd is not None and self._cost_used >= self._max_cost_usd:
+        if self._max_cost_usd is not None and self._cost_used > self._max_cost_usd:
             raise BudgetExceededError("Scoped budget exhausted (cost)", budget_type="cost")
-        if self._max_tokens is not None and self._tokens_used >= self._max_tokens:
+        if self._max_tokens is not None and self._tokens_used > self._max_tokens:
             raise BudgetExceededError("Scoped token budget exhausted", budget_type="tokens")
 
         scope_budget: Budget | None = None
@@ -274,10 +273,21 @@ class Runtime:
         memory_budget_tokens: int = 800,
         config: RuntimeConfig | None = None,
         namespace: str | None = None,
+        context_strategy: Any = None,  # ContextStrategy | str | None
     ) -> None:
         self._config = config or RuntimeConfig()
         self._budget_policy = budget or Budget()
         self._namespace = namespace
+
+        # Parse context strategy
+        from arcana.contracts.context import ContextStrategy
+
+        if isinstance(context_strategy, str):
+            self._context_strategy = ContextStrategy(mode=context_strategy)
+        elif isinstance(context_strategy, ContextStrategy):
+            self._context_strategy = context_strategy
+        else:
+            self._context_strategy = ContextStrategy()  # default adaptive
 
         # Setup providers (long-lived)
         self._gateway = self._setup_providers(providers or {})
@@ -293,7 +303,7 @@ class Runtime:
         self._mcp_client: Any = None  # MCPClient, set after connect_mcp()
 
         # Cumulative budget tracking across runs (lock protects concurrent run() calls)
-        self._totals_lock = threading.Lock()
+        self._totals_lock = asyncio.Lock()
         self._total_tokens_used: int = 0
         self._total_cost_usd: float = 0.0
 
@@ -319,6 +329,16 @@ class Runtime:
 
         # Event hooks
         self._events = _EventBus()
+
+    # ------------------------------------------------------------------
+    # Context manager (ensures cleanup of HTTP connections etc.)
+    # ------------------------------------------------------------------
+
+    async def __aenter__(self) -> Runtime:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
 
     # ------------------------------------------------------------------
     # Event hooks
@@ -458,12 +478,12 @@ class Runtime:
             # Always accumulate whatever budget was used, even on cancellation.
             # Session's budget tracker has the authoritative partial usage.
             if result is not None:
-                with self._totals_lock:
+                async with self._totals_lock:
                     self._total_tokens_used += result.tokens_used
                     self._total_cost_usd += result.cost_usd
             elif session.state is not None:
                 # Cancelled before RunResult was built -- pull from AgentState
-                with self._totals_lock:
+                async with self._totals_lock:
                     self._total_tokens_used += session.state.tokens_used
                     self._total_cost_usd += session.state.cost_usd
 
@@ -544,6 +564,21 @@ class Runtime:
         resolved_system = system or self._config.system_prompt
         if resolved_system:
             agent_kwargs["system_prompt"] = resolved_system
+
+        # Create WorkingSetBuilder with strategy from Runtime
+        from arcana.context.builder import WorkingSetBuilder
+        from arcana.contracts.context import ContextStrategy, TokenBudget
+
+        stream_system = resolved_system or "You are a helpful assistant. Answer the user's request directly and completely."
+        ctx_strategy = getattr(self, "_context_strategy", None) or ContextStrategy()
+        ctx_builder = WorkingSetBuilder(
+            identity=stream_system,
+            token_budget=TokenBudget(total_window=128_000),
+            goal=None,
+            gateway=self._gateway,
+            strategy=ctx_strategy,
+        )
+        agent_kwargs["context_builder"] = ctx_builder
 
         agent = ConversationAgent(**agent_kwargs)
 
@@ -1151,28 +1186,24 @@ class Runtime:
         """Remaining USD budget, or None if no budget limit is set."""
         if self._budget_policy.max_cost_usd is None:
             return None
-        with self._totals_lock:
-            return max(0.0, self._budget_policy.max_cost_usd - self._total_cost_usd)
+        return max(0.0, self._budget_policy.max_cost_usd - self._total_cost_usd)
 
     @property
     def budget_used_usd(self) -> float:
         """Total USD spent across all runs."""
-        with self._totals_lock:
-            return self._total_cost_usd
+        return self._total_cost_usd
 
     @property
     def tokens_remaining(self) -> int | None:
         """Remaining token budget, or None if no token limit is set."""
         if self._budget_policy.max_tokens is None:
             return None
-        with self._totals_lock:
-            return max(0, self._budget_policy.max_tokens - self._total_tokens_used)
+        return max(0, self._budget_policy.max_tokens - self._total_tokens_used)
 
     @property
     def tokens_used(self) -> int:
         """Total tokens used across all runs."""
-        with self._totals_lock:
-            return self._total_tokens_used
+        return self._total_tokens_used
 
     @property
     def providers(self) -> list[str]:
@@ -1496,6 +1527,21 @@ class Session:
             if isinstance(user_content, list):
                 agent_kwargs["initial_user_content"] = user_content
 
+            # Create WorkingSetBuilder with strategy from Runtime
+            from arcana.context.builder import WorkingSetBuilder
+            from arcana.contracts.context import ContextStrategy, TokenBudget
+
+            ctx_system = resolved_system or "You are a helpful assistant. Answer the user's request directly and completely."
+            ctx_strategy = getattr(self._runtime, "_context_strategy", None) or ContextStrategy()
+            ctx_builder = WorkingSetBuilder(
+                identity=ctx_system,
+                token_budget=TokenBudget(total_window=128_000),
+                goal=None,
+                gateway=self._runtime._gateway,
+                strategy=ctx_strategy,
+            )
+            agent_kwargs["context_builder"] = ctx_builder
+
             agent = ConversationAgent(**agent_kwargs)
             self.state = await agent.run(goal)
 
@@ -1581,9 +1627,10 @@ class Session:
                                 tokens_used=self.state.tokens_used,
                                 cost_usd=self.state.cost_usd,
                                 run_id=self.state.run_id,
+                                context_report=self.state.last_context_report,
                             )
                     except Exception:
-                        pass
+                        logger.debug("on_parse_error callback failed", exc_info=True)
                 return RunResult(
                     output=clean_output,
                     parsed=None,
@@ -1592,6 +1639,7 @@ class Session:
                     tokens_used=self.state.tokens_used,
                     cost_usd=self.state.cost_usd,
                     run_id=self.state.run_id,
+                    context_report=self.state.last_context_report,
                 )
 
         return RunResult(
@@ -1602,6 +1650,7 @@ class Session:
             tokens_used=self.state.tokens_used,
             cost_usd=self.state.cost_usd,
             run_id=self.state.run_id,
+            context_report=self.state.last_context_report,
         )
 
 
@@ -1615,6 +1664,7 @@ class RunResult(BaseModel):
     tokens_used: int = 0
     cost_usd: float = 0.0
     run_id: str = ""
+    context_report: Any = None  # ContextReport | None (Any to avoid circular import)
 
 
 class ChatResponse(BaseModel):
@@ -1624,6 +1674,7 @@ class ChatResponse(BaseModel):
     tool_calls_made: int = 0
     tokens_used: int = 0
     cost_usd: float = 0.0
+    context_report: Any = None  # ContextReport | None
 
 
 class ChatSession:
@@ -1725,13 +1776,14 @@ class ChatSession:
 
         # Context management
         from arcana.context.builder import WorkingSetBuilder
-        from arcana.contracts.context import TokenBudget
+        from arcana.contracts.context import ContextStrategy, TokenBudget
 
         context_builder = WorkingSetBuilder(
             identity=self._system_prompt,
             token_budget=TokenBudget(total_window=128_000),
             goal=message,
             gateway=self._runtime._gateway,
+            strategy=getattr(self._runtime, "_context_strategy", None) or ContextStrategy(),
         )
 
         turn_tokens = 0
@@ -1863,6 +1915,7 @@ class ChatSession:
             tool_calls_made=tool_calls_made,
             tokens_used=turn_tokens,
             cost_usd=turn_cost,
+            context_report=context_builder.last_report,
         )
 
     async def stream(self, message: str) -> AsyncGenerator[StreamEvent, None]:
@@ -1894,13 +1947,14 @@ class ChatSession:
             tool_defs = self._runtime._tool_gateway.registry.to_openai_tools() or None
 
         from arcana.context.builder import WorkingSetBuilder, estimate_tokens
-        from arcana.contracts.context import TokenBudget
+        from arcana.contracts.context import ContextStrategy, TokenBudget
 
         context_builder = WorkingSetBuilder(
             identity=self._system_prompt,
             token_budget=TokenBudget(total_window=128_000),
             goal=message,
             gateway=self._runtime._gateway,
+            strategy=getattr(self._runtime, "_context_strategy", None) or ContextStrategy(),
         )
 
         turn_tokens = 0

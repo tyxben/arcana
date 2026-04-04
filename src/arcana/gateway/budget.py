@@ -78,21 +78,21 @@ class BudgetTracker:
             BudgetExceededError: If a budget limit is exceeded
         """
         with self._lock:
-            if self.max_tokens and self.tokens_used >= self.max_tokens:
+            if self.max_tokens and self.tokens_used > self.max_tokens:
                 raise BudgetExceededError(
                     f"Token budget exceeded: used {self.tokens_used:,} / limit {self.max_tokens:,} tokens. "
                     f"Increase budget with Budget(max_tokens={self.max_tokens * 2:,}) or reduce max_turns.",
                     budget_type="tokens",
                 )
 
-            if self.max_cost_usd and self.cost_usd >= self.max_cost_usd:
+            if self.max_cost_usd and self.cost_usd > self.max_cost_usd:
                 raise BudgetExceededError(
                     f"Cost budget exceeded: spent ${self.cost_usd:.4f} / limit ${self.max_cost_usd:.4f}. "
                     f"Increase budget with Budget(max_cost_usd={self.max_cost_usd * 2:.2f}) or reduce max_turns.",
                     budget_type="cost",
                 )
 
-            if self.max_time_ms and self.elapsed_ms >= self.max_time_ms:
+            if self.max_time_ms and self.elapsed_ms > self.max_time_ms:
                 raise BudgetExceededError(
                     f"Time budget exceeded: elapsed {self.elapsed_ms:,}ms / limit {self.max_time_ms:,}ms. "
                     f"Increase budget with Budget(max_time_ms={self.max_time_ms * 2:,}) or simplify the task.",
@@ -111,17 +111,20 @@ class BudgetTracker:
             self.tokens_used += usage.total_tokens
             self.cost_usd += cost if cost is not None else usage.cost_estimate
 
-    def can_afford(self, estimated_tokens: int) -> bool:
+    def can_afford(self, estimated_tokens: int, estimated_cost: float = 0.0) -> bool:
         """
-        Check if the budget can afford an estimated token count.
+        Check if the budget can afford an estimated token count and cost.
 
         Args:
             estimated_tokens: Estimated tokens for the next call
+            estimated_cost: Estimated cost in USD for the next call
 
         Returns:
             True if affordable, False otherwise
         """
         if self.max_tokens and (self.tokens_used + estimated_tokens) > self.max_tokens:
+            return False
+        if self.max_cost_usd and (self.cost_usd + estimated_cost) > self.max_cost_usd:
             return False
         return True
 

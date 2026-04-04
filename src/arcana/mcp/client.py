@@ -61,9 +61,12 @@ class MCPClient:
             self._tools = {k: v for k, v in self._tools.items() if v[0] != name}
 
     async def disconnect_all(self) -> None:
-        """Disconnect from all servers."""
+        """Disconnect from all servers (continues on individual failures)."""
         for name in list(self._connections.keys()):
-            await self.disconnect(name)
+            try:
+                await self.disconnect(name)
+            except Exception:
+                logger.warning("Failed to disconnect MCP server '%s'", name, exc_info=True)
 
     async def call_tool(
         self, server_name: str, tool_name: str, arguments: dict[str, Any]
@@ -96,6 +99,7 @@ class MCPConnection:
         self._transport = transport
         self._msg_counter = 0
         self._connected = False
+        self._reconnect_lock = asyncio.Lock()
 
     async def connect(self) -> None:
         """Connect and initialize."""
@@ -175,42 +179,41 @@ class MCPConnection:
             # else: notification, skip
 
     async def _reconnect(self) -> None:
-        """Reconnect with exponential backoff."""
-        if self._connected:
-            # Mark disconnected to avoid re-entrant reconnect loops
+        """Reconnect with exponential backoff (serialized via lock)."""
+        async with self._reconnect_lock:
+            # Mark disconnected; if another coroutine already reconnected, skip
             self._connected = False
-
-        for attempt in range(self._config.reconnect_attempts):
-            try:
-                await self._transport.close()
-                await self._transport.connect()
-                # Re-initialize (handshake) — sets self._connected = True
-                self._msg_counter = 0
-                await self._send_request(
-                    "initialize",
-                    {
-                        "protocolVersion": "2024-11-05",
-                        "capabilities": {},
-                        "clientInfo": {"name": "arcana", "version": "0.1.0"},
-                    },
-                )
-                self._connected = True
-                logger.info("Reconnected to MCP server '%s'", self._config.name)
-                return
-            except Exception:
-                delay = self._config.reconnect_delay_ms * (2**attempt) / 1000
-                logger.warning(
-                    "Reconnect attempt %d/%d for '%s' failed, retrying in %.1fs",
-                    attempt + 1, self._config.reconnect_attempts,
-                    self._config.name, delay,
-                )
-                await asyncio.sleep(delay)
-        cmd_str = f"{self._config.command} {' '.join(self._config.args)}" if self._config.command else "(no command)"
-        raise ConnectionError(
-            f"Failed to reconnect to MCP server '{self._config.name}' "
-            f"after {self._config.reconnect_attempts} attempts (command: {cmd_str}). "
-            f"Check that the server process is running and the command is correct."
-        )
+            for attempt in range(self._config.reconnect_attempts):
+                try:
+                    await self._transport.close()
+                    await self._transport.connect()
+                    # Re-initialize (handshake) — sets self._connected = True
+                    self._msg_counter = 0
+                    await self._send_request(
+                        "initialize",
+                        {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {"name": "arcana", "version": "0.1.0"},
+                        },
+                    )
+                    self._connected = True
+                    logger.info("Reconnected to MCP server '%s'", self._config.name)
+                    return
+                except Exception:
+                    delay = self._config.reconnect_delay_ms * (2**attempt) / 1000
+                    logger.warning(
+                        "Reconnect attempt %d/%d for '%s' failed, retrying in %.1fs",
+                        attempt + 1, self._config.reconnect_attempts,
+                        self._config.name, delay,
+                    )
+                    await asyncio.sleep(delay)
+            cmd_str = f"{self._config.command} {' '.join(self._config.args)}" if self._config.command else "(no command)"
+            raise ConnectionError(
+                f"Failed to reconnect to MCP server '{self._config.name}' "
+                f"after {self._config.reconnect_attempts} attempts (command: {cmd_str}). "
+                f"Check that the server process is running and the command is correct."
+            )
 
 
 class MCPCallError(Exception):

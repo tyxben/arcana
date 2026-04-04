@@ -2,6 +2,61 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [0.3.0] - 2026-04-04 — "The Context Release"
+
+### Added — Context Transparency
+
+- **`ContextReport`**: Every LLM call now produces a detailed report of how the context window was composed. Shows token allocation across layers (identity, task, tools, history, memory), compression metrics, and window utilization. Available on `RunResult.context_report` and `ChatResponse.context_report`
+- **`ContextStrategy`**: Adaptive compression strategy system replaces one-size-fits-all compression. Four tiers:
+  - **passthrough** (< 50% utilization): No compression, zero overhead
+  - **tail_preserve** (50-75%): Compress middle history, keep recent turns verbatim
+  - **llm_summarize** (75-90%): Use cheap LLM call for semantic summarization
+  - **aggressive_truncate** (> 90%): Keep only system + last 2 turns
+  - Configurable via `Runtime(context_strategy=ContextStrategy(...))` or shorthand `"off"` / `"always_compress"`
+- **Structured stream events**: `runtime.stream()` and `ChatSession.stream()` now emit:
+  - `TOOL_START` — tool name and arguments before execution
+  - `TOOL_END` — tool result and duration after execution
+  - `TURN_END` — token count and cost at end of each turn
+  - `CONTEXT_REPORT` — full context composition report per turn
+- **`StreamEventType` exported**: `arcana.StreamEventType` for `match` statements on stream events
+
+### Stats
+- Tests: 1142 → 1173 (+31 new tests for context features)
+- All 1173 tests passing, 0 failures
+
+## [0.2.2] - 2026-04-04
+
+### Fixed — Core Reliability
+- **asyncio.Lock replaces threading.Lock**: `Runtime._totals_lock` was a `threading.Lock` blocking the event loop in async code. Now uses `asyncio.Lock` for proper async concurrency
+- **Tool gateway idempotency race**: Fixed TOCTOU race where two concurrent calls with the same idempotency key could both execute. Lock now covers the entire check→execute→cache window
+- **Budget boundary off-by-one**: `BudgetTracker.check_budget()` used `>=` (triggers at exact limit), now uses `>` (allows using exactly the allocated budget). Same fix applied to `BudgetScope`
+- **Provider close() isolation**: `ModelGatewayRegistry.close()` now catches exceptions per-provider — one failing provider no longer blocks cleanup of others
+- **MCP reconnect serialization**: Added `asyncio.Lock` to `MCPConnection._reconnect()` preventing concurrent reconnect attempts from corrupting transport state
+- **MCP disconnect_all resilience**: Individual server disconnect failures no longer abort the cleanup loop
+- **Graph checkpointer blocking I/O**: `GraphCheckpointer.save()/load()/delete()` were fake-async (blocking file I/O). Now uses `asyncio.to_thread()` + atomic write (temp file + rename) to prevent corruption on crash
+- **Trace reader token/cost accounting**: `TraceReader.summarize()` used `max()` instead of `+=` for tokens/cost, reporting peak values instead of totals
+- **SSE line terminator**: MCP Streamable HTTP transport now handles `\r\n` and `\r` per SSE spec, not just `\n`
+- **Silent hook/callback failures**: Bare `except: pass` in agent hooks and `on_parse_error` callback now logs to `logger.debug` for debuggability
+
+### Added
+- **`Runtime` as async context manager**: `async with Runtime(...) as rt:` ensures `close()` is called, preventing HTTP connection leaks
+- **`BudgetTracker.can_afford(estimated_tokens, estimated_cost)`**: Now checks cost budget in addition to token budget
+
+### Removed — Dead Code Cleanup
+- **`orchestrator/`**: Entire module (Orchestrator, TaskScheduler, TaskGraph, ExecutorPool) — never used by runtime
+- **`gateway/router.py`**: ModelRouter — never imported
+- **`gateway/capabilities.py`**: CapabilityRegistry — never queried
+- **`streaming/sse.py`**: SSE formatter — never called
+- **`runtime/replay.py`**: ReplayEngine — never wired up
+- **`tool_gateway/adapters/langchain.py`**: LangChain bridge — never loaded
+- **`storage/postgres.py`**, **`storage/chroma.py`**: Production storage backends removed. Arcana provides the `StorageBackend`/`VectorStore` interfaces; users implement for their infrastructure
+- Removed `chromadb` dev dependency
+
+### Stats
+- Tests: 1234 → 1142 (removed 92 tests for deleted dead code)
+- All 1142 tests passing, 0 failures
+- mypy strict: 8 errors (all pre-existing)
+
 ## [0.2.1] - 2026-03-28
 
 ### Fixed — Production High Availability

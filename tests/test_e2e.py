@@ -23,7 +23,6 @@ from arcana.contracts.llm import (
     ModelConfig,
     TokenUsage,
 )
-from arcana.contracts.routing import ModelRole, RoutingConfig, TaskComplexity
 from arcana.contracts.runtime import RuntimeConfig
 from arcana.contracts.state import AgentState, ExecutionStatus
 from arcana.contracts.strategy import StrategyDecision, StrategyType
@@ -36,7 +35,6 @@ from arcana.contracts.tool import (
     ToolSpec,
 )
 from arcana.gateway.registry import ModelGatewayRegistry
-from arcana.gateway.router import ModelRouter
 from arcana.routing.classifier import HybridClassifier, RuleBasedClassifier
 from arcana.runtime.diagnosis.diagnoser import (
     build_recovery_prompt,
@@ -736,142 +734,7 @@ class TestDiagnosticRecovery:
 
 
 # ===================================================================
-# 5. Model Router Tests
-# ===================================================================
-
-
-class TestModelRouter:
-    """Tests for ModelRouter complexity estimation and role selection."""
-
-    async def test_complexity_trivial(self) -> None:
-        """A simple 'what is' question should be TRIVIAL."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        complexity = router.estimate_complexity("what is 2+2?")
-        assert complexity == TaskComplexity.TRIVIAL
-
-    async def test_complexity_simple(self) -> None:
-        """An 'explain' request should be TRIVIAL (simple keyword reduces score)."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        complexity = router.estimate_complexity("explain how gravity works")
-        assert complexity == TaskComplexity.TRIVIAL
-
-    async def test_complexity_moderate_or_higher(self) -> None:
-        """A complex goal with analysis keywords should be at least MODERATE."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        complexity = router.estimate_complexity(
-            "analyze and compare different design patterns for microservices architecture"
-        )
-        assert complexity.value in {"moderate", "complex", "expert"}
-
-    async def test_complexity_increases_with_errors(self) -> None:
-        """Error count should increase complexity."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        complexity_order = [
-            TaskComplexity.TRIVIAL,
-            TaskComplexity.SIMPLE,
-            TaskComplexity.MODERATE,
-            TaskComplexity.COMPLEX,
-            TaskComplexity.EXPERT,
-        ]
-        base = router.estimate_complexity("do a simple task")
-        with_errors = router.estimate_complexity("do a simple task", error_count=5)
-        assert complexity_order.index(with_errors) >= complexity_order.index(base)
-
-    async def test_complexity_long_goal(self) -> None:
-        """A very long goal should get a complexity bump."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        long_goal = "analyze " + "x " * 300
-        complexity = router.estimate_complexity(long_goal)
-        # The "analyze" keyword + length should push this up
-        assert complexity.value in {"simple", "moderate", "complex", "expert"}
-
-    async def test_role_selection_think(self) -> None:
-        """'think' step should select STRATEGIST role."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        role = router.select_role("think")
-        assert role == ModelRole.STRATEGIST
-
-    async def test_role_selection_plan(self) -> None:
-        """'plan' step should select STRATEGIST role."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        role = router.select_role("plan")
-        assert role == ModelRole.STRATEGIST
-
-    async def test_role_selection_act(self) -> None:
-        """'act' step should select EXECUTOR role."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        role = router.select_role("act")
-        assert role == ModelRole.EXECUTOR
-
-    async def test_role_selection_verify(self) -> None:
-        """'verify' step should select VALIDATOR role."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        role = router.select_role("verify")
-        assert role == ModelRole.VALIDATOR
-
-    async def test_role_selection_compress(self) -> None:
-        """'compress' step should select COMPRESSOR role."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        role = router.select_role("compress")
-        assert role == ModelRole.COMPRESSOR
-
-    async def test_role_selection_route(self) -> None:
-        """'route' and 'classify' steps should select ROUTER role."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        assert router.select_role("route") == ModelRole.ROUTER
-        assert router.select_role("classify") == ModelRole.ROUTER
-
-    async def test_role_selection_default(self) -> None:
-        """Unknown step type should default to EXECUTOR."""
-        gateway = _mock_gateway()
-        router = ModelRouter(gateway)
-        role = router.select_role("unknown_step")
-        assert role == ModelRole.EXECUTOR
-
-    async def test_auto_downgrade_trivial(self) -> None:
-        """With auto_downgrade, TRIVIAL complexity should downgrade think/plan to EXECUTOR."""
-        gateway = _mock_gateway()
-        config = RoutingConfig(auto_downgrade=True)
-        router = ModelRouter(gateway, config=config)
-        role = router.select_role("think", complexity=TaskComplexity.TRIVIAL)
-        assert role == ModelRole.EXECUTOR
-
-    async def test_no_downgrade_complex(self) -> None:
-        """COMPLEX tasks should NOT be downgraded even with auto_downgrade."""
-        gateway = _mock_gateway()
-        config = RoutingConfig(auto_downgrade=True)
-        router = ModelRouter(gateway, config=config)
-        role = router.select_role("think", complexity=TaskComplexity.COMPLEX)
-        assert role == ModelRole.STRATEGIST
-
-    async def test_get_config_for_role(self) -> None:
-        """get_config_for_role should return a ModelConfig for each role."""
-        gateway = _mock_gateway()
-        # Use a config where all roles point to the registered "deepseek" provider
-        # so that default_model resolution works with the mock gateway.
-        routing_config = RoutingConfig(
-            strategist_provider="deepseek",
-        )
-        router = ModelRouter(gateway, config=routing_config)
-        for role in ModelRole:
-            config = router.get_config_for_role(role)
-            assert isinstance(config, ModelConfig)
-            assert config.provider is not None
-
-
-# ===================================================================
-# 6. SDK Tool Decorator Tests
+# 5. SDK Tool Decorator Tests
 # ===================================================================
 
 

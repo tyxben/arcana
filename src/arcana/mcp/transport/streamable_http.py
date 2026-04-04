@@ -168,7 +168,7 @@ class StreamableHTTPTransport(MCPTransport):
 
     async def _parse_sse_response(self, body: str) -> None:
         """Parse SSE event stream and queue all JSON-RPC messages."""
-        for line in body.split("\n"):
+        for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             line = line.strip()
             if not line or line.startswith(":"):
                 continue  # comment or empty line

@@ -11,7 +11,7 @@ class StorageBackend(ABC):
     Abstract storage backend for structured data.
 
     Supports trace events, checkpoints, and general key-value storage.
-    Implementations: InMemoryBackend (tests), PostgresBackend (production).
+    Implementations: InMemoryBackend (built-in). Users implement this for production backends.
     """
 
     @abstractmethod
@@ -79,7 +79,7 @@ class VectorStore(ABC):
     Abstract vector store for embedding-based retrieval.
 
     Used by the RAG system for document indexing and similarity search.
-    Implementations: InMemoryVectorStore (tests), PgVectorStore (production).
+    Implementations: InMemoryVectorStore (built-in). Users implement this for production backends.
     """
 
     @abstractmethod

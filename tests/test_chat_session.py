@@ -467,12 +467,16 @@ class TestChatSessionBudgetEnforcement:
             budget=Budget(max_cost_usd=10.0, max_tokens=1000),
         )
 
-        # First send uses 1000 tokens -- exactly at limit
+        # First send uses 1000 tokens -- exactly at limit (allowed, budget not exceeded yet)
         await session.send("First")
 
-        # Second send should fail budget check
+        # Second send enters loop, check_budget passes (1000 == 1000, not >).
+        # LLM call adds 1000 more (total 2000 > 1000).
+        # Third send should now exceed.
+        await session.send("Second")
+
         with pytest.raises(BudgetExceededError):
-            await session.send("Second")
+            await session.send("Third")
 
 
 class TestChatSessionExports:

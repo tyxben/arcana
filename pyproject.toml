@@ -1,6 +1,6 @@
 [project]
 name = "arcana-agent"
-version = "0.2.1"
+version = "0.3.0"
 description = "Agent Runtime for production — LLM-native execution with tools, budget, and trace built in."
 readme = "README.md"
 license = {text = "MIT"}
@@ -39,7 +39,6 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.5",
     "mypy>=1.11",
-    "chromadb>=0.5",
     "anthropic>=0.42",
     "google-genai>=1.0",
 ]

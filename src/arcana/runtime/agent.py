@@ -9,10 +9,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from arcana.contracts.intent import IntentType
 from arcana.contracts.runtime import RuntimeConfig, StepResult, StepType
@@ -869,5 +872,4 @@ class Agent:
                 try:
                     await method(*args, **kwargs)
                 except Exception:
-                    # Log but don't fail on hook errors
-                    pass
+                    logger.debug("Hook %s.%s failed", type(hook).__name__, hook_name, exc_info=True)

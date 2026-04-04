@@ -220,8 +220,8 @@ class TraceReader:
         total_cost = 0.0
         for e in events:
             if e.budgets:
-                total_tokens = max(total_tokens, e.budgets.tokens_used)
-                total_cost = max(total_cost, e.budgets.cost_usd)
+                total_tokens += e.budgets.tokens_used
+                total_cost += e.budgets.cost_usd
 
         return {
             "run_id": run_id,

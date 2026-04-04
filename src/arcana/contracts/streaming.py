@@ -28,6 +28,13 @@ class StreamEventType(str, Enum):
     # State
     STATE_UPDATE = "state_update"
     CHECKPOINT = "checkpoint"
+    # Structured agent events (v0.3.0)
+    THINKING = "thinking"
+    TEXT_DELTA = "text_delta"
+    TOOL_START = "tool_start"
+    TOOL_END = "tool_end"
+    TURN_END = "turn_end"
+    CONTEXT_REPORT = "context_report"
     # Errors
     ERROR = "error"
     # User interaction
@@ -49,6 +56,16 @@ class StreamEvent(BaseModel):
     content: str | None = None
     thinking: str | None = None
     node_name: str | None = None
+
+    # Tool event payloads (TOOL_START / TOOL_END)
+    tool_name: str | None = None
+    tool_args: dict[str, Any] | None = None
+    tool_result: str | None = None
+    tool_duration_ms: int | None = None
+
+    # Turn summary (TURN_END)
+    turn_tokens: int | None = None
+    turn_cost_usd: float | None = None
 
     # Structured data
     step_result_data: dict[str, Any] | None = None

@@ -161,21 +161,29 @@ class ToolGateway:
                 self._log_tool_call(tool_call, result, spec, trace_ctx)
             return result
 
-        # 4. Check idempotency cache
-        cached = await self._check_idempotency(tool_call.idempotency_key)
-        if cached is not None:
-            return cached
+        # 4. Check idempotency cache (lock held through execute to prevent duplicate runs)
+        if tool_call.idempotency_key is not None:
+            async with self._cache_lock:
+                cached = self._idempotency_cache.get(tool_call.idempotency_key)
+                if cached is not None:
+                    return cached
 
-        # 5. Confirm (write tools)
-        confirmation_result = await self._confirm_execution(tool_call, spec)
-        if confirmation_result is not None:
-            return confirmation_result
+                # 5. Confirm (write tools)
+                confirmation_result = await self._confirm_execution(tool_call, spec)
+                if confirmation_result is not None:
+                    return confirmation_result
 
-        # 6. Execute with retry
-        result = await self._execute_with_retry(provider, tool_call, spec)
+                # 6. Execute with retry
+                result = await self._execute_with_retry(provider, tool_call, spec)
 
-        # 7. Cache if idempotency key present
-        await self._cache_result(tool_call.idempotency_key, result)
+                # 7. Cache result
+                self._idempotency_cache[tool_call.idempotency_key] = result
+        else:
+            # No idempotency key — skip cache entirely
+            confirmation_result = await self._confirm_execution(tool_call, spec)
+            if confirmation_result is not None:
+                return confirmation_result
+            result = await self._execute_with_retry(provider, tool_call, spec)
 
         # 8. Audit
         if trace_ctx:

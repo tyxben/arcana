@@ -1,9 +1,12 @@
 """Arcana Agent Platform - A controllable, reproducible, and evaluable Agent Platform."""
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
+from arcana.contracts.context import ContextReport as ContextReport
+from arcana.contracts.context import ContextStrategy as ContextStrategy
 from arcana.contracts.mcp import MCPServerConfig as MCPServerConfig
 from arcana.contracts.streaming import StreamEvent as StreamEvent
+from arcana.contracts.streaming import StreamEventType as StreamEventType
 from arcana.graph import END as END
 from arcana.graph import START as START
 from arcana.graph import StateGraph as StateGraph

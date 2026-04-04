@@ -104,12 +104,11 @@ class TestBudgetRaceCondition:
         )
 
     def test_totals_lock_exists(self):
-        """Runtime should have a threading.Lock for totals."""
+        """Runtime should have an asyncio.Lock for totals."""
+        import asyncio
         rt = _make_runtime()
         assert hasattr(rt, "_totals_lock")
-        # threading.Lock() returns a _thread.lock object; verify it has acquire/release
-        assert hasattr(rt._totals_lock, "acquire")
-        assert hasattr(rt._totals_lock, "release")
+        assert isinstance(rt._totals_lock, asyncio.Lock)
 
 
 # ---------------------------------------------------------------------------

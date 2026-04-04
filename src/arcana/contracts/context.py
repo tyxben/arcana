@@ -105,3 +105,63 @@ class ContextDecision(BaseModel):
 
     # Human-readable explanation
     explanation: str = ""
+
+
+class ContextStrategy(BaseModel):
+    """Configuration for adaptive context compression strategy.
+
+    Defines thresholds for when to apply different compression levels
+    based on context window utilization ratio.
+
+    Modes:
+        - "adaptive": Select strategy based on utilization thresholds (default)
+        - "off": Never compress
+        - "always_compress": Always apply compression
+    """
+
+    mode: str = "adaptive"
+
+    # Thresholds (as fraction of window_size, must be ascending)
+    passthrough_threshold: float = 0.50   # Below: no compression
+    tail_preserve_threshold: float = 0.75  # 0.50-0.75: compress middle, keep tail
+    llm_summarize_threshold: float = 0.90  # 0.75-0.90: use LLM summarization
+    # Above 0.90: aggressive truncate
+
+    # tail_preserve config
+    tail_preserve_keep_recent: int = 6  # Recent messages to keep verbatim
+
+    # aggressive_truncate config
+    aggressive_keep_turns: int = 2  # Keep only last N user+assistant pairs
+
+
+class ContextReport(BaseModel):
+    """Report of how context was composed for a single LLM call.
+
+    Produced by WorkingSetBuilder and attached to RunResult, ChatResponse,
+    TraceEvent, and StreamEvent for full visibility into context window usage.
+    """
+
+    # Turn metadata
+    turn: int = 0
+    strategy_used: str = "passthrough"
+
+    # Token allocation breakdown
+    total_tokens: int = 0
+    identity_tokens: int = 0
+    task_tokens: int = 0
+    tools_tokens: int = 0
+    history_tokens: int = 0
+    memory_tokens: int = 0
+
+    # Compression metrics
+    compression_applied: bool = False
+    compression_savings: int = 0
+    messages_compressed: int = 0
+
+    # Utilization
+    window_size: int = 128_000
+    utilization: float = 0.0
+
+    # Tool loading info (for lazy registry)
+    tools_loaded: int = 0
+    tools_available: int = 0

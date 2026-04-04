@@ -84,6 +84,7 @@ class ConversationAgent:
         response_format_schema: dict[str, Any] | None = None,
         initial_user_content: list[ContentBlock] | None = None,
         input_handler: Callable[..., Any] | None = None,
+        context_builder: Any | None = None,  # WorkingSetBuilder | None
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -121,16 +122,19 @@ class ConversationAgent:
 
             self._lazy_registry = _LTR(tool_gateway.registry)
 
-        # Context management — unified through WorkingSetBuilder
-        from arcana.context.builder import WorkingSetBuilder
-        from arcana.contracts.context import TokenBudget
+        # Context management — use provided builder or create default
+        if context_builder is not None:
+            self._context_builder = context_builder
+        else:
+            from arcana.context.builder import WorkingSetBuilder
+            from arcana.contracts.context import TokenBudget
 
-        self._context_builder = WorkingSetBuilder(
-            identity=system_prompt,
-            token_budget=TokenBudget(total_window=context_window),
-            goal=None,  # Set when run starts
-            gateway=gateway,  # Pass gateway for LLM-based context compression
-        )
+            self._context_builder = WorkingSetBuilder(
+                identity=system_prompt,
+                token_budget=TokenBudget(total_window=context_window),
+                goal=None,  # Set when run starts
+                gateway=gateway,  # Pass gateway for LLM-based context compression
+            )
         self._memory_context = memory_context
 
         # Populated during a run; accessed by run() after astream() finishes.
@@ -234,6 +238,31 @@ class ConversationAgent:
             # Write back so memory injection persists in messages for future turns
             if _turn == 0 and self._memory_context:
                 messages = curated[:]
+
+            # Store context report in state and yield CONTEXT_REPORT event
+            if self._context_builder.last_report:
+                ctx_report = self._context_builder.last_report
+                # Update with lazy registry info
+                if self._lazy_registry:
+                    ctx_report = ctx_report.model_copy(update={
+                        "tools_loaded": self._lazy_registry.loaded_count
+                        if hasattr(self._lazy_registry, "loaded_count")
+                        else len(self._lazy_registry.to_openai_tools() or []),
+                        "tools_available": self._lazy_registry.total_count
+                        if hasattr(self._lazy_registry, "total_count")
+                        else (
+                            len(self._lazy_registry._registry.list_tools())
+                            if hasattr(self._lazy_registry, "_registry")
+                            else 0
+                        ),
+                    })
+                state = state.model_copy(update={"last_context_report": ctx_report})
+                yield StreamEvent(
+                    event_type=StreamEventType.CONTEXT_REPORT,
+                    run_id=run_id,
+                    step_id=str(state.current_step),
+                    metadata=ctx_report.model_dump(),
+                )
 
             # Trace the context decision
             if self.trace_writer and self._context_builder.last_decision:
@@ -417,6 +446,24 @@ class ConversationAgent:
                     active_tools.append(self._ask_user_tool_schema())
                     tool_token_cost = self._estimate_tool_tokens(active_tools)
 
+                # Yield TOOL_START events before execution
+                import time as _time
+
+                _tool_start_times: dict[str, float] = {}
+                for tc in facts.tool_calls:
+                    _tool_start_times[tc.id] = _time.monotonic()
+                    try:
+                        tc_args_parsed = json.loads(tc.arguments) if tc.arguments else {}
+                    except json.JSONDecodeError:
+                        tc_args_parsed = {}
+                    yield StreamEvent(
+                        event_type=StreamEventType.TOOL_START,
+                        run_id=run_id,
+                        step_id=str(state.current_step),
+                        tool_name=tc.name,
+                        tool_args=tc_args_parsed,
+                    )
+
                 results, ask_user_events = await self._execute_tools(
                     facts.tool_calls, run_id=run_id,
                 )
@@ -426,6 +473,21 @@ class ConversationAgent:
                     yield ev
 
                 messages = self._add_tool_messages(messages, facts, results)
+
+                # Yield TOOL_END events after execution
+                for result in results:
+                    duration_ms: int | None = None
+                    start_t = _tool_start_times.get(result.tool_call_id or "")
+                    if start_t is not None:
+                        duration_ms = int((_time.monotonic() - start_t) * 1000)
+                    yield StreamEvent(
+                        event_type=StreamEventType.TOOL_END,
+                        run_id=run_id,
+                        step_id=str(state.current_step),
+                        tool_name=result.name,
+                        tool_result=result.output_str,
+                        tool_duration_ms=duration_ms,
+                    )
 
                 for result in results:
                     yield StreamEvent(
@@ -490,6 +552,15 @@ class ConversationAgent:
                 )
                 if self.budget_tracker:
                     self.budget_tracker.add_usage(facts.usage)
+
+            # Yield TURN_END event
+            yield StreamEvent(
+                event_type=StreamEventType.TURN_END,
+                run_id=run_id,
+                step_id=str(state.current_step),
+                turn_tokens=facts.usage.total_tokens if facts.usage else 0,
+                turn_cost_usd=facts.usage.cost_estimate if facts.usage else 0.0,
+            )
 
             # Keep _state in sync so cancellation preserves budget data
             self._state = state

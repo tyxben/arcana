@@ -10,6 +10,8 @@ from arcana.contracts.context import (
     ContextBlock,
     ContextDecision,
     ContextLayer,
+    ContextReport,
+    ContextStrategy,
     StepContext,
     TokenBudget,
     WorkingSet,
@@ -77,6 +79,7 @@ class WorkingSetBuilder:
         goal: str | None = None,
         gateway: ModelGatewayRegistry | None = None,
         compression_model: ModelConfig | None = None,
+        strategy: ContextStrategy | None = None,
     ) -> None:
         self._identity = identity
         self._budget = token_budget or TokenBudget()
@@ -84,6 +87,7 @@ class WorkingSetBuilder:
         self._goal_keywords = _extract_keywords(goal) if goal else set()
         self._gateway = gateway
         self._compression_model = compression_model
+        self._strategy = strategy or ContextStrategy()
 
         # Pre-compute identity block
         self._identity_block = ContextBlock(
@@ -98,6 +102,9 @@ class WorkingSetBuilder:
         # Last context decision — set after each build_conversation_context()
         self.last_decision: ContextDecision | None = None
 
+        # Last context report — richer than ContextDecision, for v0.3.0 visibility
+        self.last_report: ContextReport | None = None
+
     @property
     def budget(self) -> TokenBudget:
         return self._budget
@@ -110,6 +117,86 @@ class WorkingSetBuilder:
     # ------------------------------------------------------------------
     # V2 Conversation mode — for ConversationAgent
     # ------------------------------------------------------------------
+
+    def _resolve_strategy_name(self, utilization: float) -> str:
+        """Resolve the compression strategy name based on mode and utilization."""
+        mode = self._strategy.mode
+        if mode == "off":
+            return "passthrough"
+        if mode == "always_compress":
+            return "tail_preserve"
+        # adaptive mode (default)
+        if utilization < self._strategy.passthrough_threshold:
+            return "passthrough"
+        if utilization < self._strategy.tail_preserve_threshold:
+            return "tail_preserve"
+        if utilization < self._strategy.llm_summarize_threshold:
+            return "llm_summarize"
+        return "aggressive_truncate"
+
+    def _build_context_report(
+        self,
+        *,
+        turn: int,
+        strategy_name: str,
+        curated: list[Message],
+        messages: list[Message],
+        tool_token_estimate: int,
+        memory_context: str | None,
+        memory_injected: bool,
+        messages_in: int,
+    ) -> ContextReport:
+        """Build a ContextReport from the curated messages."""
+        identity_tokens = estimate_tokens(_content_text(curated[0].content)) if curated else 0
+        history_tokens = sum(estimate_tokens(_content_text(m.content)) for m in curated[1:])
+        memory_tok = estimate_tokens(memory_context) if memory_context and memory_injected else 0
+        original_total = sum(estimate_tokens(_content_text(m.content)) for m in messages)
+        curated_total = sum(estimate_tokens(_content_text(m.content)) for m in curated)
+
+        return ContextReport(
+            turn=turn,
+            strategy_used=strategy_name,
+            total_tokens=curated_total + tool_token_estimate,
+            identity_tokens=identity_tokens,
+            task_tokens=0,
+            tools_tokens=tool_token_estimate,
+            history_tokens=history_tokens,
+            memory_tokens=memory_tok,
+            compression_applied=(strategy_name != "passthrough"),
+            compression_savings=max(0, original_total - curated_total),
+            messages_compressed=messages_in - len(curated),
+            window_size=self._budget.total_window,
+            utilization=(curated_total + tool_token_estimate) / max(self._budget.total_window, 1),
+        )
+
+    def _aggressive_truncate(
+        self,
+        messages: list[Message],
+    ) -> list[Message]:
+        """Keep system message + last N user/assistant turn pairs only."""
+        keep_turns = self._strategy.aggressive_keep_turns
+        if not messages:
+            return messages
+
+        # Always keep system message (first)
+        head = messages[:1]
+        rest = messages[1:]
+
+        # Collect recent turn pairs from the end
+        # A "turn" is a user message + assistant response (possibly with tool messages)
+        # Walk backwards and keep the last keep_turns worth of messages
+        kept: list[Message] = []
+        turns_seen = 0
+        for msg in reversed(rest):
+            role = msg.role if isinstance(msg.role, str) else msg.role.value
+            kept.append(msg)
+            if role == "user":
+                turns_seen += 1
+                if turns_seen >= keep_turns:
+                    break
+
+        kept.reverse()
+        return head + kept
 
     def build_conversation_context(
         self,
@@ -127,7 +214,8 @@ class WorkingSetBuilder:
         3. Recent messages (tail) — kept verbatim for coherence
         4. Old messages — compress with relevance-aware detail levels
 
-        Produces a ContextDecision accessible via self.last_decision.
+        Produces a ContextDecision accessible via self.last_decision and
+        a ContextReport accessible via self.last_report.
         """
         # Apply per-layer budget caps
         effective_tool_tokens = tool_token_estimate
@@ -168,7 +256,11 @@ class WorkingSetBuilder:
             if history_tokens > self._budget.history_budget:
                 effective_budget = sys_tokens + self._budget.history_budget
 
-        # Under budget — pass through
+        # Compute utilization for strategy selection
+        utilization = total / max(self._budget.total_window, 1)
+        strategy_name = self._resolve_strategy_name(utilization)
+
+        # Under budget — pass through (unless strategy forces compression)
         if total <= effective_budget:
             self.last_decision = ContextDecision(
                 turn=turn,
@@ -181,10 +273,22 @@ class WorkingSetBuilder:
                 memory_injected=memory_injected,
                 explanation=f"Under budget ({total}/{budget} tokens), all {len(messages)} messages kept",
             )
+            self.last_report = self._build_context_report(
+                turn=turn,
+                strategy_name="passthrough",
+                curated=messages,
+                messages=messages,
+                tool_token_estimate=effective_tool_tokens,
+                memory_context=memory_context,
+                memory_injected=memory_injected,
+                messages_in=messages_in,
+            )
             return messages
 
-        # Over budget — compress with relevance awareness
-        return self._compress_with_relevance(
+        # Over budget — try tail_preserve first (relevance compression),
+        # then fall back to aggressive_truncate if result is still too large.
+        effective_strategy = strategy_name if strategy_name != "passthrough" else "tail_preserve"
+        result = self._compress_with_relevance(
             messages,
             budget=effective_budget,
             turn=turn,
@@ -192,6 +296,48 @@ class WorkingSetBuilder:
             effective_tool_tokens=effective_tool_tokens,
             memory_injected=memory_injected,
         )
+
+        # If strategy says aggressive_truncate and relevance compression is still over budget,
+        # fall back to aggressive truncation
+        if strategy_name == "aggressive_truncate":
+            result_total = sum(estimate_tokens(_content_text(m.content)) for m in result)
+            if result_total > effective_budget:
+                curated = self._aggressive_truncate(messages)
+                self.last_decision = ContextDecision(
+                    turn=turn,
+                    budget_total=budget,
+                    budget_used=sum(estimate_tokens(_content_text(m.content)) for m in curated),
+                    budget_tools=effective_tool_tokens,
+                    budget_reserve=self._budget.response_reserve,
+                    messages_in=messages_in,
+                    messages_out=len(curated),
+                    memory_injected=memory_injected,
+                    history_compressed=True,
+                    explanation=f"Aggressive truncate: kept system + last {self._strategy.aggressive_keep_turns} turns",
+                )
+                self.last_report = self._build_context_report(
+                    turn=turn,
+                    strategy_name="aggressive_truncate",
+                    curated=curated,
+                    messages=messages,
+                    tool_token_estimate=effective_tool_tokens,
+                    memory_context=memory_context,
+                    memory_injected=memory_injected,
+                    messages_in=messages_in,
+                )
+                return curated
+
+        self.last_report = self._build_context_report(
+            turn=turn,
+            strategy_name=effective_strategy,
+            curated=result,
+            messages=messages,
+            tool_token_estimate=effective_tool_tokens,
+            memory_context=memory_context,
+            memory_injected=memory_injected,
+            messages_in=messages_in,
+        )
+        return result
 
     def _compress_with_relevance(
         self,
@@ -209,7 +355,7 @@ class WorkingSetBuilder:
         we score them and give more detail to relevant ones.
         """
         keep_head = 1  # system prompt
-        keep_tail = min(len(messages) - keep_head, 6)
+        keep_tail = min(len(messages) - keep_head, self._strategy.tail_preserve_keep_recent)
 
         head = messages[:keep_head]
         tail = messages[-keep_tail:] if keep_tail > 0 else []
@@ -364,6 +510,10 @@ class WorkingSetBuilder:
             if history_tokens > self._budget.history_budget:
                 effective_budget = sys_tokens + self._budget.history_budget
 
+        # Compute utilization for strategy selection
+        utilization = total / max(self._budget.total_window, 1)
+        strategy_name = self._resolve_strategy_name(utilization)
+
         # Under budget — pass through
         if total <= effective_budget:
             self.last_decision = ContextDecision(
@@ -377,10 +527,73 @@ class WorkingSetBuilder:
                 memory_injected=memory_injected,
                 explanation=f"Under budget ({total}/{budget} tokens), all {len(messages)} messages kept",
             )
+            self.last_report = self._build_context_report(
+                turn=turn,
+                strategy_name="passthrough",
+                curated=messages,
+                messages=messages,
+                tool_token_estimate=effective_tool_tokens,
+                memory_context=memory_context,
+                memory_injected=memory_injected,
+                messages_in=messages_in,
+            )
             return messages
 
-        # Over budget — try async compression with LLM
-        return await self._acompress_with_relevance(
+        # Strategy: llm_summarize or aggressive_truncate with gateway available —
+        # try LLM compression first (gateway-assisted), fall back to aggressive truncate
+        if (strategy_name in ("llm_summarize", "aggressive_truncate")) and self._gateway is not None:
+            result = await self._acompress_with_relevance(
+                messages,
+                budget=effective_budget,
+                turn=turn,
+                messages_in=messages_in,
+                effective_tool_tokens=effective_tool_tokens,
+                memory_injected=memory_injected,
+            )
+            # If aggressive was requested and LLM compression is still over budget,
+            # fall back to aggressive truncation
+            if strategy_name == "aggressive_truncate":
+                result_total = sum(estimate_tokens(_content_text(m.content)) for m in result)
+                if result_total > effective_budget:
+                    curated = self._aggressive_truncate(messages)
+                    self.last_decision = ContextDecision(
+                        turn=turn,
+                        budget_total=budget,
+                        budget_used=sum(estimate_tokens(_content_text(m.content)) for m in curated),
+                        budget_tools=effective_tool_tokens,
+                        budget_reserve=self._budget.response_reserve,
+                        messages_in=messages_in,
+                        messages_out=len(curated),
+                        memory_injected=memory_injected,
+                        history_compressed=True,
+                        explanation=f"Aggressive truncate: kept system + last {self._strategy.aggressive_keep_turns} turns",
+                    )
+                    self.last_report = self._build_context_report(
+                        turn=turn,
+                        strategy_name="aggressive_truncate",
+                        curated=curated,
+                        messages=messages,
+                        tool_token_estimate=effective_tool_tokens,
+                        memory_context=memory_context,
+                        memory_injected=memory_injected,
+                        messages_in=messages_in,
+                    )
+                    return curated
+            self.last_report = self._build_context_report(
+                turn=turn,
+                strategy_name="llm_summarize",
+                curated=result,
+                messages=messages,
+                tool_token_estimate=effective_tool_tokens,
+                memory_context=memory_context,
+                memory_injected=memory_injected,
+                messages_in=messages_in,
+            )
+            return result
+
+        # Default: tail_preserve (or aggressive without gateway)
+        effective_strategy = strategy_name if strategy_name not in ("passthrough",) else "tail_preserve"
+        result = self._compress_with_relevance(
             messages,
             budget=effective_budget,
             turn=turn,
@@ -388,6 +601,45 @@ class WorkingSetBuilder:
             effective_tool_tokens=effective_tool_tokens,
             memory_injected=memory_injected,
         )
+        # If aggressive was requested and relevance compression is still over budget
+        if strategy_name == "aggressive_truncate":
+            result_total = sum(estimate_tokens(_content_text(m.content)) for m in result)
+            if result_total > effective_budget:
+                curated = self._aggressive_truncate(messages)
+                self.last_decision = ContextDecision(
+                    turn=turn,
+                    budget_total=budget,
+                    budget_used=sum(estimate_tokens(_content_text(m.content)) for m in curated),
+                    budget_tools=effective_tool_tokens,
+                    budget_reserve=self._budget.response_reserve,
+                    messages_in=messages_in,
+                    messages_out=len(curated),
+                    memory_injected=memory_injected,
+                    history_compressed=True,
+                    explanation=f"Aggressive truncate: kept system + last {self._strategy.aggressive_keep_turns} turns",
+                )
+                self.last_report = self._build_context_report(
+                    turn=turn,
+                    strategy_name="aggressive_truncate",
+                    curated=curated,
+                    messages=messages,
+                    tool_token_estimate=effective_tool_tokens,
+                    memory_context=memory_context,
+                    memory_injected=memory_injected,
+                    messages_in=messages_in,
+                )
+                return curated
+        self.last_report = self._build_context_report(
+            turn=turn,
+            strategy_name=effective_strategy,
+            curated=result,
+            messages=messages,
+            tool_token_estimate=effective_tool_tokens,
+            memory_context=memory_context,
+            memory_injected=memory_injected,
+            messages_in=messages_in,
+        )
+        return result
 
     async def _acompress_with_relevance(
         self,
@@ -401,7 +653,7 @@ class WorkingSetBuilder:
     ) -> list[Message]:
         """Async compression: uses LLM when available, falls back to keyword-based."""
         keep_head = 1
-        keep_tail = min(len(messages) - keep_head, 6)
+        keep_tail = min(len(messages) - keep_head, self._strategy.tail_preserve_keep_recent)
 
         head = messages[:keep_head]
         tail = messages[-keep_tail:] if keep_tail > 0 else []

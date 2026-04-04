@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from arcana.contracts.context import ContextReport
+
 
 class ExecutionStatus(str, Enum):
     """Status of agent execution."""
@@ -48,6 +50,9 @@ class AgentState(BaseModel):
     cost_usd: float = 0.0
     start_time: datetime | None = None
     elapsed_ms: int = 0
+
+    # Context report (last turn)
+    last_context_report: ContextReport | None = None
 
     # Error tracking
     last_error: str | None = None
