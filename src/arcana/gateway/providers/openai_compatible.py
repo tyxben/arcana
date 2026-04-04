@@ -38,6 +38,7 @@ try:
         APIConnectionError,
         APITimeoutError,
         AsyncOpenAI,
+        BadRequestError,
         RateLimitError,
     )
 
@@ -46,6 +47,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
     APIConnectionError = None  # type: ignore
     APITimeoutError = None  # type: ignore
+    BadRequestError = None  # type: ignore
     RateLimitError = None  # type: ignore
 
 
@@ -342,6 +344,31 @@ class OpenAICompatibleProvider(ModelGateway):
                 **params, timeout=config.timeout_ms / 1000,
             )
 
+        except BadRequestError as e:
+            # Tool-calls degradation: if the API rejects tool-related messages
+            # (e.g. SiliconFlow doesn't support tool_call/tool role), retry
+            # without tools and inject tool schemas into the system prompt.
+            error_lower = str(e).lower()
+            has_tools = bool(request.tools)
+            is_tool_error = has_tools and any(
+                phrase in error_lower
+                for phrase in ["tool", "function", "unsupported", "invalid.*role"]
+            )
+            if is_tool_error:
+                logger.warning(
+                    "Provider '%s' rejected tool_calls (400); degrading to prompt-based tools",
+                    self._provider_name,
+                )
+                response = await self._generate_with_text_tools(
+                    request, config, messages,
+                )
+            else:
+                raise ProviderError(
+                    f"Provider '{self._provider_name}' bad request: {e}",
+                    provider=self._provider_name,
+                    retryable=False,
+                    status_code=400,
+                ) from e
         except RateLimitError as e:
             raise ProviderError(
                 f"Rate limit hit on provider '{self._provider_name}': {e}. "
@@ -456,6 +483,80 @@ class OpenAICompatibleProvider(ModelGateway):
             self.trace_writer.write(event)
 
         return llm_response
+
+    async def _generate_with_text_tools(
+        self,
+        request: LLMRequest,
+        config: ModelConfig,
+        messages: list[dict[str, Any]],
+    ) -> Any:
+        """Fallback: inject tool schemas into system prompt as text.
+
+        Used when the provider doesn't support native tool_calls.
+        The LLM is asked to output JSON tool calls in the response text,
+        which the conversation agent can parse.
+        """
+        import json as _json
+
+        # Build tool descriptions for the system prompt
+        tool_lines: list[str] = []
+        for tool in request.tools or []:
+            name = tool.get("function", {}).get("name", "unknown")
+            desc = tool.get("function", {}).get("description", "")
+            params = tool.get("function", {}).get("parameters", {})
+            tool_lines.append(
+                f"- {name}: {desc}\n  Parameters: {_json.dumps(params, ensure_ascii=False)}"
+            )
+
+        tool_instruction = (
+            "\n\nYou have access to the following tools. To call a tool, "
+            "output a JSON block in this exact format:\n"
+            '```json\n{"tool_call": {"name": "<tool_name>", "arguments": {<args>}}}\n```\n\n'
+            "Available tools:\n" + "\n".join(tool_lines)
+        )
+
+        # Strip tool-role messages (provider doesn't understand them) and
+        # inject tool instruction into system prompt
+        clean_messages: list[dict[str, Any]] = []
+        for msg in messages:
+            role = msg.get("role", "")
+            if role == "tool":
+                # Convert tool result to user message
+                tool_content = msg.get("content", "")
+                clean_messages.append({
+                    "role": "user",
+                    "content": f"[Tool result]: {tool_content}",
+                })
+            elif role == "assistant" and msg.get("tool_calls"):
+                # Convert assistant tool_call to plain text
+                calls = msg["tool_calls"]
+                call_text = ", ".join(
+                    f"{c.get('function', {}).get('name', '?')}(...)" for c in calls
+                )
+                clean_messages.append({
+                    "role": "assistant",
+                    "content": msg.get("content") or f"[Called tools: {call_text}]",
+                })
+            elif role == "system":
+                clean_messages.append({
+                    "role": "system",
+                    "content": (msg.get("content") or "") + tool_instruction,
+                })
+            else:
+                clean_messages.append(msg)
+
+        params: dict[str, Any] = {
+            "model": config.model_id,
+            "messages": clean_messages,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+        }
+        if config.extra_params:
+            params.update(config.extra_params)
+
+        return await self.client.chat.completions.create(
+            **params, timeout=config.timeout_ms / 1000,
+        )
 
     async def batch_generate(
         self,

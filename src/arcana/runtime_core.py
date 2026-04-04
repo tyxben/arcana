@@ -1302,10 +1302,22 @@ class Runtime:
                 if model_override and hasattr(provider_instance, "_default_model"):
                     provider_instance._default_model = model_override
                 gateway.register(name, provider_instance)
+            elif isinstance(config_value, dict) and config_value.get("base_url"):
+                # Custom OpenAI-compatible provider with explicit base_url
+                provider_instance = OpenAICompatibleProvider(
+                    provider_name=name,
+                    api_key=api_key,
+                    base_url=config_value["base_url"],
+                    default_model=config_value.get("model"),
+                    supports_json_schema=config_value.get("supports_json_schema", False),
+                )
+                gateway.register(name, provider_instance)
             else:
                 raise ValueError(
                     f"Unknown provider '{name}'. "
-                    f"Supported: {list(factory_map.keys())}"
+                    f"Supported: {list(factory_map.keys())}. "
+                    f"For custom providers, pass a dict with 'base_url': "
+                    f"providers={{'{name}': {{'api_key': '...', 'base_url': '...', 'model': '...'}}}}"
                 )
 
         if providers:
