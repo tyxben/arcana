@@ -10,7 +10,7 @@ import pytest
 
 from arcana.contracts.runtime import RuntimeConfig, StepResult, StepType
 from arcana.contracts.state import AgentState, ExecutionStatus, StateSnapshot
-from arcana.contracts.trace import AgentRole, EventType, TraceContext, TraceEvent
+from arcana.contracts.trace import TraceContext
 from arcana.runtime.exceptions import HashVerificationError
 from arcana.runtime.state_manager import StateManager
 from arcana.trace.reader import TraceReader

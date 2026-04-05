@@ -20,7 +20,6 @@ from arcana.contracts.diagnosis import (
 from arcana.contracts.intent import IntentClassification, IntentType
 from arcana.contracts.llm import (
     LLMResponse,
-    ModelConfig,
     TokenUsage,
 )
 from arcana.contracts.runtime import RuntimeConfig

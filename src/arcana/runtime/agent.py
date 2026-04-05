@@ -15,8 +15,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-logger = logging.getLogger(__name__)
-
 from arcana.contracts.intent import IntentType
 from arcana.contracts.runtime import RuntimeConfig, StepResult, StepType
 from arcana.contracts.state import AgentState, ExecutionStatus
@@ -47,6 +45,8 @@ if TYPE_CHECKING:
     from arcana.tool_gateway.gateway import ToolGateway
     from arcana.tool_gateway.lazy_registry import LazyToolRegistry
     from arcana.trace.writer import TraceWriter
+
+logger = logging.getLogger(__name__)
 
 
 class Agent:

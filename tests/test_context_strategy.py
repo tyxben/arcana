@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from arcana.context.builder import WorkingSetBuilder, estimate_tokens
+from arcana.context.builder import WorkingSetBuilder
 from arcana.contracts.context import (
     ContextReport,
     ContextStrategy,
     TokenBudget,
 )
 from arcana.contracts.llm import Message, MessageRole
-
 
 # ---------------------------------------------------------------------------
 # Model defaults

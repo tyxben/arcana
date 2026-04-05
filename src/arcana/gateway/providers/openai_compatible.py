@@ -22,8 +22,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from arcana.contracts.llm import (
     LLMRequest,
     LLMResponse,
@@ -54,6 +52,7 @@ except ImportError:
     BadRequestError = None  # type: ignore
     RateLimitError = None  # type: ignore
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Content block conversion helpers
