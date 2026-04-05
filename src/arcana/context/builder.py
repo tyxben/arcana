@@ -391,6 +391,12 @@ class WorkingSetBuilder:
             trunc = content[:80] + "..." if len(content) > 80 else content
             compressed_descs.append(f"{role}:{trunc}")
 
+        # Evict middle messages to page table even when no budget for summary,
+        # so the LLM can recall them later via the recall tool.
+        if self._page_table is not None and middle and summary_budget <= 0:
+            roles = [m.role.value if hasattr(m.role, "value") else str(m.role) for m in middle]
+            self._page_table.evict(middle, f"{len(middle)} messages ({', '.join(set(roles))} roles), dropped due to budget")
+
         if summary_budget <= 0 or not middle:
             self.last_decision = ContextDecision(
                 turn=turn,

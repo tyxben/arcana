@@ -248,6 +248,14 @@ class ConversationAgent:
             if self.budget_tracker:
                 self.budget_tracker.check_budget()
 
+            # 1b. Inject recall tool if page table has evicted pages
+            #     Must happen BEFORE context rebuild so tool_token_cost is accurate.
+            if self._page_table.has_pages and active_tools is not None:
+                if not any(t.get("function", {}).get("name") == RECALL_TOOL_NAME for t in active_tools):
+                    active_tools.append(self._recall_tool_schema())
+                    # Recompute tool token cost to include the newly added recall schema
+                    tool_token_cost = self._estimate_tool_tokens(active_tools)
+
             # 2. Context rebuild — delegate to WorkingSetBuilder
             #    Always include tools. Token optimization for tools belongs in
             #    LazyToolRegistry (dynamic tool selection), not here.
@@ -308,14 +316,6 @@ class ConversationAgent:
                         "explanation": decision.explanation,
                     },
                 ))
-
-            # Inject recall tool if page table has evicted pages
-            if self._page_table.has_pages:
-                recall_schema = self._recall_tool_schema()
-                if active_tools is not None and not any(
-                    t.get("function", {}).get("name") == "recall" for t in active_tools
-                ):
-                    active_tools.append(recall_schema)
 
             # 3. LLM call
             request = LLMRequest(
@@ -1125,6 +1125,11 @@ class ConversationAgent:
             if self.budget_tracker:
                 self.budget_tracker.check_budget()
 
+            # Inject recall tool if page table has evicted pages (before budgeting)
+            if self._page_table.has_pages and active_tools is not None:
+                if not any(t.get("function", {}).get("name") == RECALL_TOOL_NAME for t in active_tools):
+                    active_tools.append(self._recall_tool_schema())
+
             if self._lazy_registry:
                 tool_token_cost = self._lazy_registry.tool_token_estimate + self._ask_user_token_cost
             else:
@@ -1134,11 +1139,6 @@ class ConversationAgent:
                 tool_token_estimate=tool_token_cost,
                 turn=saved_state.current_step + _turn,
             )
-
-            # Inject recall tool if page table has evicted pages
-            if self._page_table.has_pages and active_tools is not None:
-                if not any(t.get("function", {}).get("name") == RECALL_TOOL_NAME for t in active_tools):
-                    active_tools.append(self._recall_tool_schema())
 
             request = LLMRequest(
                 messages=curated,
