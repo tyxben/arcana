@@ -1304,12 +1304,20 @@ class Runtime:
                 gateway.register(name, provider_instance)
             elif isinstance(config_value, dict) and config_value.get("base_url"):
                 # Custom OpenAI-compatible provider with explicit base_url
+                from arcana.gateway.providers.openai_compatible import ProviderProfile
+
+                custom_profile = ProviderProfile(
+                    tool_calls=config_value.get("tool_calls", True),
+                    json_schema=config_value.get("json_schema", False),
+                    json_mode=config_value.get("json_mode", True),
+                    stream_options=config_value.get("stream_options", False),
+                )
                 provider_instance = OpenAICompatibleProvider(
                     provider_name=name,
                     api_key=api_key,
                     base_url=config_value["base_url"],
                     default_model=config_value.get("model"),
-                    supports_json_schema=config_value.get("supports_json_schema", False),
+                    profile=custom_profile,
                 )
                 gateway.register(name, provider_instance)
             else:

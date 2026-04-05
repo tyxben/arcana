@@ -16,9 +16,13 @@ the OpenAI chat completions format. Most modern LLM providers support this:
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from arcana.contracts.llm import (
     LLMRequest,
@@ -111,6 +115,51 @@ def _convert_content_blocks_openai(blocks: list[Any]) -> list[dict[str, Any]]:
     return result
 
 
+@dataclass
+class ProviderProfile:
+    """Capability profile for an OpenAI-compatible provider.
+
+    Tracks what API features the provider actually supports.
+    Capabilities auto-degrade on 400 errors and the result is cached
+    for subsequent calls — the provider only fails once per capability.
+
+    Users can also set capabilities explicitly at registration time::
+
+        Runtime(providers={"siliconflow": {
+            "api_key": "...", "base_url": "...",
+            "tool_calls": False,   # skip native tool calling
+        }})
+    """
+
+    tool_calls: bool = True        # native function/tool calling
+    json_schema: bool = True       # response_format: json_schema
+    json_mode: bool = True         # response_format: json_object
+    streaming: bool = True         # SSE streaming
+    stream_options: bool = True    # stream_options: {include_usage: true}
+
+    # Track which capabilities were auto-degraded (for logging)
+    _degraded: set[str] = field(default_factory=set, repr=False)
+
+    def degrade(self, capability: str) -> None:
+        """Mark a capability as unsupported after a runtime failure."""
+        if hasattr(self, capability) and getattr(self, capability):
+            setattr(self, capability, False)
+            self._degraded.add(capability)
+            logger.info("Provider capability '%s' auto-degraded", capability)
+
+
+# Pre-built profiles for known providers
+PROFILES: dict[str, ProviderProfile] = {
+    "openai": ProviderProfile(),
+    "gemini": ProviderProfile(),
+    "deepseek": ProviderProfile(json_schema=False),
+    "ollama": ProviderProfile(json_schema=False, stream_options=False),
+    "kimi": ProviderProfile(json_schema=False),
+    "glm": ProviderProfile(json_schema=False),
+    "minimax": ProviderProfile(json_schema=False),
+}
+
+
 class OpenAICompatibleProvider(ModelGateway):
     """
     Universal provider for OpenAI-compatible APIs.
@@ -154,7 +203,8 @@ class OpenAICompatibleProvider(ModelGateway):
         supported_models: list[str] | None = None,
         trace_writer: TraceWriter | None = None,
         extra_headers: dict[str, str] | None = None,
-        supports_json_schema: bool = True,
+        supports_json_schema: bool | None = None,
+        profile: ProviderProfile | None = None,
     ):
         """
         Initialize the OpenAI-compatible provider.
@@ -167,9 +217,9 @@ class OpenAICompatibleProvider(ModelGateway):
             supported_models: List of supported model IDs (for documentation)
             trace_writer: Optional trace writer for logging
             extra_headers: Optional extra headers to include in requests
-            supports_json_schema: Whether the provider supports json_schema
-                response format. When False, falls back to json_object mode
-                with schema instructions injected into the system prompt.
+            supports_json_schema: Deprecated — use profile instead.
+            profile: Capability profile. If None, uses known profile for
+                provider_name or a conservative default for custom providers.
         """
         if not OPENAI_AVAILABLE:
             raise ImportError(
@@ -180,8 +230,23 @@ class OpenAICompatibleProvider(ModelGateway):
         self._provider_name = provider_name
         self._default_model = default_model
         self._supported_models = supported_models or []
-        self._supports_json_schema = supports_json_schema
         self.trace_writer = trace_writer
+
+        # Resolve capability profile
+        if profile is not None:
+            self.profile = profile
+        elif provider_name in PROFILES:
+            self.profile = ProviderProfile(**PROFILES[provider_name].__dict__)
+        else:
+            # Conservative default for unknown providers
+            self.profile = ProviderProfile(json_schema=False, stream_options=False)
+
+        # Legacy compat: supports_json_schema overrides profile
+        if supports_json_schema is not None:
+            self.profile.json_schema = supports_json_schema
+
+        # Backward compat property
+        self._supports_json_schema = self.profile.json_schema
 
         # Create AsyncOpenAI client
         self.client = AsyncOpenAI(
@@ -275,7 +340,7 @@ class OpenAICompatibleProvider(ModelGateway):
         expected shape.
         """
         if request.response_format:
-            if self._supports_json_schema:
+            if self.profile.json_schema:
                 params["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {
@@ -331,32 +396,42 @@ class OpenAICompatibleProvider(ModelGateway):
             # Add response format if schema specified
             self._apply_response_format(params, request)
 
-            # Add tools if specified
+            # Add tools if supported; otherwise use text-based fallback
+            use_text_tools = False
             if request.tools:
-                params["tools"] = request.tools
+                if self.profile.tool_calls:
+                    params["tools"] = request.tools
+                else:
+                    use_text_tools = True
 
             # Add any extra params from config
             if config.extra_params:
                 params.update(config.extra_params)
 
-            # Make API call with per-request timeout (seconds)
-            response = await self.client.chat.completions.create(
-                **params, timeout=config.timeout_ms / 1000,
-            )
+            if use_text_tools:
+                # Profile says no native tools — go straight to text fallback
+                response = await self._generate_with_text_tools(
+                    request, config, messages,
+                )
+            else:
+                # Make API call with per-request timeout (seconds)
+                response = await self.client.chat.completions.create(
+                    **params, timeout=config.timeout_ms / 1000,
+                )
 
         except BadRequestError as e:
-            # Tool-calls degradation: if the API rejects tool-related messages
-            # (e.g. SiliconFlow doesn't support tool_call/tool role), retry
-            # without tools and inject tool schemas into the system prompt.
+            # Auto-degrade: if the API rejects tool-related messages,
+            # mark tool_calls as unsupported and retry via text fallback.
             error_lower = str(e).lower()
-            has_tools = bool(request.tools)
+            has_tools = bool(request.tools) and self.profile.tool_calls
             is_tool_error = has_tools and any(
                 phrase in error_lower
-                for phrase in ["tool", "function", "unsupported", "invalid.*role"]
+                for phrase in ["tool", "function", "unsupported", "invalid"]
             )
             if is_tool_error:
+                self.profile.degrade("tool_calls")
                 logger.warning(
-                    "Provider '%s' rejected tool_calls (400); degrading to prompt-based tools",
+                    "Provider '%s' rejected tool_calls (400); degraded to prompt-based tools",
                     self._provider_name,
                 )
                 response = await self._generate_with_text_tools(
@@ -620,13 +695,16 @@ class OpenAICompatibleProvider(ModelGateway):
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
             "stream": True,
-            "stream_options": {"include_usage": True},
         }
+
+        # Only add stream_options if the provider supports it
+        if self.profile.stream_options:
+            params["stream_options"] = {"include_usage": True}
 
         if config.seed is not None:
             params["seed"] = config.seed
         self._apply_response_format(params, request)
-        if request.tools:
+        if request.tools and self.profile.tool_calls:
             params["tools"] = request.tools
         if config.extra_params:
             params.update(config.extra_params)
@@ -728,7 +806,7 @@ def create_deepseek_provider(
         default_model="deepseek-chat",
         supported_models=["deepseek-chat", "deepseek-coder", "deepseek-reasoner"],
         trace_writer=trace_writer,
-        supports_json_schema=False,
+        profile=ProviderProfile(**PROFILES["deepseek"].__dict__),
     )
 
 
@@ -765,7 +843,7 @@ def create_ollama_provider(
         base_url=base_url,
         default_model=default_model,
         trace_writer=trace_writer,
-        supports_json_schema=False,
+        profile=ProviderProfile(**PROFILES["ollama"].__dict__),
     )
 
 
@@ -786,7 +864,7 @@ def create_kimi_provider(
         default_model="moonshot-v1-8k",
         supported_models=["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
         trace_writer=trace_writer,
-        supports_json_schema=False,
+        profile=ProviderProfile(**PROFILES["kimi"].__dict__),
     )
 
 
@@ -802,7 +880,7 @@ def create_glm_provider(
         default_model="glm-4-flash",
         supported_models=["glm-4", "glm-4-flash", "glm-4v", "glm-4-long"],
         trace_writer=trace_writer,
-        supports_json_schema=False,
+        profile=ProviderProfile(**PROFILES["glm"].__dict__),
     )
 
 
@@ -818,5 +896,5 @@ def create_minimax_provider(
         default_model="abab6.5s-chat",
         supported_models=["abab6.5s-chat", "abab6.5-chat", "abab5.5-chat"],
         trace_writer=trace_writer,
-        supports_json_schema=False,
+        profile=ProviderProfile(**PROFILES["minimax"].__dict__),
     )

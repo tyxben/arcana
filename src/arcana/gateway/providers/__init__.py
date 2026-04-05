@@ -31,6 +31,7 @@ from arcana.gateway.providers.deepseek import DeepSeekProvider, create_deepseek_
 from arcana.gateway.providers.gemini import GeminiProvider, create_gemini_provider
 from arcana.gateway.providers.openai_compatible import (
     OpenAICompatibleProvider,
+    ProviderProfile,
     create_glm_provider,
     create_kimi_provider,
     create_minimax_provider,
@@ -40,6 +41,7 @@ from arcana.gateway.providers.openai_compatible import (
 __all__ = [
     # Base class
     "OpenAICompatibleProvider",
+    "ProviderProfile",
     # Specific providers
     "GeminiProvider",
     "DeepSeekProvider",
