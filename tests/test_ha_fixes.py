@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -204,6 +204,7 @@ class TestChatSessionMaxHistory:
         rt._gateway.generate = AsyncMock(
             return_value=_make_text_response("Reply")
         )
+        rt._gateway.stream = MagicMock(side_effect=NotImplementedError)
 
         session = ChatSession(runtime=rt, max_history=4)
 

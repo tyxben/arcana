@@ -1800,9 +1800,10 @@ class ChatSession:
     ) -> ChatResponse:
         """Send a message and get the agent's response.
 
-        The agent may use tools before responding. Each ``send()`` allows
-        up to ``max_turns_per_message`` agent turns (tool calls count as
-        turns).
+        Delegates to ``ConversationAgent`` for the full turn loop, gaining
+        all V2 features: ask_user, lazy tools, diagnostics, fidelity
+        compression, thinking assessment, and rich
+        streaming events.
 
         Args:
             message: The user's message text.
@@ -1812,16 +1813,10 @@ class ChatSession:
         Returns:
             ChatResponse with the agent's reply and usage metrics.
         """
-        import json
+        from arcana.contracts.llm import Message, MessageRole
+        from arcana.contracts.streaming import StreamEventType
 
-        from arcana.contracts.llm import (
-            LLMRequest,
-            Message,
-            MessageRole,
-        )
-        from arcana.contracts.tool import ToolCall
-
-        # 1. Append user message to history (with optional images)
+        # 1. Append user message to persistent history
         if images:
             from arcana.sdk import build_content_blocks
 
@@ -1831,372 +1826,153 @@ class ChatSession:
             self._messages.append(Message(role=MessageRole.USER, content=message))
         self._turn_count += 1
 
-        model_config = self._runtime._resolve_model_config()
+        # 2. Build ConversationAgent for this send()
+        agent = self._build_agent(message)
 
-        # Resolve tools
-        tool_defs: list[dict[str, object]] | None = None
-        if self._runtime._tool_gateway:
-            tool_defs = self._runtime._tool_gateway.registry.to_openai_tools() or None
-
-        # Context management
-        from arcana.context.builder import WorkingSetBuilder
-        from arcana.contracts.context import ContextStrategy, TokenBudget
-
-        context_builder = WorkingSetBuilder(
-            identity=self._system_prompt,
-            token_budget=TokenBudget(total_window=128_000),
-            goal=message,
-            gateway=self._runtime._gateway,
-            strategy=getattr(self._runtime, "_context_strategy", None) or ContextStrategy(),
-        )
-
-        turn_tokens = 0
-        turn_cost = 0.0
+        # 3. Run agent (consume all stream events)
         tool_calls_made = 0
-        assistant_text = ""
+        async for event in agent.astream(message):
+            if event.event_type == StreamEventType.TOOL_END:
+                tool_calls_made += 1
 
-        # 2. Agent conversation loop (tool calls may require multiple turns)
-        for _turn in range(self._max_turns):
-            # Budget check
-            self._budget_tracker.check_budget()
+        # 4. Extract results from agent state
+        state = agent._state
+        turn_tokens = state.tokens_used if state else 0
+        turn_cost = state.cost_usd if state else 0.0
+        answer = state.working_memory.get("answer", "") if state else ""
 
-            # Context compression
-            from arcana.context.builder import estimate_tokens
+        # 5. Update persistent state from agent's final messages
+        self._messages = agent.final_messages
 
-            tool_token_cost = 0
-            if tool_defs:
-                tool_token_cost = sum(
-                    estimate_tokens(json.dumps(t)) for t in tool_defs
-                )
+        # ConversationAgent does not append the final answer to messages
+        # when the turn is assessed as "completed" (it stores it in
+        # working_memory instead). For multi-turn chat we need the
+        # assistant reply in the history so the next send() sees it.
+        if answer:
+            from arcana.contracts.llm import Message, MessageRole
 
-            curated = await context_builder.abuild_conversation_context(
-                self._messages,
-                tool_token_estimate=tool_token_cost,
-                turn=_turn,
+            last_is_assistant = (
+                self._messages
+                and self._messages[-1].role == MessageRole.ASSISTANT
             )
-
-            # LLM call
-            request = LLMRequest(
-                messages=curated,
-                tools=tool_defs,
-            )
-
-            # Use generate() for send() — reliable usage tracking.
-            # stream() method handles streaming separately.
-            response = await self._runtime._gateway.generate(
-                request=request, config=model_config,
-            )
-
-            # Track usage
-            if response.usage:
-                turn_tokens += response.usage.total_tokens
-                turn_cost += response.usage.cost_estimate
-                self._budget_tracker.add_usage(response.usage)
-
-            # Trace
-            if self._runtime._trace_writer:
-                from arcana.contracts.trace import EventType, TraceEvent
-
-                self._runtime._trace_writer.write(TraceEvent(
-                    run_id=self._session_id,
-                    event_type=EventType.TURN,
-                    metadata={
-                        "chat_turn": self._turn_count,
-                        "agent_turn": _turn,
-                        "content_length": len(response.content or ""),
-                        "tool_calls": len(response.tool_calls or []),
-                        "tokens": response.usage.total_tokens if response.usage else 0,
-                    },
-                ))
-
-            # Handle tool calls
-            if response.tool_calls:
-                tool_calls_made += len(response.tool_calls)
-
-                # Append assistant message with tool_calls to history
+            if not last_is_assistant:
                 self._messages.append(
-                    Message(
-                        role=MessageRole.ASSISTANT,
-                        content=response.content,
-                        tool_calls=response.tool_calls,
-                    )
+                    Message(role=MessageRole.ASSISTANT, content=answer)
                 )
 
-                # Execute tools
-                if self._runtime._tool_gateway:
-                    gateway_calls: list[ToolCall] = []
-                    for tc in response.tool_calls:
-                        try:
-                            args = json.loads(tc.arguments) if tc.arguments else {}
-                        except json.JSONDecodeError:
-                            args = {"_raw": tc.arguments}
-                        gateway_calls.append(
-                            ToolCall(id=tc.id, name=tc.name, arguments=args)
-                        )
-                    results = await self._runtime._tool_gateway.call_many_concurrent(
-                        gateway_calls
-                    )
-
-                    # Append tool result messages
-                    for result in results:
-                        self._messages.append(
-                            Message(
-                                role=MessageRole.TOOL,
-                                content=result.output_str,
-                                tool_call_id=result.tool_call_id,
-                            )
-                        )
-                else:
-                    # No tool gateway -- return synthetic error results
-                    for tc in response.tool_calls:
-                        self._messages.append(
-                            Message(
-                                role=MessageRole.TOOL,
-                                content=f"Tool '{tc.name}' cannot be executed: no tools registered.",
-                                tool_call_id=tc.id,
-                            )
-                        )
-
-                # Continue the loop to let the LLM process tool results
-                continue
-
-            # No tool calls -- the LLM produced a text response
-            assistant_text = (response.content or "").strip()
-            self._messages.append(
-                Message(role=MessageRole.ASSISTANT, content=assistant_text)
-            )
-            break
-
-        # Update cumulative totals
         self._total_tokens += turn_tokens
         self._total_cost_usd += turn_cost
 
-        # Trim history to stay within max_history limit
+        # 6. Trim history
         self._trim_history()
 
+        # 7. Build response
+        context_report = state.last_context_report if state else None
+
         return ChatResponse(
-            content=assistant_text,
+            content=answer,
             tool_calls_made=tool_calls_made,
             tokens_used=turn_tokens,
             cost_usd=turn_cost,
-            context_report=context_builder.last_report,
+            context_report=context_report,
         )
 
     async def stream(self, message: str) -> AsyncGenerator[StreamEvent, None]:
         """Stream version of send(). Yields events including the response.
 
-        Yields ``StreamEvent`` objects for LLM chunks, tool results, and
-        the final response. After this generator is exhausted the message
-        history is updated just like ``send()``.
+        Delegates to ``ConversationAgent`` for the full turn loop, gaining
+        all V2 features. Yields ``StreamEvent`` objects for LLM chunks,
+        tool results, and the final response. After this generator is
+        exhausted the message history is updated just like ``send()``.
         """
-        import json
+        from arcana.contracts.llm import Message, MessageRole
 
-        from arcana.contracts.llm import (
-            LLMRequest,
-            LLMResponse,
-            Message,
-            MessageRole,
-            ToolCallRequest,
-        )
-        from arcana.contracts.streaming import StreamEventType
-        from arcana.contracts.tool import ToolCall
-
+        # 1. Append user message to persistent history
         self._messages.append(Message(role=MessageRole.USER, content=message))
         self._turn_count += 1
 
-        model_config = self._runtime._resolve_model_config()
+        # 2. Build ConversationAgent for this send
+        agent = self._build_agent(message)
 
-        tool_defs: list[dict[str, object]] | None = None
-        if self._runtime._tool_gateway:
-            tool_defs = self._runtime._tool_gateway.registry.to_openai_tools() or None
+        # 3. Stream events from agent
+        async for event in agent.astream(message):
+            yield event
 
-        from arcana.context.builder import WorkingSetBuilder, estimate_tokens
-        from arcana.contracts.context import ContextStrategy, TokenBudget
+        # 4. Update persistent state
+        state = agent._state
+        turn_tokens = state.tokens_used if state else 0
+        turn_cost = state.cost_usd if state else 0.0
 
-        context_builder = WorkingSetBuilder(
-            identity=self._system_prompt,
-            token_budget=TokenBudget(total_window=128_000),
-            goal=message,
-            gateway=self._runtime._gateway,
-            strategy=getattr(self._runtime, "_context_strategy", None) or ContextStrategy(),
-        )
+        self._messages = agent.final_messages
 
-        turn_tokens = 0
-        turn_cost = 0.0
-        tool_calls_made = 0
-        assistant_text = ""
+        # Ensure final assistant answer is in message history (see send())
+        answer = state.working_memory.get("answer", "") if state else ""
+        if answer:
+            from arcana.contracts.llm import Message, MessageRole
 
-        yield StreamEvent(
-            event_type=StreamEventType.RUN_START,
-            run_id=self._session_id,
-            content=message,
-        )
-
-        for _turn in range(self._max_turns):
-            self._budget_tracker.check_budget()
-
-            tool_token_cost = 0
-            if tool_defs:
-                tool_token_cost = sum(
-                    estimate_tokens(json.dumps(t)) for t in tool_defs
-                )
-
-            curated = await context_builder.abuild_conversation_context(
-                self._messages,
-                tool_token_estimate=tool_token_cost,
-                turn=_turn,
+            last_is_assistant = (
+                self._messages
+                and self._messages[-1].role == MessageRole.ASSISTANT
             )
-
-            request = LLMRequest(messages=curated, tools=tool_defs)
-
-            response: LLMResponse
-            try:
-                from arcana.contracts.llm import TokenUsage
-
-                text_parts: list[str] = []
-                tc_names: dict[str, str] = {}
-                tc_args: dict[str, list[str]] = {}
-                stream_usage: TokenUsage | None = None
-                stream_finish = "stop"
-                stream_model = model_config.model_id
-
-                async for chunk in self._runtime._gateway.stream(
-                    request=request, config=model_config,
-                ):
-                    if chunk.type == "text_delta" and chunk.text:
-                        text_parts.append(chunk.text)
-                        yield StreamEvent(
-                            event_type=StreamEventType.LLM_CHUNK,
-                            run_id=self._session_id,
-                            content=chunk.text,
-                        )
-                    elif chunk.type == "tool_call_delta" and chunk.tool_call_id:
-                        if chunk.tool_call_id not in tc_names:
-                            tc_names[chunk.tool_call_id] = chunk.tool_name or ""
-                        if chunk.tool_name:
-                            tc_names[chunk.tool_call_id] = chunk.tool_name
-                        if chunk.arguments_delta:
-                            tc_args.setdefault(
-                                chunk.tool_call_id, [],
-                            ).append(chunk.arguments_delta)
-                    elif chunk.type == "usage" and chunk.usage:
-                        stream_usage = chunk.usage
-                    elif chunk.type == "done":
-                        if chunk.metadata:
-                            stream_finish = chunk.metadata.get(
-                                "finish_reason", stream_finish,
-                            )
-                            stream_model = chunk.metadata.get(
-                                "model", stream_model,
-                            )
-                        if chunk.usage:
-                            stream_usage = chunk.usage
-
-                full_text = "".join(text_parts) if text_parts else None
-                tool_calls_list = [
-                    ToolCallRequest(
-                        id=tc_id,
-                        name=tc_names.get(tc_id, ""),
-                        arguments="".join(tc_args.get(tc_id, [])),
-                    )
-                    for tc_id in tc_names
-                ] or None
-                response = LLMResponse(
-                    content=full_text,
-                    tool_calls=tool_calls_list,
-                    usage=stream_usage or TokenUsage(
-                        prompt_tokens=0,
-                        completion_tokens=0,
-                        total_tokens=0,
-                    ),
-                    model=stream_model,
-                    finish_reason=stream_finish,
-                )
-            except (AttributeError, TypeError, NotImplementedError):
-                response = await self._runtime._gateway.generate(
-                    request=request, config=model_config,
-                )
-
-            if response.usage:
-                turn_tokens += response.usage.total_tokens
-                turn_cost += response.usage.cost_estimate
-                self._budget_tracker.add_usage(response.usage)
-
-            if response.tool_calls:
-                tool_calls_made += len(response.tool_calls)
-
+            if not last_is_assistant:
                 self._messages.append(
-                    Message(
-                        role=MessageRole.ASSISTANT,
-                        content=response.content,
-                        tool_calls=response.tool_calls,
-                    )
+                    Message(role=MessageRole.ASSISTANT, content=answer)
                 )
-
-                if self._runtime._tool_gateway:
-                    gateway_calls: list[ToolCall] = []
-                    for tc in response.tool_calls:
-                        try:
-                            args = json.loads(tc.arguments) if tc.arguments else {}
-                        except json.JSONDecodeError:
-                            args = {"_raw": tc.arguments}
-                        gateway_calls.append(
-                            ToolCall(id=tc.id, name=tc.name, arguments=args)
-                        )
-                    results = await self._runtime._tool_gateway.call_many_concurrent(
-                        gateway_calls
-                    )
-
-                    for result in results:
-                        self._messages.append(
-                            Message(
-                                role=MessageRole.TOOL,
-                                content=result.output_str,
-                                tool_call_id=result.tool_call_id,
-                            )
-                        )
-                        yield StreamEvent(
-                            event_type=StreamEventType.TOOL_RESULT,
-                            run_id=self._session_id,
-                            content=result.output_str,
-                            tool_result_data=result.model_dump(),
-                        )
-                else:
-                    for tc in response.tool_calls:
-                        err = f"Tool '{tc.name}' cannot be executed: no tools registered."
-                        self._messages.append(
-                            Message(
-                                role=MessageRole.TOOL,
-                                content=err,
-                                tool_call_id=tc.id,
-                            )
-                        )
-                        yield StreamEvent(
-                            event_type=StreamEventType.TOOL_RESULT,
-                            run_id=self._session_id,
-                            content=err,
-                        )
-                continue
-
-            assistant_text = (response.content or "").strip()
-            self._messages.append(
-                Message(role=MessageRole.ASSISTANT, content=assistant_text)
-            )
-            break
 
         self._total_tokens += turn_tokens
         self._total_cost_usd += turn_cost
 
-        # Trim history to stay within max_history limit
+        # 5. Trim history
         self._trim_history()
 
-        yield StreamEvent(
-            event_type=StreamEventType.RUN_COMPLETE,
-            run_id=self._session_id,
-            content=assistant_text,
-            tokens_used=turn_tokens,
-            cost_usd=turn_cost,
+    # ------------------------------------------------------------------
+    # Agent builder
+    # ------------------------------------------------------------------
+
+    def _build_agent(self, goal: str) -> Any:
+        """Build a ConversationAgent for a single send/stream call."""
+        from arcana.context.builder import WorkingSetBuilder
+        from arcana.contracts.context import ContextStrategy, TokenBudget
+        from arcana.runtime.conversation import ConversationAgent
+
+        model_config = self._runtime._resolve_model_config()
+
+        # Resolve context window from provider
+        context_window = 128_000
+        provider = self._runtime._gateway.get(model_config.provider)
+        if provider and hasattr(provider, "profile") and provider.profile:
+            context_window = getattr(
+                provider.profile, "context_window", context_window,
+            )
+
+        context_builder = WorkingSetBuilder(
+            identity=self._system_prompt,
+            token_budget=TokenBudget(total_window=context_window),
+            goal=goal,
+            gateway=self._runtime._gateway,
+            strategy=(
+                getattr(self._runtime, "_context_strategy", None)
+                or ContextStrategy()
+            ),
         )
+
+        agent_kwargs: dict[str, Any] = {
+            "gateway": self._runtime._gateway,
+            "model_config": model_config,
+            "budget_tracker": self._budget_tracker,
+            "trace_writer": self._runtime._trace_writer,
+            "max_turns": self._max_turns,
+            "system_prompt": self._system_prompt,
+            "context_builder": context_builder,
+            "initial_messages": list(self._messages),  # Copy
+            "input_handler": self._input_handler,
+        }
+
+        # Tool gateway
+        if self._runtime._tool_gateway:
+            agent_kwargs["tool_gateway"] = self._runtime._tool_gateway
+
+        return ConversationAgent(**agent_kwargs)
 
     # ------------------------------------------------------------------
     # Properties

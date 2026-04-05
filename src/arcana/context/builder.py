@@ -80,7 +80,6 @@ class WorkingSetBuilder:
         gateway: ModelGatewayRegistry | None = None,
         compression_model: ModelConfig | None = None,
         strategy: ContextStrategy | None = None,
-        page_table: Any | None = None,  # ContextPageTable | None
     ) -> None:
         self._identity = identity
         self._budget = token_budget or TokenBudget()
@@ -89,7 +88,6 @@ class WorkingSetBuilder:
         self._gateway = gateway
         self._compression_model = compression_model
         self._strategy = strategy or ContextStrategy()
-        self._page_table = page_table
 
         # Track whether memory has been injected into system prompt
         self._memory_injected: bool = False
@@ -391,12 +389,6 @@ class WorkingSetBuilder:
             trunc = content[:80] + "..." if len(content) > 80 else content
             compressed_descs.append(f"{role}:{trunc}")
 
-        # Evict middle messages to page table even when no budget for summary,
-        # so the LLM can recall them later via the recall tool.
-        if self._page_table is not None and middle and summary_budget <= 0:
-            roles = [m.role.value if hasattr(m.role, "value") else str(m.role) for m in middle]
-            self._page_table.evict(middle, f"{len(middle)} messages ({', '.join(set(roles))} roles), dropped due to budget")
-
         if summary_budget <= 0 or not middle:
             self.last_decision = ContextDecision(
                 turn=turn,
@@ -416,14 +408,6 @@ class WorkingSetBuilder:
 
         # Score middle messages for relevance
         scored = [(msg, self._relevance_score(msg)) for msg in middle]
-
-        # Evict middle messages to page table for recall
-        chunk_id: str | None = None
-        if self._page_table is not None and middle:
-            # Build a summary of what's being compressed
-            roles = [m.role.value if hasattr(m.role, "value") else str(m.role) for m in middle]
-            summary = f"{len(middle)} messages ({', '.join(set(roles))} roles)"
-            chunk_id = self._page_table.evict(middle, summary)
 
         # Build fidelity-graded messages
         fidelity_msgs: list[Message] = []
@@ -448,14 +432,12 @@ class WorkingSetBuilder:
             elif score >= 0.2:
                 # L2: one-line summary
                 trunc = content[:80] + "..." if len(content) > 80 else content
-                recall_hint = f" (recall: {chunk_id})" if chunk_id else ""
-                new_msg = Message(role=role, content=f"[compressed{recall_hint}] {trunc}")
+                new_msg = Message(role=role, content=f"[compressed] {trunc}")
                 new_msg._fidelity = 2
                 fidelity_counts["L2"] += 1
             else:
                 # L3: tag only
-                recall_hint = f", recall: {chunk_id}" if chunk_id else ""
-                new_msg = Message(role=MessageRole.USER, content=f"[{role_str}{recall_hint}] (earlier message)")
+                new_msg = Message(role=MessageRole.USER, content=f"[{role_str}] (earlier message)")
                 new_msg._fidelity = 3
                 fidelity_counts["L3"] += 1
 
@@ -497,12 +479,10 @@ class WorkingSetBuilder:
                     demoted._fidelity = 1
                 elif current_level == 1:
                     trunc = orig_content[:80] + "..." if len(orig_content) > 80 else orig_content
-                    recall_hint = f" (recall: {chunk_id})" if chunk_id else ""
-                    demoted = Message(role=orig_role, content=f"[compressed{recall_hint}] {trunc}")
+                    demoted = Message(role=orig_role, content=f"[compressed] {trunc}")
                     demoted._fidelity = 2
                 else:  # current_level == 2
-                    recall_hint = f", recall: {chunk_id}" if chunk_id else ""
-                    demoted = Message(role=MessageRole.USER, content=f"[{orig_role_str}{recall_hint}] (earlier message)")
+                    demoted = Message(role=MessageRole.USER, content=f"[{orig_role_str}] (earlier message)")
                     demoted._fidelity = 3
                 fidelity_msgs[min_idx] = demoted
 

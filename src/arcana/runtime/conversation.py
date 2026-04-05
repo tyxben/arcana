@@ -28,7 +28,7 @@ from arcana.contracts.llm import (
 )
 from arcana.contracts.state import AgentState, ExecutionStatus
 from arcana.contracts.streaming import StreamEvent, StreamEventType
-from arcana.contracts.tool import ASK_USER_TOOL_NAME, RECALL_TOOL_NAME, ToolCall, ToolResult
+from arcana.contracts.tool import ASK_USER_TOOL_NAME, ToolCall, ToolResult
 from arcana.contracts.turn import TurnAssessment, TurnFacts
 
 if TYPE_CHECKING:
@@ -88,6 +88,7 @@ class ConversationAgent:
         initial_user_content: list[ContentBlock] | None = None,
         input_handler: Callable[..., Any] | None = None,
         context_builder: Any | None = None,  # WorkingSetBuilder | None
+        initial_messages: list[Message] | None = None,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -103,15 +104,8 @@ class ConversationAgent:
 
         self._ask_user_handler = AskUserHandler(input_handler)
 
-        # Virtual Memory: page table for context paging
-        from arcana.context.page_table import ContextPageTable
-
-        self._page_table = ContextPageTable()
-
-        # Built-in recall tool handler
-        from arcana.runtime.recall import RecallHandler
-
-        self._recall_handler = RecallHandler(self._page_table)
+        # Pre-built initial messages (e.g. from ChatSession with history)
+        self._initial_messages = initial_messages
 
         # Structured output schema (JSON Schema dict from Pydantic model)
         self._response_format_schema = response_format_schema
@@ -147,7 +141,6 @@ class ConversationAgent:
                 token_budget=TokenBudget(total_window=context_window),
                 goal=None,  # Set when run starts
                 gateway=gateway,  # Pass gateway for LLM-based context compression
-                page_table=self._page_table,
             )
         self._memory_context = memory_context
 
@@ -208,13 +201,15 @@ class ConversationAgent:
         # Phase 2: Initialise state and messages
         # ------------------------------------------------------------------
         run_id = str(uuid4())
-        self._page_table.clear()
         state = AgentState(
             run_id=run_id,
             goal=goal,
             max_steps=self.max_turns,
         )
-        messages = self._build_initial_messages(goal)
+        if self._initial_messages is not None:
+            messages = list(self._initial_messages)  # Copy to avoid mutating caller's list
+        else:
+            messages = self._build_initial_messages(goal)
         self._context_builder.set_goal(goal)
 
         # Tool selection: lazy (subset) or eager (all)
@@ -247,14 +242,6 @@ class ConversationAgent:
             # 1. Budget check
             if self.budget_tracker:
                 self.budget_tracker.check_budget()
-
-            # 1b. Inject recall tool if page table has evicted pages
-            #     Must happen BEFORE context rebuild so tool_token_cost is accurate.
-            if self._page_table.has_pages and active_tools is not None:
-                if not any(t.get("function", {}).get("name") == RECALL_TOOL_NAME for t in active_tools):
-                    active_tools.append(self._recall_tool_schema())
-                    # Recompute tool token cost to include the newly added recall schema
-                    tool_token_cost = self._estimate_tool_tokens(active_tools)
 
             # 2. Context rebuild — delegate to WorkingSetBuilder
             #    Always include tools. Token optimization for tools belongs in
@@ -584,6 +571,7 @@ class ConversationAgent:
                 }
             )
 
+        self._final_messages = messages
         self._state = state
 
         yield StreamEvent(
@@ -593,6 +581,11 @@ class ConversationAgent:
             tokens_used=state.tokens_used,
             cost_usd=state.cost_usd,
         )
+
+    @property
+    def final_messages(self) -> list[Message]:
+        """Messages at the end of the run, including all tool interactions."""
+        return self._final_messages if hasattr(self, "_final_messages") else []
 
     # ------------------------------------------------------------------
     # Core two-step: parse + assess
@@ -736,14 +729,11 @@ class ConversationAgent:
 
         # Separate built-in tool calls from gateway calls
         ask_user_calls: list[ToolCallRequest] = []
-        recall_calls: list[ToolCallRequest] = []
         gateway_tool_calls: list[ToolCallRequest] = []
 
         for tc in tool_calls:
             if tc.name == ASK_USER_TOOL_NAME:
                 ask_user_calls.append(tc)
-            elif tc.name == RECALL_TOOL_NAME:
-                recall_calls.append(tc)
             else:
                 gateway_tool_calls.append(tc)
 
@@ -766,21 +756,6 @@ class ConversationAgent:
             results.append(ToolResult(
                 tool_call_id=tc.id,
                 name=ASK_USER_TOOL_NAME,
-                success=True,
-                output=answer,
-            ))
-
-        # Handle recall calls directly (bypass ToolGateway)
-        for tc in recall_calls:
-            try:
-                args = json.loads(tc.arguments) if tc.arguments else {}
-            except json.JSONDecodeError:
-                args = {}
-            chunk_id = args.get("chunk_id", "")
-            answer = await self._recall_handler.handle(chunk_id)
-            results.append(ToolResult(
-                tool_call_id=tc.id,
-                name=RECALL_TOOL_NAME,
                 success=True,
                 output=answer,
             ))
@@ -936,20 +911,6 @@ class ConversationAgent:
             },
         }
 
-    @staticmethod
-    def _recall_tool_schema() -> dict[str, object]:
-        """Return the recall tool definition in OpenAI function calling format."""
-        from arcana.runtime.recall import RECALL_SPEC
-        from arcana.tool_gateway.formatter import format_tool_for_llm
-
-        return {
-            "type": "function",
-            "function": {
-                "name": RECALL_SPEC.name,
-                "description": format_tool_for_llm(RECALL_SPEC),
-                "parameters": RECALL_SPEC.input_schema,
-            },
-        }
 
     @staticmethod
     def _estimate_tool_tokens(tools: list[dict[str, object]] | None) -> int:
@@ -1101,7 +1062,6 @@ class ConversationAgent:
 
         self._context_builder.set_goal(goal)
         self._last_checkpoint_budget_ratio = 0.0
-        self._page_table.clear()
 
         # Continue the conversation loop with remaining turns
         remaining = (max_turns or self.max_turns) - saved_state.current_step
@@ -1124,11 +1084,6 @@ class ConversationAgent:
         for _turn in range(remaining):
             if self.budget_tracker:
                 self.budget_tracker.check_budget()
-
-            # Inject recall tool if page table has evicted pages (before budgeting)
-            if self._page_table.has_pages and active_tools is not None:
-                if not any(t.get("function", {}).get("name") == RECALL_TOOL_NAME for t in active_tools):
-                    active_tools.append(self._recall_tool_schema())
 
             if self._lazy_registry:
                 tool_token_cost = self._lazy_registry.tool_token_estimate + self._ask_user_token_cost
