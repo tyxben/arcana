@@ -2,6 +2,19 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [0.3.1] - 2026-04-05
+
+### Added — Provider Compatibility
+- **`ProviderProfile`**: Unified capability system per provider. Tracks `tool_calls`, `json_schema`, `json_mode`, `streaming`, `stream_options`. Known providers get pre-configured profiles; custom providers get conservative defaults
+- **Auto-degradation**: When a provider returns 400 for tool_calls, the profile is updated automatically — subsequent calls skip native tools and use prompt-based fallback. Only fails once per capability
+- **Custom provider registration**: `providers={"siliconflow": {"api_key": "...", "base_url": "...", "model": "...", "tool_calls": False}}` — any OpenAI-compatible API with explicit capability overrides
+- **`ChatSession.send(message, images=[...])`**: Multimodal messages in chat sessions
+- **`runtime.create_chat_session()`**: Returns ChatSession directly without requiring `async with`, for use across HTTP requests
+- **`arcana.RuntimeConfig`**: Now exported from the top-level package
+
+### Stats
+- All 1173 tests passing, 0 failures
+
 ## [0.3.0] - 2026-04-04 — "The Context Release"
 
 ### Added — Context Transparency

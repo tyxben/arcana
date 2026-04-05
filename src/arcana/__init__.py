@@ -1,6 +1,6 @@
 """Arcana Agent Platform - A controllable, reproducible, and evaluable Agent Platform."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from arcana.contracts.context import ContextReport as ContextReport
 from arcana.contracts.context import ContextStrategy as ContextStrategy
