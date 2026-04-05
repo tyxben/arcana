@@ -693,6 +693,37 @@ class Runtime:
         finally:
             pass  # Cleanup if needed
 
+    def create_chat_session(
+        self,
+        *,
+        system_prompt: str | None = None,
+        max_turns_per_message: int = 10,
+        budget: Budget | None = None,
+        input_handler: Callable | None = None,  # type: ignore[type-arg]
+        max_history: int | None = None,
+    ) -> ChatSession:
+        """Create a chat session without a context manager.
+
+        Use this when you need to hold a session across HTTP requests
+        or other boundaries where ``async with runtime.chat()`` is
+        inconvenient::
+
+            session = runtime.create_chat_session()
+            r = await session.send("Hello")
+            # ... later, in another request ...
+            r = await session.send("Follow up")
+
+        The session has the same API as one from ``runtime.chat()``.
+        """
+        return ChatSession(
+            runtime=self,
+            system_prompt=system_prompt,
+            max_turns_per_message=max_turns_per_message,
+            budget=budget,
+            input_handler=input_handler,
+            max_history=max_history,
+        )
+
     async def team(
         self,
         goal: str,
@@ -1761,7 +1792,12 @@ class ChatSession:
             return
         self._messages = system_msgs + non_system[-self._max_history:]
 
-    async def send(self, message: str) -> ChatResponse:
+    async def send(
+        self,
+        message: str,
+        *,
+        images: list[str] | None = None,
+    ) -> ChatResponse:
         """Send a message and get the agent's response.
 
         The agent may use tools before responding. Each ``send()`` allows
@@ -1770,6 +1806,8 @@ class ChatSession:
 
         Args:
             message: The user's message text.
+            images: Optional list of image inputs (URLs, file paths, or
+                data URIs) to include with this message.
 
         Returns:
             ChatResponse with the agent's reply and usage metrics.
@@ -1783,8 +1821,14 @@ class ChatSession:
         )
         from arcana.contracts.tool import ToolCall
 
-        # 1. Append user message to history
-        self._messages.append(Message(role=MessageRole.USER, content=message))
+        # 1. Append user message to history (with optional images)
+        if images:
+            from arcana.sdk import build_content_blocks
+
+            content_blocks = build_content_blocks(message, images)
+            self._messages.append(Message(role=MessageRole.USER, content=content_blocks))
+        else:
+            self._messages.append(Message(role=MessageRole.USER, content=message))
         self._turn_count += 1
 
         model_config = self._runtime._resolve_model_config()

@@ -21,6 +21,7 @@ from arcana.runtime_core import ChatSession as ChatSession
 from arcana.runtime_core import EventCallback as EventCallback
 from arcana.runtime_core import RunResult as RuntimeResult  # noqa: F401
 from arcana.runtime_core import Runtime as Runtime
+from arcana.runtime_core import RuntimeConfig as RuntimeConfig
 from arcana.runtime_core import Session as Session
 from arcana.runtime_core import TeamResult as TeamResult
 from arcana.sdk import RunResult as RunResult
