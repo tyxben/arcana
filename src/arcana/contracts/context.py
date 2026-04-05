@@ -162,6 +162,9 @@ class ContextReport(BaseModel):
     window_size: int = 128_000
     utilization: float = 0.0
 
+    # Fidelity distribution (when compression uses fidelity spectrum)
+    fidelity_distribution: dict[str, int] = Field(default_factory=dict)
+
     # Tool loading info (for lazy registry)
     tools_loaded: int = 0
     tools_available: int = 0

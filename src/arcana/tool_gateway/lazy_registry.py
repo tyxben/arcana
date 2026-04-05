@@ -131,6 +131,7 @@ class LazyToolRegistry:
         self._max_working = max_working_set
         self._matcher: ToolMatcher = matcher or KeywordToolMatcher()
         self._expansion_log: list[ToolExpansionEvent] = []
+        self._cached_tool_tokens: int | None = None
 
     @property
     def working_set(self) -> list[ToolSpec]:
@@ -149,6 +150,20 @@ class LazyToolRegistry:
         """History of working set expansions."""
         return list(self._expansion_log)
 
+    @property
+    def tool_token_estimate(self) -> int:
+        """Cached token estimate for current working set tools in OpenAI format."""
+        if self._cached_tool_tokens is None:
+            import json
+
+            from arcana.context.builder import estimate_tokens
+
+            tools = self.to_openai_tools()
+            self._cached_tool_tokens = sum(
+                estimate_tokens(json.dumps(t)) for t in tools
+            )
+        return self._cached_tool_tokens
+
     def select_initial_tools(self, goal: str) -> list[ToolSpec]:
         """
         Analyze the goal and select the most relevant initial tools.
@@ -163,6 +178,7 @@ class LazyToolRegistry:
         for spec in selected:
             self._working_set[spec.name] = spec
 
+        self._cached_tool_tokens = None
         self._log_expansion("initial_selection", goal, [s.name for s in selected])
         return selected
 
@@ -188,6 +204,8 @@ class LazyToolRegistry:
                 self._working_set[spec.name] = spec
                 new_tools.append(spec)
 
+        if new_tools:
+            self._cached_tool_tokens = None
         self._log_expansion(
             "on_demand_expansion", request, [s.name for s in new_tools]
         )
@@ -211,6 +229,7 @@ class LazyToolRegistry:
 
         spec = provider.spec
         self._working_set[tool_name] = spec
+        self._cached_tool_tokens = None
         self._log_expansion("explicit_request", tool_name, [tool_name])
         return spec
 
@@ -234,6 +253,7 @@ class LazyToolRegistry:
         """Clear the working set (call at the start of a new run)."""
         self._working_set.clear()
         self._expansion_log.clear()
+        self._cached_tool_tokens = None
 
     def _log_expansion(
         self, trigger: str, context: str, tools: list[str]

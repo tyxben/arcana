@@ -89,11 +89,14 @@ class TestSyncCompressionBackwardCompat:
         )
         msgs = _make_messages(20, content_len=200)
         result = builder.build_conversation_context(msgs, turn=3)
-        assert len(result) < len(msgs)
-        has_keyword_summary = any(
-            "Earlier conversation" in (m.content or "") for m in result
+        # Fidelity spectrum compresses content but may keep same message count
+        assert len(result) <= len(msgs)
+        # Fidelity spectrum produces multiple messages with markers like [compressed]
+        has_fidelity_marker = any(
+            "[compressed]" in (m.content or "") or "(earlier message)" in (m.content or "")
+            for m in result
         )
-        assert has_keyword_summary
+        assert has_fidelity_marker
         assert builder.last_decision is not None
         assert builder.last_decision.history_compressed
         # Should NOT be LLM-compressed since no gateway
@@ -239,12 +242,13 @@ class TestGatewayFailureFallback:
         msgs = _make_large_messages()
         result = await builder.abuild_conversation_context(msgs, turn=5)
 
-        # Should still produce a compressed result using keyword fallback
-        assert len(result) < len(msgs)
-        has_keyword_summary = any(
-            "relevance-compressed" in (m.content or "") for m in result
+        # Should still produce a compressed result using fidelity fallback
+        assert len(result) <= len(msgs)
+        has_fidelity_marker = any(
+            "[compressed]" in (m.content or "") or "(earlier message)" in (m.content or "")
+            for m in result
         )
-        assert has_keyword_summary
+        assert has_fidelity_marker
         assert builder.last_decision is not None
         assert builder.last_decision.history_compressed
         # Explanation should NOT mention LLM since it failed
@@ -391,11 +395,12 @@ class TestAsyncWithoutGateway:
         msgs = _make_messages(20, content_len=200)
         result = await builder.abuild_conversation_context(msgs, turn=3)
 
-        assert len(result) < len(msgs)
-        has_keyword_summary = any(
-            "relevance-compressed" in (m.content or "") for m in result
+        assert len(result) <= len(msgs)
+        has_fidelity_marker = any(
+            "[compressed]" in (m.content or "") or "(earlier message)" in (m.content or "")
+            for m in result
         )
-        assert has_keyword_summary
+        assert has_fidelity_marker
 
     @pytest.mark.asyncio
     async def test_abuild_under_budget_passthrough(self):

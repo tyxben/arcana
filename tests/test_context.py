@@ -190,11 +190,15 @@ class TestConversationContext:
         msgs = self._make_messages(20, content_len=200)
         result = builder.build_conversation_context(msgs, turn=3)
 
-        # Should be fewer messages
-        assert len(result) < len(msgs)
-        # Should contain a summary
-        has_summary = any("Earlier conversation" in (m.content or "") for m in result)
-        assert has_summary
+        # Fidelity spectrum may keep same message count but with compressed content,
+        # or may drop some messages if budget is very tight
+        assert len(result) <= len(msgs)
+        # Should contain fidelity markers (compressed or tag-only messages)
+        has_fidelity_marker = any(
+            "[compressed]" in (m.content or "") or "(earlier message)" in (m.content or "")
+            for m in result
+        )
+        assert has_fidelity_marker
         # Decision should be recorded
         assert builder.last_decision is not None
         assert builder.last_decision.history_compressed
@@ -213,7 +217,9 @@ class TestConversationContext:
         result = builder.build_conversation_context(
             msgs, memory_context="User likes Python.", turn=0
         )
-        assert "User likes Python" in (result[0].content or "")
+        # Memory is injected as a separate user message at index 1
+        assert result[1].role == MessageRole.USER
+        assert "User likes Python" in (result[1].content or "")
         assert builder.last_decision is not None
         assert builder.last_decision.memory_injected
 
@@ -330,9 +336,9 @@ class TestPerLayerBudget:
         result = builder.build_conversation_context(
             msgs, memory_context=long_memory, turn=0
         )
-        # Memory should be injected but truncated
-        sys_content = result[0].content or ""
-        assert "memory truncated" in sys_content
+        # Memory should be injected as separate user message but truncated
+        mem_content = result[1].content or ""
+        assert "memory truncated" in mem_content
 
     def test_history_budget_cap(self):
         """History budget should limit how much history can consume."""
@@ -375,9 +381,11 @@ class TestLongConversation:
         # System prompt should always be there
         assert result[0].role == MessageRole.SYSTEM
         assert "file search" in (result[0].content or "")
-        # Should have compressed
+        # Should have compressed (fidelity spectrum may keep same count but with
+        # compressed content, or may drop some messages if budget is very tight)
         assert builder.last_decision is not None
-        assert builder.last_decision.messages_out < builder.last_decision.messages_in
+        assert builder.last_decision.history_compressed
+        assert builder.last_decision.compressed_count > 0
 
     def test_tool_results_preserved_in_summary(self):
         """Key tool results should get more detail in compressed summary."""

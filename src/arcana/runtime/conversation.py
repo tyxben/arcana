@@ -28,7 +28,7 @@ from arcana.contracts.llm import (
 )
 from arcana.contracts.state import AgentState, ExecutionStatus
 from arcana.contracts.streaming import StreamEvent, StreamEventType
-from arcana.contracts.tool import ASK_USER_TOOL_NAME, ToolCall, ToolResult
+from arcana.contracts.tool import ASK_USER_TOOL_NAME, RECALL_TOOL_NAME, ToolCall, ToolResult
 from arcana.contracts.turn import TurnAssessment, TurnFacts
 
 if TYPE_CHECKING:
@@ -46,6 +46,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful assistant. Answer the user's request directly and completely."
 )
+
+# Minimum characters for tool result truncation (safety floor).
+_MIN_TOOL_RESULT_CHARS = 8000
 
 
 class ConversationAgent:
@@ -100,6 +103,16 @@ class ConversationAgent:
 
         self._ask_user_handler = AskUserHandler(input_handler)
 
+        # Virtual Memory: page table for context paging
+        from arcana.context.page_table import ContextPageTable
+
+        self._page_table = ContextPageTable()
+
+        # Built-in recall tool handler
+        from arcana.runtime.recall import RecallHandler
+
+        self._recall_handler = RecallHandler(self._page_table)
+
         # Structured output schema (JSON Schema dict from Pydantic model)
         self._response_format_schema = response_format_schema
 
@@ -134,8 +147,14 @@ class ConversationAgent:
                 token_budget=TokenBudget(total_window=context_window),
                 goal=None,  # Set when run starts
                 gateway=gateway,  # Pass gateway for LLM-based context compression
+                page_table=self._page_table,
             )
         self._memory_context = memory_context
+
+        # Cache ask_user schema token cost (static, never changes)
+        self._ask_user_token_cost = self._estimate_tool_tokens(
+            [self._ask_user_tool_schema()]
+        )
 
         # Populated during a run; accessed by run() after astream() finishes.
         self._state: AgentState | None = None
@@ -189,6 +208,7 @@ class ConversationAgent:
         # Phase 2: Initialise state and messages
         # ------------------------------------------------------------------
         run_id = str(uuid4())
+        self._page_table.clear()
         state = AgentState(
             run_id=run_id,
             goal=goal,
@@ -207,7 +227,10 @@ class ConversationAgent:
             active_tools.append(self._ask_user_tool_schema())
         else:
             active_tools = self._get_current_tools()
-        tool_token_cost = self._estimate_tool_tokens(active_tools)
+        if self._lazy_registry:
+            tool_token_cost = self._lazy_registry.tool_token_estimate + self._ask_user_token_cost
+        else:
+            tool_token_cost = self._estimate_tool_tokens(active_tools)
 
         yield StreamEvent(
             event_type=StreamEventType.RUN_START,
@@ -286,6 +309,14 @@ class ConversationAgent:
                     },
                 ))
 
+            # Inject recall tool if page table has evicted pages
+            if self._page_table.has_pages:
+                recall_schema = self._recall_tool_schema()
+                if active_tools is not None and not any(
+                    t.get("function", {}).get("name") == "recall" for t in active_tools
+                ):
+                    active_tools.append(recall_schema)
+
             # 3. LLM call
             request = LLMRequest(
                 messages=curated,
@@ -312,18 +343,15 @@ class ConversationAgent:
             else:
                 # Normal: try streaming, fall back to generate
                 try:
-                    text_parts: list[str] = []
-                    tc_names: dict[str, str] = {}
-                    tc_args: dict[str, list[str]] = {}
-                    stream_usage: TokenUsage | None = None
-                    stream_finish = "stop"
-                    stream_model = config.model_id
+                    from arcana.runtime.stream_accumulator import StreamAccumulator
+
+                    acc = StreamAccumulator(model=config.model_id)
 
                     async for chunk in self.gateway.stream(
                         request=request, config=config,
                     ):
+                        acc.feed(chunk)
                         if chunk.type == "text_delta" and chunk.text:
-                            text_parts.append(chunk.text)
                             yield StreamEvent(
                                 event_type=StreamEventType.LLM_CHUNK,
                                 run_id=run_id,
@@ -337,48 +365,8 @@ class ConversationAgent:
                                 step_id=str(state.current_step),
                                 thinking=chunk.thinking,
                             )
-                        elif chunk.type == "tool_call_delta" and chunk.tool_call_id:
-                            if chunk.tool_call_id not in tc_names:
-                                tc_names[chunk.tool_call_id] = chunk.tool_name or ""
-                            if chunk.tool_name:
-                                tc_names[chunk.tool_call_id] = chunk.tool_name
-                            if chunk.arguments_delta:
-                                tc_args.setdefault(
-                                    chunk.tool_call_id, [],
-                                ).append(chunk.arguments_delta)
-                        elif chunk.type == "usage" and chunk.usage:
-                            stream_usage = chunk.usage
-                        elif chunk.type == "done":
-                            if chunk.metadata:
-                                stream_finish = chunk.metadata.get(
-                                    "finish_reason", stream_finish,
-                                )
-                                stream_model = chunk.metadata.get(
-                                    "model", stream_model,
-                                )
-                            if chunk.usage:
-                                stream_usage = chunk.usage
 
-                    full_text = "".join(text_parts) if text_parts else None
-                    tool_calls_list = [
-                        ToolCallRequest(
-                            id=tc_id,
-                            name=tc_names.get(tc_id, ""),
-                            arguments="".join(tc_args.get(tc_id, [])),
-                        )
-                        for tc_id in tc_names
-                    ] or None
-                    response = LLMResponse(
-                        content=full_text,
-                        tool_calls=tool_calls_list,
-                        usage=stream_usage or TokenUsage(
-                            prompt_tokens=0,
-                            completion_tokens=0,
-                            total_tokens=0,
-                        ),
-                        model=stream_model,
-                        finish_reason=stream_finish,
-                    )
+                    response = acc.to_response()
                 except (AttributeError, TypeError, NotImplementedError):
                     # Gateway doesn't support streaming — fall back to generate
                     response = await self.gateway.generate(
@@ -444,7 +432,7 @@ class ConversationAgent:
                     # Refresh active tools and token cost for next turn
                     active_tools = self._lazy_registry.to_openai_tools() or []
                     active_tools.append(self._ask_user_tool_schema())
-                    tool_token_cost = self._estimate_tool_tokens(active_tools)
+                    tool_token_cost = self._lazy_registry.tool_token_estimate + self._ask_user_token_cost
 
                 # Yield TOOL_START events before execution
                 import time as _time
@@ -746,13 +734,16 @@ class ConversationAgent:
                 tc.arguments[:200] if tc.arguments else "",
             )
 
-        # Separate ask_user calls from gateway calls
+        # Separate built-in tool calls from gateway calls
         ask_user_calls: list[ToolCallRequest] = []
+        recall_calls: list[ToolCallRequest] = []
         gateway_tool_calls: list[ToolCallRequest] = []
 
         for tc in tool_calls:
             if tc.name == ASK_USER_TOOL_NAME:
                 ask_user_calls.append(tc)
+            elif tc.name == RECALL_TOOL_NAME:
+                recall_calls.append(tc)
             else:
                 gateway_tool_calls.append(tc)
 
@@ -775,6 +766,21 @@ class ConversationAgent:
             results.append(ToolResult(
                 tool_call_id=tc.id,
                 name=ASK_USER_TOOL_NAME,
+                success=True,
+                output=answer,
+            ))
+
+        # Handle recall calls directly (bypass ToolGateway)
+        for tc in recall_calls:
+            try:
+                args = json.loads(tc.arguments) if tc.arguments else {}
+            except json.JSONDecodeError:
+                args = {}
+            chunk_id = args.get("chunk_id", "")
+            answer = await self._recall_handler.handle(chunk_id)
+            results.append(ToolResult(
+                tool_call_id=tc.id,
+                name=RECALL_TOOL_NAME,
                 success=True,
                 output=answer,
             ))
@@ -824,8 +830,8 @@ class ConversationAgent:
 
         return results, extra_events
 
-    @staticmethod
     def _add_tool_messages(
+        self,
         messages: list[Message],
         facts: TurnFacts,
         results: list[ToolResult],
@@ -856,12 +862,25 @@ class ConversationAgent:
             )
         )
 
-        # Tool result messages (one per result)
+        # Dynamic truncation limit: context window size in chars (~1 char per token).
+        # This is a safety net — context builder compression handles the rest next turn.
+        max_chars = max(
+            self._context_builder.budget.total_window,
+            _MIN_TOOL_RESULT_CHARS,
+        )
+
+        # Tool result messages (one per result, truncated if oversized)
         for result in results:
+            content = result.output_str
+            if content and len(content) > max_chars:
+                content = (
+                    content[:max_chars]
+                    + f"\n[truncated: {len(result.output_str)} chars total]"
+                )
             messages.append(
                 Message(
                     role=MessageRole.TOOL,
-                    content=result.output_str,
+                    content=content,
                     tool_call_id=result.tool_call_id,
                 )
             )
@@ -914,6 +933,21 @@ class ConversationAgent:
                 "name": ASK_USER_SPEC.name,
                 "description": format_tool_for_llm(ASK_USER_SPEC),
                 "parameters": ASK_USER_SPEC.input_schema,
+            },
+        }
+
+    @staticmethod
+    def _recall_tool_schema() -> dict[str, object]:
+        """Return the recall tool definition in OpenAI function calling format."""
+        from arcana.runtime.recall import RECALL_SPEC
+        from arcana.tool_gateway.formatter import format_tool_for_llm
+
+        return {
+            "type": "function",
+            "function": {
+                "name": RECALL_SPEC.name,
+                "description": format_tool_for_llm(RECALL_SPEC),
+                "parameters": RECALL_SPEC.input_schema,
             },
         }
 
@@ -1067,6 +1101,7 @@ class ConversationAgent:
 
         self._context_builder.set_goal(goal)
         self._last_checkpoint_budget_ratio = 0.0
+        self._page_table.clear()
 
         # Continue the conversation loop with remaining turns
         remaining = (max_turns or self.max_turns) - saved_state.current_step
@@ -1090,12 +1125,20 @@ class ConversationAgent:
             if self.budget_tracker:
                 self.budget_tracker.check_budget()
 
-            tool_token_cost = self._estimate_tool_tokens(active_tools)
+            if self._lazy_registry:
+                tool_token_cost = self._lazy_registry.tool_token_estimate + self._ask_user_token_cost
+            else:
+                tool_token_cost = self._estimate_tool_tokens(active_tools)
             curated = self._context_builder.build_conversation_context(
                 messages,
                 tool_token_estimate=tool_token_cost,
                 turn=saved_state.current_step + _turn,
             )
+
+            # Inject recall tool if page table has evicted pages
+            if self._page_table.has_pages and active_tools is not None:
+                if not any(t.get("function", {}).get("name") == RECALL_TOOL_NAME for t in active_tools):
+                    active_tools.append(self._recall_tool_schema())
 
             request = LLMRequest(
                 messages=curated,

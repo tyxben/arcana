@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 ASK_USER_TOOL_NAME = "ask_user"
+RECALL_TOOL_NAME = "recall"
 
 
 class SideEffect(str, Enum):

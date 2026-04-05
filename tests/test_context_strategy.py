@@ -389,5 +389,9 @@ class TestTailPreserveKeepRecent:
         msgs = _make_messages(20, content_size=30)
         result = builder.build_conversation_context(msgs, turn=0)
         # With keep_recent=3, the tail should be 3 messages
-        # Result = head(1) + summary(1) + tail(3)
-        assert len(result) <= 5
+        # Result = head(1) + fidelity_msgs(variable, compressed middle) + tail(3)
+        # Fidelity spectrum compresses content but may keep same message count
+        assert len(result) <= len(msgs)
+        # Verify compression actually happened (fidelity markers present)
+        assert builder.last_decision is not None
+        assert builder.last_decision.history_compressed

@@ -565,9 +565,11 @@ class TestContextManagement:
         result = builder.build_conversation_context(
             messages, memory_context="[Memory] User likes Python."
         )
-        # Memory should be in system prompt
-        assert "[Memory] User likes Python." in result[0].content
+        # Memory should be in a separate user message at index 1 (system prompt untouched)
         assert "You are helpful." in result[0].content
+        assert "[Memory] User likes Python." not in result[0].content
+        assert result[1].role == MessageRole.USER
+        assert "[Memory] User likes Python." in result[1].content
 
 
 # =========================================================================

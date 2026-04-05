@@ -80,6 +80,7 @@ class WorkingSetBuilder:
         gateway: ModelGatewayRegistry | None = None,
         compression_model: ModelConfig | None = None,
         strategy: ContextStrategy | None = None,
+        page_table: Any | None = None,  # ContextPageTable | None
     ) -> None:
         self._identity = identity
         self._budget = token_budget or TokenBudget()
@@ -88,6 +89,10 @@ class WorkingSetBuilder:
         self._gateway = gateway
         self._compression_model = compression_model
         self._strategy = strategy or ContextStrategy()
+        self._page_table = page_table
+
+        # Track whether memory has been injected into system prompt
+        self._memory_injected: bool = False
 
         # Pre-compute identity block
         self._identity_block = ContextBlock(
@@ -113,6 +118,7 @@ class WorkingSetBuilder:
         """Update goal keywords for relevance scoring."""
         self._goal = goal
         self._goal_keywords = _extract_keywords(goal)
+        self._memory_injected = False
 
     # ------------------------------------------------------------------
     # V2 Conversation mode — for ConversationAgent
@@ -147,11 +153,19 @@ class WorkingSetBuilder:
         messages_in: int,
     ) -> ContextReport:
         """Build a ContextReport from the curated messages."""
-        identity_tokens = estimate_tokens(_content_text(curated[0].content)) if curated else 0
-        history_tokens = sum(estimate_tokens(_content_text(m.content)) for m in curated[1:])
+        identity_tokens = curated[0].token_count if curated else 0
+        history_tokens = sum(m.token_count for m in curated[1:])
         memory_tok = estimate_tokens(memory_context) if memory_context and memory_injected else 0
-        original_total = sum(estimate_tokens(_content_text(m.content)) for m in messages)
-        curated_total = sum(estimate_tokens(_content_text(m.content)) for m in curated)
+        original_total = sum(m.token_count for m in messages)
+        curated_total = sum(m.token_count for m in curated)
+
+        # Count fidelity distribution from curated messages
+        fidelity_dist: dict[str, int] = {}
+        for m in curated:
+            level = getattr(m, "_fidelity", None)
+            if level is not None:
+                key = f"L{level}"
+                fidelity_dist[key] = fidelity_dist.get(key, 0) + 1
 
         return ContextReport(
             turn=turn,
@@ -167,6 +181,7 @@ class WorkingSetBuilder:
             messages_compressed=messages_in - len(curated),
             window_size=self._budget.total_window,
             utilization=(curated_total + tool_token_estimate) / max(self._budget.total_window, 1),
+            fidelity_distribution=fidelity_dist,
         )
 
     def _aggressive_truncate(
@@ -234,24 +249,28 @@ class WorkingSetBuilder:
                 char_limit = int(len(memory_context) * ratio)
                 memory_context = memory_context[:char_limit] + "\n[memory truncated]"
 
-        total = sum(estimate_tokens(_content_text(m.content)) for m in messages)
+        total = sum(m.token_count for m in messages)
         messages_in = len(messages)
 
-        # Inject memory into system prompt if provided and not already there
-        if memory_context and messages and messages[0].role in (MessageRole.SYSTEM, "system"):
-            sys_content = _content_text(messages[0].content)
-            if memory_context not in sys_content:
-                messages = [
-                    Message(role=MessageRole.SYSTEM, content=sys_content + "\n\n" + memory_context),
-                    *messages[1:],
-                ]
-                total = sum(estimate_tokens(_content_text(m.content)) for m in messages)
-                memory_injected = True
+        # Inject memory into the first user message (keeps system prompt stable for cache,
+        # avoids back-to-back user messages that Anthropic/DeepSeek reject)
+        if memory_context and not self._memory_injected and messages:
+            for _mi, _mm in enumerate(messages):
+                if _mm.role in (MessageRole.USER, "user"):
+                    merged = f"[Run context]\n{memory_context}\n\n{_content_text(_mm.content)}"
+                    messages = [*messages[:_mi], Message(role=MessageRole.USER, content=merged), *messages[_mi + 1:]]
+                    break
+            else:
+                # No user message yet — insert after system
+                messages = [messages[0], Message(role=MessageRole.USER, content=f"[Run context]\n{memory_context}"), *messages[1:]]
+            total = sum(m.token_count for m in messages)
+            memory_injected = True
+            self._memory_injected = True
 
         # Check if history budget cap forces compression even if under total budget
         effective_budget = budget
         if self._budget.history_budget is not None and messages:
-            sys_tokens = estimate_tokens(_content_text(messages[0].content))
+            sys_tokens = messages[0].token_count
             history_tokens = total - sys_tokens
             if history_tokens > self._budget.history_budget:
                 effective_budget = sys_tokens + self._budget.history_budget
@@ -300,13 +319,13 @@ class WorkingSetBuilder:
         # If strategy says aggressive_truncate and relevance compression is still over budget,
         # fall back to aggressive truncation
         if strategy_name == "aggressive_truncate":
-            result_total = sum(estimate_tokens(_content_text(m.content)) for m in result)
+            result_total = sum(m.token_count for m in result)
             if result_total > effective_budget:
                 curated = self._aggressive_truncate(messages)
                 self.last_decision = ContextDecision(
                     turn=turn,
                     budget_total=budget,
-                    budget_used=sum(estimate_tokens(_content_text(m.content)) for m in curated),
+                    budget_used=sum(m.token_count for m in curated),
                     budget_tools=effective_tool_tokens,
                     budget_reserve=self._budget.response_reserve,
                     messages_in=messages_in,
@@ -361,8 +380,8 @@ class WorkingSetBuilder:
         tail = messages[-keep_tail:] if keep_tail > 0 else []
         middle = messages[keep_head: len(messages) - keep_tail] if keep_tail > 0 else messages[keep_head:]
 
-        head_tokens = sum(estimate_tokens(_content_text(m.content)) for m in head)
-        tail_tokens = sum(estimate_tokens(_content_text(m.content)) for m in tail)
+        head_tokens = sum(m.token_count for m in head)
+        tail_tokens = sum(m.token_count for m in tail)
         summary_budget = budget - head_tokens - tail_tokens - 100  # margin
 
         compressed_descs: list[str] = []
@@ -392,45 +411,100 @@ class WorkingSetBuilder:
         # Score middle messages for relevance
         scored = [(msg, self._relevance_score(msg)) for msg in middle]
 
-        # Build relevance-aware summary
-        summary_lines = []
+        # Evict middle messages to page table for recall
+        chunk_id: str | None = None
+        if self._page_table is not None and middle:
+            # Build a summary of what's being compressed
+            roles = [m.role.value if hasattr(m.role, "value") else str(m.role) for m in middle]
+            summary = f"{len(middle)} messages ({', '.join(set(roles))} roles)"
+            chunk_id = self._page_table.evict(middle, summary)
+
+        # Build fidelity-graded messages
+        fidelity_msgs: list[Message] = []
+        fidelity_counts: dict[str, int] = {"L0": 0, "L1": 0, "L2": 0, "L3": 0}
+
         for msg, score in scored:
-            role = msg.role if isinstance(msg.role, str) else msg.role.value
+            role = msg.role
             content = _content_text(msg.content)
+            role_str = role if isinstance(role, str) else role.value
 
-            # High relevance: keep more detail
-            if score >= 0.6:
-                char_limit = 300
-            elif score >= 0.3:
-                char_limit = 150
+            if score >= 0.7:
+                # L0: keep original (copy to avoid mutating caller's message)
+                new_msg = msg.model_copy()
+                new_msg._fidelity = 0
+                fidelity_counts["L0"] += 1
+            elif score >= 0.4:
+                # L1: truncate to 300 chars, keep role
+                trunc = content[:300] + "..." if len(content) > 300 else content
+                new_msg = Message(role=role, content=trunc)
+                new_msg._fidelity = 1
+                fidelity_counts["L1"] += 1
+            elif score >= 0.2:
+                # L2: one-line summary
+                trunc = content[:80] + "..." if len(content) > 80 else content
+                recall_hint = f" (recall: {chunk_id})" if chunk_id else ""
+                new_msg = Message(role=role, content=f"[compressed{recall_hint}] {trunc}")
+                new_msg._fidelity = 2
+                fidelity_counts["L2"] += 1
             else:
-                char_limit = 60
+                # L3: tag only
+                recall_hint = f", recall: {chunk_id}" if chunk_id else ""
+                new_msg = Message(role=MessageRole.USER, content=f"[{role_str}{recall_hint}] (earlier message)")
+                new_msg._fidelity = 3
+                fidelity_counts["L3"] += 1
 
-            if len(content) > char_limit:
-                content = content[:char_limit] + "..."
-            summary_lines.append(f"[{role}] {content}")
+            fidelity_msgs.append(new_msg)
 
-        summary_text = "[Earlier conversation — relevance-compressed]\n" + "\n".join(summary_lines)
-
-        # Truncate lowest-relevance lines first if still over budget
-        while estimate_tokens(summary_text) > summary_budget and len(summary_lines) > 1:
-            # Remove the line corresponding to the lowest-scored message
-            min_idx = 0
+        # Budget enforcement: demote lowest-scored messages until under budget
+        result = head + fidelity_msgs + tail
+        while sum(m.token_count for m in result) > budget and fidelity_msgs:
+            # Find lowest-scored message that can still be demoted
+            min_idx = -1
             min_score = 999.0
-            for i, (_, s) in enumerate(scored[:len(summary_lines)]):
-                if s < min_score:
+            for i, (_, s) in enumerate(scored[:len(fidelity_msgs)]):
+                if s < min_score and fidelity_msgs[i]._fidelity is not None and fidelity_msgs[i]._fidelity < 3:
                     min_score = s
                     min_idx = i
-            summary_lines.pop(min_idx)
-            scored.pop(min_idx)
-            summary_text = "[Earlier conversation — relevance-compressed]\n" + "\n".join(summary_lines)
 
-        summary_msg = Message(role=MessageRole.USER, content=summary_text)
-        result = head + [summary_msg] + tail
+            if min_idx == -1:
+                # All at L3, drop the lowest-scored one entirely
+                min_idx = 0
+                min_score = 999.0
+                for i, (_, s) in enumerate(scored[:len(fidelity_msgs)]):
+                    if s < min_score:
+                        min_score = s
+                        min_idx = i
+                fidelity_msgs.pop(min_idx)
+                scored.pop(min_idx)
+            else:
+                # Demote: increase fidelity level
+                fmsg = fidelity_msgs[min_idx]
+                orig_msg, _score = scored[min_idx]
+                orig_role = orig_msg.role
+                orig_role_str = orig_role if isinstance(orig_role, str) else orig_role.value
+                orig_content = _content_text(orig_msg.content)
 
-        used_tokens = sum(estimate_tokens(_content_text(m.content)) for m in result)
-        original_middle_tokens = sum(estimate_tokens(_content_text(m.content)) for m in middle)
-        compressed_tokens = estimate_tokens(summary_text)
+                current_level = fmsg._fidelity or 0
+                if current_level == 0:
+                    trunc = orig_content[:300] + "..." if len(orig_content) > 300 else orig_content
+                    demoted = Message(role=orig_role, content=trunc)
+                    demoted._fidelity = 1
+                elif current_level == 1:
+                    trunc = orig_content[:80] + "..." if len(orig_content) > 80 else orig_content
+                    recall_hint = f" (recall: {chunk_id})" if chunk_id else ""
+                    demoted = Message(role=orig_role, content=f"[compressed{recall_hint}] {trunc}")
+                    demoted._fidelity = 2
+                else:  # current_level == 2
+                    recall_hint = f", recall: {chunk_id}" if chunk_id else ""
+                    demoted = Message(role=MessageRole.USER, content=f"[{orig_role_str}{recall_hint}] (earlier message)")
+                    demoted._fidelity = 3
+                fidelity_msgs[min_idx] = demoted
+
+            result = head + fidelity_msgs + tail
+
+        used_tokens = sum(m.token_count for m in result)
+        original_middle_tokens = sum(m.token_count for m in middle)
+        compressed_tokens = sum(m.token_count for m in fidelity_msgs)
         ratio = original_middle_tokens / max(compressed_tokens, 1)
 
         self.last_decision = ContextDecision(
@@ -446,10 +520,10 @@ class WorkingSetBuilder:
             history_compressed=True,
             compressed_messages=compressed_descs,
             explanation=(
-                f"{len(middle)} messages compressed ({ratio:.1f}x), "
+                f"{len(middle)} messages fidelity-compressed ({ratio:.1f}x), "
                 f"budget {used_tokens}/{budget} tokens ({used_tokens * 100 // budget}% full)"
                 if budget > 0
-                else f"{len(middle)} messages compressed ({ratio:.1f}x), budget exhausted"
+                else f"{len(middle)} messages fidelity-compressed ({ratio:.1f}x), budget exhausted"
             ),
         )
         return result
@@ -488,24 +562,28 @@ class WorkingSetBuilder:
                 char_limit = int(len(memory_context) * ratio)
                 memory_context = memory_context[:char_limit] + "\n[memory truncated]"
 
-        total = sum(estimate_tokens(_content_text(m.content)) for m in messages)
+        total = sum(m.token_count for m in messages)
         messages_in = len(messages)
 
-        # Inject memory into system prompt if provided and not already there
-        if memory_context and messages and messages[0].role in (MessageRole.SYSTEM, "system"):
-            sys_content = _content_text(messages[0].content)
-            if memory_context not in sys_content:
-                messages = [
-                    Message(role=MessageRole.SYSTEM, content=sys_content + "\n\n" + memory_context),
-                    *messages[1:],
-                ]
-                total = sum(estimate_tokens(_content_text(m.content)) for m in messages)
-                memory_injected = True
+        # Inject memory into the first user message (keeps system prompt stable for cache,
+        # avoids back-to-back user messages that Anthropic/DeepSeek reject)
+        if memory_context and not self._memory_injected and messages:
+            for _mi, _mm in enumerate(messages):
+                if _mm.role in (MessageRole.USER, "user"):
+                    merged = f"[Run context]\n{memory_context}\n\n{_content_text(_mm.content)}"
+                    messages = [*messages[:_mi], Message(role=MessageRole.USER, content=merged), *messages[_mi + 1:]]
+                    break
+            else:
+                # No user message yet — insert after system
+                messages = [messages[0], Message(role=MessageRole.USER, content=f"[Run context]\n{memory_context}"), *messages[1:]]
+            total = sum(m.token_count for m in messages)
+            memory_injected = True
+            self._memory_injected = True
 
         # Check if history budget cap forces compression
         effective_budget = budget
         if self._budget.history_budget is not None and messages:
-            sys_tokens = estimate_tokens(_content_text(messages[0].content))
+            sys_tokens = messages[0].token_count
             history_tokens = total - sys_tokens
             if history_tokens > self._budget.history_budget:
                 effective_budget = sys_tokens + self._budget.history_budget
@@ -553,13 +631,13 @@ class WorkingSetBuilder:
             # If aggressive was requested and LLM compression is still over budget,
             # fall back to aggressive truncation
             if strategy_name == "aggressive_truncate":
-                result_total = sum(estimate_tokens(_content_text(m.content)) for m in result)
+                result_total = sum(m.token_count for m in result)
                 if result_total > effective_budget:
                     curated = self._aggressive_truncate(messages)
                     self.last_decision = ContextDecision(
                         turn=turn,
                         budget_total=budget,
-                        budget_used=sum(estimate_tokens(_content_text(m.content)) for m in curated),
+                        budget_used=sum(m.token_count for m in curated),
                         budget_tools=effective_tool_tokens,
                         budget_reserve=self._budget.response_reserve,
                         messages_in=messages_in,
@@ -603,13 +681,13 @@ class WorkingSetBuilder:
         )
         # If aggressive was requested and relevance compression is still over budget
         if strategy_name == "aggressive_truncate":
-            result_total = sum(estimate_tokens(_content_text(m.content)) for m in result)
+            result_total = sum(m.token_count for m in result)
             if result_total > effective_budget:
                 curated = self._aggressive_truncate(messages)
                 self.last_decision = ContextDecision(
                     turn=turn,
                     budget_total=budget,
-                    budget_used=sum(estimate_tokens(_content_text(m.content)) for m in curated),
+                    budget_used=sum(m.token_count for m in curated),
                     budget_tools=effective_tool_tokens,
                     budget_reserve=self._budget.response_reserve,
                     messages_in=messages_in,
@@ -659,11 +737,11 @@ class WorkingSetBuilder:
         tail = messages[-keep_tail:] if keep_tail > 0 else []
         middle = messages[keep_head: len(messages) - keep_tail] if keep_tail > 0 else messages[keep_head:]
 
-        head_tokens = sum(estimate_tokens(_content_text(m.content)) for m in head)
-        tail_tokens = sum(estimate_tokens(_content_text(m.content)) for m in tail)
+        head_tokens = sum(m.token_count for m in head)
+        tail_tokens = sum(m.token_count for m in tail)
         summary_budget = budget - head_tokens - tail_tokens - 100
 
-        middle_tokens = sum(estimate_tokens(_content_text(m.content)) for m in middle)
+        middle_tokens = sum(m.token_count for m in middle)
 
         # Try LLM compression if gateway is available and middle section is large enough
         if (
@@ -677,7 +755,7 @@ class WorkingSetBuilder:
                 summary_msg = Message(role=MessageRole.USER, content=summary_text)
                 result = head + [summary_msg] + tail
 
-                used_tokens = sum(estimate_tokens(_content_text(m.content)) for m in result)
+                used_tokens = sum(m.token_count for m in result)
                 compressed_tokens = estimate_tokens(summary_text)
                 ratio = middle_tokens / max(compressed_tokens, 1)
 

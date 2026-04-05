@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 # ---------------------------------------------------------------------------
 # Core enums and base types
@@ -95,6 +95,20 @@ class Message(BaseModel):
     tool_calls: list[ToolCallRequest] | None = None
     # Provider-specific cache control (e.g. Anthropic prompt caching)
     cache_control: dict[str, str] | None = None
+
+    # Cached token estimate (private, not serialized)
+    _cached_tokens: int | None = PrivateAttr(default=None)
+    # Fidelity level tracking for compression (private, not serialized)
+    _fidelity: int | None = PrivateAttr(default=None)
+
+    @property
+    def token_count(self) -> int:
+        """Lazily compute and cache the token estimate for this message."""
+        if self._cached_tokens is None:
+            from arcana.context.builder import _content_text, estimate_tokens
+
+            self._cached_tokens = estimate_tokens(_content_text(self.content))
+        return self._cached_tokens
 
 
 # ---------------------------------------------------------------------------
