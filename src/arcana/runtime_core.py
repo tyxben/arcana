@@ -55,6 +55,36 @@ from arcana.contracts.streaming import StreamEvent
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+import re as _re  # noqa: E402
+
+_CODE_FENCE_RE = _re.compile(
+    r"^\s*```(?:json|JSON)?\s*\n(.*?)\n\s*```\s*$",
+    _re.DOTALL,
+)
+
+
+def strip_code_fences(text: str) -> str:
+    """Strip markdown code fences wrapping JSON output.
+
+    Some providers (GLM, MiniMax) return JSON wrapped like::
+
+        ```json
+        {"key": "value"}
+        ```
+
+    This helper removes the fences so ``json.loads()`` succeeds.
+    If the text does not match the fence pattern it is returned unchanged.
+    """
+    m = _CODE_FENCE_RE.match(text)
+    if m:
+        return m.group(1).strip()
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Event hook system
 # ---------------------------------------------------------------------------
 
@@ -1629,7 +1659,7 @@ class Session:
                 parsed_json = clean_output
             elif isinstance(clean_output, str):
                 try:
-                    parsed_json = _json.loads(clean_output)
+                    parsed_json = _json.loads(strip_code_fences(clean_output))
                 except _json.JSONDecodeError as parse_error:
                     parsed_json = None
                     _first_parse_error: Exception = parse_error

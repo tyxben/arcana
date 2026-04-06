@@ -2,6 +2,29 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [0.3.3] - 2026-04-06
+
+### Fixed — Provider Compatibility
+- **Intent router bypasses structured output**: When `response_format` is set, the intent router no longer short-circuits to `direct_answer` (which didn't pass the format to the LLM). Structured output now always goes through the full ConversationAgent loop
+- **Intent router ignores available tools**: `classify()` now receives `available_tools` from the tool registry, so "What is X? Use the calc tool" correctly routes to the agent loop instead of direct_answer
+- **Structured output code fence stripping**: Providers that return JSON wrapped in markdown code fences (` ```json ... ``` `) are now auto-stripped before parsing. Fixes GLM and MiniMax structured output
+- **Structured output schema prompt strengthened**: `json_object` fallback mode now includes exact field names, a concrete example, and "do not rename or omit" instruction. Fixes Kimi/GLM/MiniMax returning wrong field names
+- **MiniMax auto-degraded to prompt-based tools**: MiniMax rejects native `tool_calls` with 400; `ProviderProfile` auto-degrades on first failure, subsequent calls use prompt-based fallback seamlessly
+
+### Verified Providers
+Real API verification for all accessible providers:
+- **DeepSeek**: direct answer ✓, tool calling ✓, structured output ✓
+- **OpenAI**: direct answer ✓, tool calling ✓, structured output ✓
+- **Anthropic**: direct answer ✓, structured output ✓ (previously verified)
+- **Kimi (Moonshot)**: direct answer ✓, tool calling ✓, structured output ✓ ← NEW
+- **GLM (Zhipu)**: direct answer ✓, tool calling ✓, structured output ✓ ← NEW
+- **MiniMax**: direct answer ✓, tool calling ✓ (auto-degraded), structured output ✓ ← NEW
+- Gemini: blocked by region restriction (API key valid)
+- Ollama: not tested (requires local deployment)
+
+### Stats
+- All 1202 tests passing, 0 failures (+18 new tests)
+
 ## [0.3.2] - 2026-04-06
 
 ### Changed — Architecture

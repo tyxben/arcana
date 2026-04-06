@@ -88,14 +88,24 @@ class RuleBasedClassifier(IntentClassifier):
     ) -> IntentClassification:
         goal_lower = goal.lower().strip()
 
+        # If the goal explicitly mentions a tool by name, never classify as
+        # direct_answer -- the user clearly wants tool execution.
+        mentions_tool = False
+        if available_tools:
+            mentions_tool = any(tool in goal_lower for tool in available_tools)
+
         # Check for direct answer patterns
-        for pattern in self.DIRECT_PATTERNS:
-            if re.search(pattern, goal_lower):
-                return IntentClassification(
-                    intent=IntentType.DIRECT_ANSWER,
-                    confidence=0.7,
-                    reasoning=f"Matched direct pattern: {pattern}",
-                )
+        if not mentions_tool:
+            for pattern in self.DIRECT_PATTERNS:
+                if re.search(pattern, goal_lower):
+                    # When tools are available, lower confidence so the tool
+                    # path has a chance to win in downstream routing.
+                    confidence = 0.5 if available_tools else 0.7
+                    return IntentClassification(
+                        intent=IntentType.DIRECT_ANSWER,
+                        confidence=confidence,
+                        reasoning=f"Matched direct pattern: {pattern}",
+                    )
 
         # Check for single tool triggers
         matched_tools: list[str] = []
@@ -132,6 +142,17 @@ class RuleBasedClassifier(IntentClassifier):
                 reasoning="Moderate complexity or tool usage needed",
                 suggested_tools=matched_tools[:3],
                 complexity_estimate=complexity,
+            )
+
+        # If the user explicitly mentioned a tool by name, route to that tool
+        # even when no trigger words matched.
+        if mentions_tool:
+            mentioned = [t for t in available_tools if t in goal_lower]  # type: ignore[union-attr]
+            return IntentClassification(
+                intent=IntentType.SINGLE_TOOL,
+                confidence=0.6,
+                reasoning=f"Goal explicitly mentions tool: {mentioned[0]}",
+                suggested_tools=mentioned[:1],
             )
 
         # Default: direct answer (most things are simple)

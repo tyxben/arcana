@@ -1291,3 +1291,176 @@ class TestParsedAlwaysModel:
         # Should fall through to failure since dict doesn't match Person
         assert result.success is False
         assert result.parsed is None
+
+
+# =========================================================================
+# Code fence stripping
+# =========================================================================
+
+
+class TestStripCodeFences:
+    """Verify that markdown code fences are stripped before JSON parsing."""
+
+    def test_strip_json_code_fence(self) -> None:
+        """Standard ```json ... ``` wrapping should be stripped."""
+        from arcana.runtime_core import strip_code_fences
+
+        raw = '```json\n{"name": "Alice", "age": 30}\n```'
+        assert strip_code_fences(raw) == '{"name": "Alice", "age": 30}'
+
+    def test_strip_plain_code_fence(self) -> None:
+        """Plain ``` ... ``` wrapping (no language tag) should be stripped."""
+        from arcana.runtime_core import strip_code_fences
+
+        raw = '```\n{"name": "Bob", "age": 25}\n```'
+        assert strip_code_fences(raw) == '{"name": "Bob", "age": 25}'
+
+    def test_no_fence_passthrough(self) -> None:
+        """Plain JSON without fences should pass through unchanged."""
+        from arcana.runtime_core import strip_code_fences
+
+        raw = '{"name": "Charlie", "age": 20}'
+        assert strip_code_fences(raw) == raw
+
+    def test_strip_fence_with_leading_whitespace(self) -> None:
+        """Fences with leading/trailing whitespace should be handled."""
+        from arcana.runtime_core import strip_code_fences
+
+        raw = '  ```json\n{"key": "value"}\n```  '
+        assert strip_code_fences(raw) == '{"key": "value"}'
+
+    def test_strip_fence_multiline_json(self) -> None:
+        """Multi-line JSON inside fences should be preserved."""
+        from arcana.runtime_core import strip_code_fences
+
+        raw = '```json\n{\n  "name": "Dave",\n  "age": 35\n}\n```'
+        result = strip_code_fences(raw)
+        parsed = json.loads(result)
+        assert parsed == {"name": "Dave", "age": 35}
+
+    def test_strip_fence_uppercase_json(self) -> None:
+        """```JSON (uppercase) should also be stripped."""
+        from arcana.runtime_core import strip_code_fences
+
+        raw = '```JSON\n{"x": 1}\n```'
+        assert strip_code_fences(raw) == '{"x": 1}'
+
+    def test_fenced_json_parses_via_strip(self) -> None:
+        """Fenced JSON should be parseable after strip_code_fences."""
+        from arcana.runtime_core import strip_code_fences
+
+        fenced = '```json\n{"name": "Eve", "age": 22}\n```'
+
+        # Simulate the Session.run() parsing path:
+        # 1. strip_code_fences  2. json.loads  3. model_validate
+        stripped = strip_code_fences(fenced)
+        parsed_json = json.loads(stripped)
+        person = Person.model_validate(parsed_json)
+
+        assert person.name == "Eve"
+        assert person.age == 22
+
+    def test_plain_fence_parses_via_strip(self) -> None:
+        """Plain ``` fence (no language tag) also works."""
+        from arcana.runtime_core import strip_code_fences
+
+        fenced = '```\n{"name": "Frank", "age": 40}\n```'
+        stripped = strip_code_fences(fenced)
+        parsed_json = json.loads(stripped)
+        person = Person.model_validate(parsed_json)
+
+        assert person.name == "Frank"
+        assert person.age == 40
+
+    def test_unfenced_json_still_works(self) -> None:
+        """Plain JSON (no fence) still works after strip_code_fences."""
+        from arcana.runtime_core import strip_code_fences
+
+        raw = '{"name": "Grace", "age": 35}'
+        stripped = strip_code_fences(raw)
+        parsed_json = json.loads(stripped)
+        person = Person.model_validate(parsed_json)
+
+        assert person.name == "Grace"
+        assert person.age == 35
+
+
+# =========================================================================
+# Strengthened schema prompt for json_object fallback
+# =========================================================================
+
+
+class TestSchemaPromptStrengthening:
+    """Verify the json_object fallback prompt includes field guidance."""
+
+    def _build_params(self, provider_name: str = "glm") -> tuple[dict[str, Any], Any]:
+        """Helper to build params with a non-json_schema provider."""
+        from arcana.contracts.llm import Message, MessageRole
+        from arcana.gateway.providers.openai_compatible import (
+            OpenAICompatibleProvider,
+        )
+
+        provider = OpenAICompatibleProvider(
+            provider_name=provider_name,
+            api_key="sk-test",
+            base_url="http://localhost",
+            supports_json_schema=False,
+        )
+
+        class MathResult(BaseModel):
+            expression: str
+            result: int
+
+        schema = MathResult.model_json_schema()
+        request = LLMRequest(
+            messages=[
+                Message(role=MessageRole.SYSTEM, content="You are a calculator."),
+                Message(role=MessageRole.USER, content="What is 42 * 17?"),
+            ],
+            response_format=schema,
+        )
+        messages = provider._convert_messages(request.messages)
+        params: dict[str, Any] = {
+            "model": "test-model",
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        }
+        provider._apply_response_format(params, request)
+        return params, provider
+
+    def test_prompt_includes_field_names_list(self) -> None:
+        """The schema prompt should list exact field names."""
+        params, _ = self._build_params()
+        system_content = params["messages"][0]["content"]
+        assert '"expression"' in system_content
+        assert '"result"' in system_content
+        assert "Required fields:" in system_content
+
+    def test_prompt_includes_exact_field_instruction(self) -> None:
+        """The prompt should explicitly forbid renaming fields."""
+        params, _ = self._build_params()
+        system_content = params["messages"][0]["content"]
+        assert "You MUST use exactly these field names" in system_content
+        assert "Do not rename or omit any fields" in system_content
+
+    def test_prompt_includes_example(self) -> None:
+        """The prompt should include a concrete example JSON."""
+        params, _ = self._build_params()
+        system_content = params["messages"][0]["content"]
+        assert "Example response format:" in system_content
+        # The example should contain the field names
+        assert '"expression"' in system_content
+        assert '"result"' in system_content
+
+    def test_prompt_example_is_valid_json(self) -> None:
+        """The example in the prompt should be parseable JSON."""
+        params, _ = self._build_params()
+        system_content = params["messages"][0]["content"]
+        # Find the example JSON block (second ```json block)
+        import re
+        blocks = re.findall(r"```json\n(.*?)\n```", system_content, re.DOTALL)
+        assert len(blocks) >= 2, "Expected at least 2 JSON blocks (schema + example)"
+        example = json.loads(blocks[-1])
+        assert "expression" in example
+        assert "result" in example

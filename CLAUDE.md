@@ -199,9 +199,12 @@ Environment variables are still supported as a fallback:
 ## Verified Providers
 
 These providers have been tested with real API keys:
-- DeepSeek (deepseek-chat) -- direct answer + tools + multi-step
-- OpenAI (gpt-4o-mini) -- direct answer + tools
+- DeepSeek (deepseek-chat) -- direct answer + tools + structured output
+- OpenAI (gpt-4o-mini) -- direct answer + tools + structured output
 - Anthropic (claude-sonnet-4) -- direct answer + structured output
+- Kimi/Moonshot (moonshot-v1-8k) -- direct answer + tools + structured output
+- GLM/Zhipu (glm-4-flash) -- direct answer + tools + structured output
+- MiniMax (abab6.5s-chat) -- direct answer + tools (auto-degraded) + structured output
 
 ## SDK Interface (`sdk.py`)
 
@@ -228,7 +231,7 @@ Runtime methods also include:
 
 ## Project Status
 
-Current: v0.3.2 -- 1184 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback, parsed always BaseModel|None), multimodal input, fidelity-graded context compression (L0-L3 spectrum), ask_user, multi-turn chat (ChatSession delegates to ConversationAgent), pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping (chain-level + step-level), batch API (run_batch + provider batch_generate), Anthropic structured output, system prompt on run(), Runtime event hooks (on/off), arcana init CLI scaffold, ChatSession max_history, provider connection lifecycle, cancellation safety, ProviderProfile with auto-degradation, custom provider registration, StreamAccumulator, LazyToolRegistry token caching.
+Current: v0.3.3 -- 1202 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback, parsed always BaseModel|None), multimodal input, fidelity-graded context compression (L0-L3 spectrum), ask_user, multi-turn chat (ChatSession delegates to ConversationAgent), pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping (chain-level + step-level), batch API (run_batch + provider batch_generate), Anthropic structured output, system prompt on run(), Runtime event hooks (on/off), arcana init CLI scaffold, ChatSession max_history, provider connection lifecycle, cancellation safety, ProviderProfile with auto-degradation, custom provider registration, StreamAccumulator, LazyToolRegistry token caching.
 
 ## Learning Resources
 

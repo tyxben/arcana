@@ -190,8 +190,15 @@ class ConversationAgent:
         # ------------------------------------------------------------------
         # Phase 1: Optional intent routing
         # ------------------------------------------------------------------
-        if self.intent_classifier:
-            classification = await self.intent_classifier.classify(goal)
+        if self.intent_classifier and not self._response_format_schema:
+            # Gather available tool names so the classifier can consider them
+            available_tools: list[str] | None = None
+            if self.tool_gateway and self.tool_gateway.registry:
+                available_tools = self.tool_gateway.registry.list_tools()
+
+            classification = await self.intent_classifier.classify(
+                goal, available_tools=available_tools,
+            )
             if classification.intent == IntentType.DIRECT_ANSWER:
                 async for event in self._direct_answer(goal):
                     yield event

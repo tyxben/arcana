@@ -351,9 +351,35 @@ class OpenAICompatibleProvider(ModelGateway):
                 import json as _json
 
                 params["response_format"] = {"type": "json_object"}
+
+                # Extract required field names from the schema for emphasis
+                props = request.response_format.get("properties", {})
+                field_names = list(props.keys())
+                # Build a concrete example with placeholder values
+                example_obj: dict[str, Any] = {}
+                for fname, fschema in props.items():
+                    ftype = fschema.get("type", "string")
+                    if ftype == "integer":
+                        example_obj[fname] = 0
+                    elif ftype == "number":
+                        example_obj[fname] = 0.0
+                    elif ftype == "boolean":
+                        example_obj[fname] = True
+                    elif ftype == "array":
+                        example_obj[fname] = []
+                    elif ftype == "object":
+                        example_obj[fname] = {}
+                    else:
+                        example_obj[fname] = "..."
+
+                field_list = ", ".join(f'"{f}"' for f in field_names)
                 schema_instruction = (
                     "\n\nYou MUST respond with valid JSON matching this exact schema:\n"
-                    f"```json\n{_json.dumps(request.response_format, indent=2)}\n```"
+                    f"```json\n{_json.dumps(request.response_format, indent=2)}\n```\n\n"
+                    f"Required fields: {field_list}\n"
+                    f"You MUST use exactly these field names. Do not rename or omit any fields.\n\n"
+                    f"Example response format:\n"
+                    f"```json\n{_json.dumps(example_obj, ensure_ascii=False)}\n```"
                 )
                 # Messages are already serialized to dicts by _convert_messages
                 for msg in params.get("messages", []):
