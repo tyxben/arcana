@@ -2,6 +2,33 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [0.3.2] - 2026-04-06
+
+### Changed — Architecture
+- **ChatSession delegates to ConversationAgent**: `ChatSession.send()` now runs the full `ConversationAgent` turn loop internally, gaining all V2 features automatically (ask_user, lazy tools, diagnostics, fidelity compression, thinking assessment, streaming events). Removes ~300 lines of duplicated LLM/tool dispatch logic
+- **Memory injection moved to first user message**: Memory context is now injected into the first user message instead of the system prompt, keeping the system prompt stable for provider prompt caching
+
+### Added — Context Intelligence
+- **Fidelity-graded compression**: Context compression now uses 4 fidelity levels instead of binary keep/compress:
+  - **L0** (score ≥ 0.7): Original message preserved verbatim
+  - **L1** (score ≥ 0.4): Condensed to key content
+  - **L2** (score < 0.4): Single summary line
+  - **L3**: Dropped entirely
+  - `ContextReport.fidelity_distribution` tracks the distribution per turn
+- **`StreamAccumulator`**: New utility class (`runtime/stream_accumulator.py`) for assembling streaming chunks into a complete `LLMResponse` — single state-management point for text, thinking, tool calls, and usage
+- **`LazyToolRegistry.tool_token_estimate`**: Cached token estimate for current working set tools, auto-invalidated on expansion/reset
+- **`Message.token_count` caching**: Token estimation now uses cached property on `Message` instead of re-computing from content text each call
+
+### Fixed
+- **Recall tool budgeting**: Fixed budget accounting for recall tool invocations
+- **Zero-budget page table eviction**: Fixed edge case where zero remaining budget caused incorrect eviction behavior in context compression
+
+### Removed
+- **Virtual memory subsystem**: Added in Context OS commit, removed after evaluation — the fidelity spectrum approach achieves the same goals with less complexity
+
+### Stats
+- All 1184 tests passing, 0 failures
+
 ## [0.3.1] - 2026-04-05
 
 ### Added — Provider Compatibility

@@ -51,8 +51,8 @@ Key capabilities beyond basic turn loop:
 - **Thinking-informed assessment**: `_assess_turn` analyzes extended thinking blocks for uncertainty/verification/incomplete signals, adjusts confidence
 - **Structured output**: `response_format` passes a Pydantic model's JSON Schema to the provider; tools remain available and coexist with structured output
 - **Multimodal input**: `images` parameter accepts URLs, file paths, data URIs; auto-converts between OpenAI and Anthropic content block formats
-- **LLM-driven context compression**: `WorkingSetBuilder.abuild_conversation_context()` uses a cheap LLM call for semantic summarization when history exceeds budget; falls back to keyword-based compression
-- **Multi-turn chat**: `runtime.chat()` returns a `ChatSession` with persistent history, shared budget, and streaming
+- **Fidelity-graded context compression**: `WorkingSetBuilder.abuild_conversation_context()` compresses history using 4 fidelity levels (L0 original → L3 dropped) based on relevance scoring; falls back to LLM summarization or aggressive truncation
+- **Multi-turn chat**: `runtime.chat()` returns a `ChatSession` that delegates to `ConversationAgent` internally, gaining all V2 features (ask_user, lazy tools, diagnostics, fidelity compression, thinking assessment)
 - **Sequential pipeline**: `runtime.chain()` runs a list of `ChainStep`s sequentially, automatically passing each step's output as context to the next
 - **Context passing**: `runtime.run(context=...)` injects additional context (dict or string) into the agent's goal as a `<context>` block
 
@@ -131,7 +131,7 @@ V1 path (still compatible):
 - `executor.py`: Route execution (direct answer vs agent loop)
 
 **context/** - Working set context management:
-- `builder.py`: `WorkingSetBuilder` -- context block assembly, budget enforcement, LLM-driven compression (`abuild_conversation_context`)
+- `builder.py`: `WorkingSetBuilder` -- context block assembly, budget enforcement, fidelity-graded compression (L0-L3 spectrum) (`abuild_conversation_context`)
 
 **gateway/** - Model Gateway with provider abstraction:
 - `ModelGatewayRegistry`: Multi-provider routing with fallback chains
@@ -228,7 +228,7 @@ Runtime methods also include:
 
 ## Project Status
 
-Current: v0.2.1 -- 1234 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback, parsed always BaseModel|None), multimodal input, LLM context compression, ask_user, multi-turn chat, pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping (chain-level + step-level), batch API (run_batch + provider batch_generate), Anthropic structured output, system prompt on run(), Runtime event hooks (on/off), arcana init CLI scaffold, ChatSession max_history, provider connection lifecycle, cancellation safety.
+Current: v0.3.2 -- 1184 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback, parsed always BaseModel|None), multimodal input, fidelity-graded context compression (L0-L3 spectrum), ask_user, multi-turn chat (ChatSession delegates to ConversationAgent), pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping (chain-level + step-level), batch API (run_batch + provider batch_generate), Anthropic structured output, system prompt on run(), Runtime event hooks (on/off), arcana init CLI scaffold, ChatSession max_history, provider connection lifecycle, cancellation safety, ProviderProfile with auto-degradation, custom provider registration, StreamAccumulator, LazyToolRegistry token caching.
 
 ## Learning Resources
 

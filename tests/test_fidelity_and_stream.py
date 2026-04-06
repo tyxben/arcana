@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
-from arcana.context.builder import WorkingSetBuilder, _content_text, estimate_tokens
-from arcana.contracts.context import ContextReport, TokenBudget
+from arcana.context.builder import WorkingSetBuilder
+from arcana.contracts.context import TokenBudget
 from arcana.contracts.llm import Message, MessageRole, StreamChunk, TokenUsage
 from arcana.runtime.stream_accumulator import StreamAccumulator
-
 
 # ---------------------------------------------------------------------------
 # 1. Fidelity level assignment tests
