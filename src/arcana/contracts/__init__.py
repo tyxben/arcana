@@ -1,5 +1,6 @@
 """Core contracts and data models for Arcana."""
 
+from arcana.contracts.channel import ExecutionChannel
 from arcana.contracts.llm import (
     Budget,
     LLMRequest,
@@ -26,6 +27,8 @@ from arcana.contracts.trace import (
 )
 
 __all__ = [
+    # Channel
+    "ExecutionChannel",
     # LLM
     "ModelConfig",
     "Message",

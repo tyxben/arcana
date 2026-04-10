@@ -32,6 +32,7 @@ from arcana.contracts.tool import ASK_USER_TOOL_NAME, ToolCall, ToolResult
 from arcana.contracts.turn import TurnAssessment, TurnFacts
 
 if TYPE_CHECKING:
+    from arcana.contracts.channel import ExecutionChannel
     from arcana.gateway.budget import BudgetTracker
     from arcana.gateway.registry import ModelGatewayRegistry
     from arcana.routing.classifier import IntentClassifier
@@ -89,6 +90,7 @@ class ConversationAgent:
         input_handler: Callable[..., Any] | None = None,
         context_builder: Any | None = None,  # WorkingSetBuilder | None
         initial_messages: list[Message] | None = None,
+        channel: ExecutionChannel | None = None,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -98,6 +100,9 @@ class ConversationAgent:
         self.intent_classifier = intent_classifier
         self.max_turns = max_turns
         self.system_prompt = system_prompt
+
+        # Execution channel for Brain/Hands separation (optional, for future use)
+        self._channel = channel
 
         # Built-in ask_user tool handler
         from arcana.runtime.ask_user import AskUserHandler
@@ -151,6 +156,15 @@ class ConversationAgent:
 
         # Populated during a run; accessed by run() after astream() finishes.
         self._state: AgentState | None = None
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def channel(self) -> ExecutionChannel | None:
+        """Execution channel for Brain/Hands separation (None = direct gateway calls)."""
+        return self._channel
 
     # ------------------------------------------------------------------
     # Public API
@@ -767,10 +781,10 @@ class ConversationAgent:
                 output=answer,
             ))
 
-        # Handle regular tool calls via ToolGateway
+        # Handle regular tool calls via channel (preferred) or ToolGateway
         if gateway_tool_calls:
-            if not self.tool_gateway:
-                # No tool gateway -- return synthetic errors for non-ask_user tools
+            if not self._channel and not self.tool_gateway:
+                # No channel or tool gateway -- return synthetic errors
                 for tc in gateway_tool_calls:
                     results.append(ToolResult(
                         tool_call_id=tc.id,
@@ -792,7 +806,10 @@ class ConversationAgent:
                     gw_calls.append(
                         ToolCall(id=tc.id, name=tc.name, arguments=args)
                     )
-                gw_results = await self.tool_gateway.call_many_concurrent(gw_calls)
+                if self._channel:
+                    gw_results = await self._channel.execute_many(gw_calls)
+                else:
+                    gw_results = await self.tool_gateway.call_many_concurrent(gw_calls)
                 results.extend(gw_results)
 
         # Log tool results

@@ -645,6 +645,10 @@ class Runtime:
             await self._mcp_client.disconnect_all()
             self._mcp_client = None
 
+        # Close tool gateway (releases execution backend resources)
+        if self._tool_gateway is not None:
+            await self._tool_gateway.close()
+
         # Close provider HTTP clients to release connection pools
         if self._gateway is not None:
             await self._gateway.close()

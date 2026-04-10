@@ -98,6 +98,7 @@ V1 path (still compatible):
 - `diagnosis.py`: `DiagnosticBrief`, `ErrorCategory` -- structured error recovery
 - `llm.py`: `LLMRequest`, `LLMResponse`, `ModelConfig`, `ContentBlock` -- unified LLM interface
 - `tool.py`: `ToolSpec`, `ToolCall`, `ToolResult`, `ASK_USER_TOOL_NAME` -- tool execution contracts
+- `channel.py`: `ExecutionChannel` -- protocol for Brain/Hands communication separation
 - `state.py`: `AgentState` -- execution state with budget tracking
 - `runtime.py`: Runtime configuration and turn state
 - `eval.py`: Evaluation framework contracts
@@ -140,7 +141,9 @@ V1 path (still compatible):
 - `batch_generate()`: Available on both individual providers and `ModelGatewayRegistry` -- concurrent LLM calls via `asyncio.Semaphore`
 
 **tool_gateway/** - Tool execution with auth, validation, audit:
-- `gateway.py`: `ToolGateway` with `call_many_concurrent()` for parallel execution via `asyncio.gather`
+- `gateway.py`: `ToolGateway` with `call_many_concurrent()` for parallel execution via `asyncio.gather`, `close()` for backend cleanup
+- `execution_backend.py`: `ExecutionBackend` protocol + `InProcessBackend` -- pluggable tool execution environment (in-process, subprocess, container, remote)
+- `local_channel.py`: `LocalChannel` -- default `ExecutionChannel` impl wrapping ToolGateway
 
 **eval/** - Evaluation framework for agent quality
 
@@ -231,7 +234,7 @@ Runtime methods also include:
 
 ## Project Status
 
-Current: v0.3.3 -- 1202 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback, parsed always BaseModel|None), multimodal input, fidelity-graded context compression (L0-L3 spectrum), ask_user, multi-turn chat (ChatSession delegates to ConversationAgent), pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping (chain-level + step-level), batch API (run_batch + provider batch_generate), Anthropic structured output, system prompt on run(), Runtime event hooks (on/off), arcana init CLI scaffold, ChatSession max_history, provider connection lifecycle, cancellation safety, ProviderProfile with auto-degradation, custom provider registration, StreamAccumulator, LazyToolRegistry token caching.
+Current: v0.4.0 -- 1227 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback, parsed always BaseModel|None), multimodal input, fidelity-graded context compression (L0-L3 spectrum), ask_user, multi-turn chat (ChatSession delegates to ConversationAgent), pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping (chain-level + step-level), batch API (run_batch + provider batch_generate), Anthropic structured output, system prompt on run(), Runtime event hooks (on/off), arcana init CLI scaffold, ChatSession max_history, provider connection lifecycle, cancellation safety, ProviderProfile with auto-degradation, custom provider registration, StreamAccumulator, LazyToolRegistry token caching.
 
 ## Learning Resources
 

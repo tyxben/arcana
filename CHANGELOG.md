@@ -2,6 +2,18 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [0.4.0] - 2026-04-11
+
+### Added — Execution Isolation Architecture
+- **`ExecutionBackend` protocol**: Pluggable abstraction for WHERE tools execute. Decouples tool logic from execution environment. Ships with `InProcessBackend` (default, zero overhead). Framework extension point for subprocess/container/remote backends
+- **`ExecutionChannel` protocol**: Pluggable abstraction for HOW the agent loop communicates with tool execution. Enables future physical separation of Brain (reasoning) and Hands (tool execution). Ships with `LocalChannel` (wraps ToolGateway, zero overhead)
+- **`ToolGateway.close()`**: Lifecycle method that invokes `backend.cleanup()`, ensuring non-default backends (socket, container, etc.) release resources properly
+- **`Runtime.close()` chains to `ToolGateway.close()`**: Full resource cleanup cascade from Runtime → ToolGateway → ExecutionBackend
+- **`ConversationAgent` channel routing**: `_execute_tools()` prefers `ExecutionChannel` when provided, falls back to `ToolGateway` otherwise. `ask_user` always bypasses the channel
+
+### Stats
+- All 1227 tests passing, 0 failures (+25 new tests)
+
 ## [0.3.3] - 2026-04-06
 
 ### Fixed — Provider Compatibility

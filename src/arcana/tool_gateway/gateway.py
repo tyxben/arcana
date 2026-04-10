@@ -21,6 +21,7 @@ from arcana.contracts.trace import (
     TraceEvent,
 )
 from arcana.tool_gateway.base import ToolExecutionError, ToolProvider
+from arcana.tool_gateway.execution_backend import ExecutionBackend, InProcessBackend
 from arcana.tool_gateway.validators import validate_arguments
 from arcana.utils.hashing import canonical_hash
 
@@ -76,6 +77,7 @@ class ToolGateway:
         trace_writer: TraceWriter | None = None,
         granted_capabilities: set[str] | None = None,
         confirmation_callback: Callable[[ToolCall, ToolSpec], Awaitable[bool]] | None = None,
+        backend: ExecutionBackend | None = None,
     ) -> None:
         """
         Initialize the ToolGateway.
@@ -86,15 +88,22 @@ class ToolGateway:
             granted_capabilities: Set of capabilities granted to this agent
             confirmation_callback: Async callback for write confirmation.
                 If None and a write tool is called, ConfirmationRequired is raised.
+            backend: Execution backend for tool isolation.
+                Defaults to InProcessBackend (current behavior, zero overhead).
         """
         self.registry = registry
         self.trace_writer = trace_writer
         self.granted_capabilities = granted_capabilities or set()
         self.confirmation_callback = confirmation_callback
+        self.backend = backend or InProcessBackend()
 
         # Idempotency cache: key -> ToolResult
         self._idempotency_cache: dict[str, ToolResult] = {}
         self._cache_lock = asyncio.Lock()
+
+    async def close(self) -> None:
+        """Release backend resources."""
+        await self.backend.cleanup()
 
     async def call(
         self,
@@ -349,7 +358,7 @@ class ToolGateway:
 
             try:
                 result = await asyncio.wait_for(
-                    provider.execute(call),
+                    self.backend.execute(provider, call),
                     timeout=spec.timeout_ms / 1000.0,
                 )
                 result.duration_ms = int(time.monotonic() * 1000) - start_ms
