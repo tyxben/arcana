@@ -14,7 +14,7 @@ from arcana.gateway.base import BudgetExceededError
 @dataclass
 class BudgetTracker:
     """
-    Tracks token usage, cost, and time against budget limits.
+    Tracks token usage, cost, time, and iterations against budget limits.
 
     Thread-safe budget tracking with real-time limit enforcement.
     """
@@ -23,11 +23,13 @@ class BudgetTracker:
     max_tokens: int | None = None
     max_cost_usd: float | None = None
     max_time_ms: int | None = None
+    max_iterations: int | None = None
 
     # Consumed
     tokens_used: int = field(default=0)
     cost_usd: float = field(default=0.0)
     start_time_ms: int = field(default_factory=lambda: int(time.time() * 1000))
+    iterations_used: int = field(default=0)
 
     # Thread safety
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
@@ -42,6 +44,7 @@ class BudgetTracker:
             max_tokens=budget.max_tokens,
             max_cost_usd=budget.max_cost_usd,
             max_time_ms=budget.max_time_ms,
+            max_iterations=budget.max_iterations,
         )
 
     @property
@@ -69,6 +72,13 @@ class BudgetTracker:
         if self.max_time_ms is None:
             return None
         return max(0, self.max_time_ms - self.elapsed_ms)
+
+    @property
+    def iterations_remaining(self) -> int | None:
+        """Get remaining iteration budget."""
+        if self.max_iterations is None:
+            return None
+        return max(0, self.max_iterations - self.iterations_used)
 
     def check_budget(self) -> None:
         """
@@ -99,6 +109,23 @@ class BudgetTracker:
                     budget_type="time",
                 )
 
+            if self.max_iterations and self.iterations_used >= self.max_iterations:
+                raise BudgetExceededError(
+                    f"Iteration budget exceeded: used {self.iterations_used:,} / limit {self.max_iterations:,} iterations. "
+                    f"Increase budget with Budget(max_iterations={self.max_iterations * 2:,}) or reduce task complexity.",
+                    budget_type="iterations",
+                )
+
+    def consume_iteration(self) -> None:
+        """
+        Consume one iteration from the budget. Thread-safe.
+
+        Call at the start of each agent turn to track iteration usage
+        across all agents sharing this budget.
+        """
+        with self._lock:
+            self.iterations_used += 1
+
     def add_usage(self, usage: TokenUsage, cost: float | None = None) -> None:
         """
         Add token usage and optionally cost.
@@ -111,13 +138,19 @@ class BudgetTracker:
             self.tokens_used += usage.total_tokens
             self.cost_usd += cost if cost is not None else usage.cost_estimate
 
-    def can_afford(self, estimated_tokens: int, estimated_cost: float = 0.0) -> bool:
+    def can_afford(
+        self,
+        estimated_tokens: int,
+        estimated_cost: float = 0.0,
+        iterations: int = 0,
+    ) -> bool:
         """
-        Check if the budget can afford an estimated token count and cost.
+        Check if the budget can afford an estimated token count, cost, and iterations.
 
         Args:
             estimated_tokens: Estimated tokens for the next call
             estimated_cost: Estimated cost in USD for the next call
+            iterations: Estimated iterations for the next call
 
         Returns:
             True if affordable, False otherwise
@@ -125,6 +158,8 @@ class BudgetTracker:
         if self.max_tokens and (self.tokens_used + estimated_tokens) > self.max_tokens:
             return False
         if self.max_cost_usd and (self.cost_usd + estimated_cost) > self.max_cost_usd:
+            return False
+        if self.max_iterations and (self.iterations_used + iterations) > self.max_iterations:
             return False
         return True
 
@@ -134,9 +169,11 @@ class BudgetTracker:
             max_tokens=self.max_tokens,
             max_cost_usd=self.max_cost_usd,
             max_time_ms=self.max_time_ms,
+            max_iterations=self.max_iterations,
             tokens_used=self.tokens_used,
             cost_usd=self.cost_usd,
             time_ms=self.elapsed_ms,
+            iterations_used=self.iterations_used,
         )
 
     def reset(self) -> None:
@@ -145,3 +182,4 @@ class BudgetTracker:
             self.tokens_used = 0
             self.cost_usd = 0.0
             self.start_time_ms = int(time.time() * 1000)
+            self.iterations_used = 0

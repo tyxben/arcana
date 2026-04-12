@@ -76,6 +76,15 @@ def mcp_error_to_tool_error(error: MCPError) -> ToolError:
     )
 
 
+def is_notification(message: MCPMessage) -> bool:
+    """Check if a JSON-RPC message is a server notification.
+
+    Notifications have a ``method`` field but no ``id``.  They are
+    server-initiated and do not expect a response.
+    """
+    return message.method is not None and message.id is None
+
+
 def make_request(
     method: str,
     params: dict[str, Any] | None = None,

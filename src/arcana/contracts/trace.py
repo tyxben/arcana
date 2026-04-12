@@ -72,17 +72,25 @@ class BudgetSnapshot(BaseModel):
     max_tokens: int | None = None
     max_cost_usd: float | None = None
     max_time_ms: int | None = None
+    max_iterations: int | None = None
 
     # Consumed
     tokens_used: int = 0
     cost_usd: float = 0.0
     time_ms: int = 0
+    iterations_used: int = 0
 
     @property
     def tokens_remaining(self) -> int | None:
         if self.max_tokens is None:
             return None
         return max(0, self.max_tokens - self.tokens_used)
+
+    @property
+    def iterations_remaining(self) -> int | None:
+        if self.max_iterations is None:
+            return None
+        return max(0, self.max_iterations - self.iterations_used)
 
     @property
     def budget_exhausted(self) -> bool:
@@ -92,6 +100,8 @@ class BudgetSnapshot(BaseModel):
         if self.max_cost_usd and self.cost_usd >= self.max_cost_usd:
             return True
         if self.max_time_ms and self.time_ms >= self.max_time_ms:
+            return True
+        if self.max_iterations and self.iterations_used >= self.max_iterations:
             return True
         return False
 

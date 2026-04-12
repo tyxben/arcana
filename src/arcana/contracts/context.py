@@ -133,6 +133,10 @@ class ContextStrategy(BaseModel):
     # aggressive_truncate config
     aggressive_keep_turns: int = 2  # Keep only last N user+assistant pairs
 
+    # Tool result pruning (Phase 0 — zero-cost, applied before compression)
+    tool_result_staleness_turns: int = 4    # tool results older than N turns are stale
+    tool_result_prune_max_chars: int = 200  # keep this many chars as summary
+
 
 class ContextReport(BaseModel):
     """Report of how context was composed for a single LLM call.
@@ -161,6 +165,10 @@ class ContextReport(BaseModel):
     # Utilization
     window_size: int = 128_000
     utilization: float = 0.0
+
+    # Phase 0: tool result pruning stats
+    tool_results_pruned: int = 0        # how many tool results Phase 0 pruned
+    tool_results_tokens_saved: int = 0  # tokens saved by Phase 0
 
     # Fidelity distribution (when compression uses fidelity spectrum)
     fidelity_distribution: dict[str, int] = Field(default_factory=dict)

@@ -143,6 +143,7 @@ class Budget(BaseModel):
     max_tokens: int | None = None
     max_cost_usd: float | None = None
     max_time_ms: int | None = None
+    max_iterations: int | None = None
 
 
 # ---------------------------------------------------------------------------

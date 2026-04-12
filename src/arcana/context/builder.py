@@ -119,6 +119,86 @@ class WorkingSetBuilder:
         self._memory_injected = False
 
     # ------------------------------------------------------------------
+    # Phase 0: Zero-cost tool result pruning
+    # ------------------------------------------------------------------
+
+    def _prune_stale_tool_results(
+        self,
+        messages: list[Message],
+        *,
+        current_turn: int,
+    ) -> tuple[list[Message], int, int]:
+        """Zero-cost pruning: replace old tool results with summary placeholders.
+
+        Rules:
+        - Only prune messages with role "tool"
+        - Only prune if the message is in the "stale" region (before the recent tail)
+        - The recent tail is defined as the last ``staleness_turns * 3`` messages
+          (each turn typically has ~3 messages: user/assistant/tool)
+        - Do NOT prune tool messages containing "error" or "failed"
+        - Replace pruned messages with a shorter version preserving:
+          - First N chars of content (configurable via tool_result_prune_max_chars)
+          - A header: "[tool result pruned, was ~{original_tokens} tokens]"
+
+        Returns:
+            (pruned_messages, count_pruned, tokens_saved)
+        """
+        staleness_turns = self._strategy.tool_result_staleness_turns
+        max_chars = self._strategy.tool_result_prune_max_chars
+
+        # Recent tail boundary: messages within this index range are "recent"
+        recent_count = staleness_turns * 3
+        stale_boundary = len(messages) - recent_count
+
+        if stale_boundary <= 0:
+            # All messages are recent — nothing to prune
+            return messages, 0, 0
+
+        result: list[Message] = []
+        count_pruned = 0
+        tokens_saved = 0
+
+        for i, msg in enumerate(messages):
+            # Only prune messages in the stale region
+            if i >= stale_boundary:
+                result.append(msg)
+                continue
+
+            role = msg.role if isinstance(msg.role, str) else msg.role.value
+            if role != "tool":
+                result.append(msg)
+                continue
+
+            content = _content_text(msg.content)
+            content_lower = content.lower()
+
+            # Never prune error/failure results
+            if "error" in content_lower or "failed" in content_lower:
+                result.append(msg)
+                continue
+
+            # Prune: replace with summary placeholder
+            original_tokens = msg.token_count
+            preview = content[:max_chars]
+            pruned_content = (
+                f"[tool result pruned, was ~{original_tokens} tokens]\n{preview}"
+            )
+            pruned_msg = Message(
+                role=msg.role,
+                content=pruned_content,
+                name=msg.name,
+                tool_call_id=msg.tool_call_id,
+            )
+            pruned_tokens = pruned_msg.token_count
+            saved = max(0, original_tokens - pruned_tokens)
+
+            count_pruned += 1
+            tokens_saved += saved
+            result.append(pruned_msg)
+
+        return result, count_pruned, tokens_saved
+
+    # ------------------------------------------------------------------
     # V2 Conversation mode — for ConversationAgent
     # ------------------------------------------------------------------
 
@@ -265,6 +345,13 @@ class WorkingSetBuilder:
             memory_injected = True
             self._memory_injected = True
 
+        # Phase 0: prune stale tool results (zero-cost, before compression)
+        messages, p0_pruned, p0_saved = self._prune_stale_tool_results(
+            messages, current_turn=turn,
+        )
+        if p0_pruned > 0:
+            total = sum(m.token_count for m in messages)
+
         # Check if history budget cap forces compression even if under total budget
         effective_budget = budget
         if self._budget.history_budget is not None and messages:
@@ -290,7 +377,7 @@ class WorkingSetBuilder:
                 memory_injected=memory_injected,
                 explanation=f"Under budget ({total}/{budget} tokens), all {len(messages)} messages kept",
             )
-            self.last_report = self._build_context_report(
+            report = self._build_context_report(
                 turn=turn,
                 strategy_name="passthrough",
                 curated=messages,
@@ -300,6 +387,9 @@ class WorkingSetBuilder:
                 memory_injected=memory_injected,
                 messages_in=messages_in,
             )
+            report.tool_results_pruned = p0_pruned
+            report.tool_results_tokens_saved = p0_saved
+            self.last_report = report
             return messages
 
         # Over budget — try tail_preserve first (relevance compression),
@@ -332,7 +422,7 @@ class WorkingSetBuilder:
                     history_compressed=True,
                     explanation=f"Aggressive truncate: kept system + last {self._strategy.aggressive_keep_turns} turns",
                 )
-                self.last_report = self._build_context_report(
+                report = self._build_context_report(
                     turn=turn,
                     strategy_name="aggressive_truncate",
                     curated=curated,
@@ -342,9 +432,12 @@ class WorkingSetBuilder:
                     memory_injected=memory_injected,
                     messages_in=messages_in,
                 )
+                report.tool_results_pruned = p0_pruned
+                report.tool_results_tokens_saved = p0_saved
+                self.last_report = report
                 return curated
 
-        self.last_report = self._build_context_report(
+        report = self._build_context_report(
             turn=turn,
             strategy_name=effective_strategy,
             curated=result,
@@ -354,6 +447,9 @@ class WorkingSetBuilder:
             memory_injected=memory_injected,
             messages_in=messages_in,
         )
+        report.tool_results_pruned = p0_pruned
+        report.tool_results_tokens_saved = p0_saved
+        self.last_report = report
         return result
 
     def _compress_with_relevance(
@@ -566,6 +662,13 @@ class WorkingSetBuilder:
             memory_injected = True
             self._memory_injected = True
 
+        # Phase 0: prune stale tool results (zero-cost, before compression)
+        messages, p0_pruned, p0_saved = self._prune_stale_tool_results(
+            messages, current_turn=turn,
+        )
+        if p0_pruned > 0:
+            total = sum(m.token_count for m in messages)
+
         # Check if history budget cap forces compression
         effective_budget = budget
         if self._budget.history_budget is not None and messages:
@@ -591,7 +694,7 @@ class WorkingSetBuilder:
                 memory_injected=memory_injected,
                 explanation=f"Under budget ({total}/{budget} tokens), all {len(messages)} messages kept",
             )
-            self.last_report = self._build_context_report(
+            report = self._build_context_report(
                 turn=turn,
                 strategy_name="passthrough",
                 curated=messages,
@@ -601,6 +704,9 @@ class WorkingSetBuilder:
                 memory_injected=memory_injected,
                 messages_in=messages_in,
             )
+            report.tool_results_pruned = p0_pruned
+            report.tool_results_tokens_saved = p0_saved
+            self.last_report = report
             return messages
 
         # Strategy: llm_summarize or aggressive_truncate with gateway available —
@@ -632,7 +738,7 @@ class WorkingSetBuilder:
                         history_compressed=True,
                         explanation=f"Aggressive truncate: kept system + last {self._strategy.aggressive_keep_turns} turns",
                     )
-                    self.last_report = self._build_context_report(
+                    report = self._build_context_report(
                         turn=turn,
                         strategy_name="aggressive_truncate",
                         curated=curated,
@@ -642,8 +748,11 @@ class WorkingSetBuilder:
                         memory_injected=memory_injected,
                         messages_in=messages_in,
                     )
+                    report.tool_results_pruned = p0_pruned
+                    report.tool_results_tokens_saved = p0_saved
+                    self.last_report = report
                     return curated
-            self.last_report = self._build_context_report(
+            report = self._build_context_report(
                 turn=turn,
                 strategy_name="llm_summarize",
                 curated=result,
@@ -653,6 +762,9 @@ class WorkingSetBuilder:
                 memory_injected=memory_injected,
                 messages_in=messages_in,
             )
+            report.tool_results_pruned = p0_pruned
+            report.tool_results_tokens_saved = p0_saved
+            self.last_report = report
             return result
 
         # Default: tail_preserve (or aggressive without gateway)
@@ -682,7 +794,7 @@ class WorkingSetBuilder:
                     history_compressed=True,
                     explanation=f"Aggressive truncate: kept system + last {self._strategy.aggressive_keep_turns} turns",
                 )
-                self.last_report = self._build_context_report(
+                report = self._build_context_report(
                     turn=turn,
                     strategy_name="aggressive_truncate",
                     curated=curated,
@@ -692,8 +804,11 @@ class WorkingSetBuilder:
                     memory_injected=memory_injected,
                     messages_in=messages_in,
                 )
+                report.tool_results_pruned = p0_pruned
+                report.tool_results_tokens_saved = p0_saved
+                self.last_report = report
                 return curated
-        self.last_report = self._build_context_report(
+        report = self._build_context_report(
             turn=turn,
             strategy_name=effective_strategy,
             curated=result,
@@ -703,6 +818,9 @@ class WorkingSetBuilder:
             memory_injected=memory_injected,
             messages_in=messages_in,
         )
+        report.tool_results_pruned = p0_pruned
+        report.tool_results_tokens_saved = p0_saved
+        self.last_report = report
         return result
 
     async def _acompress_with_relevance(

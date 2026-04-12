@@ -260,9 +260,10 @@ class ConversationAgent:
         for _turn in range(self.max_turns):
             # ── Steps 1-6: happen EVERY turn ──
 
-            # 1. Budget check
+            # 1. Budget check + consume iteration
             if self.budget_tracker:
                 self.budget_tracker.check_budget()
+                self.budget_tracker.consume_iteration()
 
             # 2. Context rebuild — delegate to WorkingSetBuilder
             #    Always include tools. Token optimization for tools belongs in
@@ -1108,6 +1109,7 @@ class ConversationAgent:
         for _turn in range(remaining):
             if self.budget_tracker:
                 self.budget_tracker.check_budget()
+                self.budget_tracker.consume_iteration()
 
             if self._lazy_registry:
                 tool_token_cost = self._lazy_registry.tool_token_estimate + self._ask_user_token_cost

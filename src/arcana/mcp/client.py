@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from arcana.contracts.mcp import MCPServerConfig, MCPToolSpec, MCPTransportType
-from arcana.mcp.protocol import make_request
+from arcana.mcp.protocol import is_notification, make_request
 from arcana.mcp.transport.base import MCPTransport
 
 logger = logging.getLogger(__name__)
@@ -18,16 +19,35 @@ class MCPClient:
     Manages connections to one or more MCP servers.
 
     Lifecycle: connect() -> list_tools() -> call_tool() -> disconnect()
+
+    Parameters
+    ----------
+    on_tools_changed:
+        Optional async callback invoked when a server sends a
+        ``notifications/tools/list_changed`` notification.  The callback
+        receives ``(server_name, new_tool_list)`` *after* this client's
+        ``_tools`` dict has already been updated.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        on_tools_changed: Callable[[str, list[MCPToolSpec]], Awaitable[None]] | None = None,
+    ) -> None:
         self._connections: dict[str, MCPConnection] = {}
         self._tools: dict[str, tuple[str, MCPToolSpec]] = {}  # qualified_name -> (server_name, spec)
+        self._on_tools_changed = on_tools_changed
 
     async def connect(self, config: MCPServerConfig) -> list[MCPToolSpec]:
         """Connect to an MCP server and discover its tools."""
         transport = _create_transport(config)
         connection = MCPConnection(config=config, transport=transport)
+
+        # Wire up notification callback if the caller wants tool-change events.
+        if self._on_tools_changed is not None:
+            connection.set_notification_callback(
+                self._make_tools_changed_handler(config.name)
+            )
+
         try:
             await connection.connect()
         except Exception as exc:
@@ -40,9 +60,7 @@ class MCPClient:
 
         # Discover tools
         tools = await connection.list_tools()
-        for tool in tools:
-            qualified_name = f"{config.name}.{tool.name}"
-            self._tools[qualified_name] = (config.name, tool)
+        self._update_tools_for_server(config.name, tools)
 
         self._connections[config.name] = connection
         logger.info(
@@ -51,6 +69,37 @@ class MCPClient:
             len(tools),
         )
         return tools
+
+    # ------------------------------------------------------------------
+    # Internal helpers for dynamic tool updates
+    # ------------------------------------------------------------------
+
+    def _update_tools_for_server(
+        self, server_name: str, tools: list[MCPToolSpec]
+    ) -> None:
+        """Replace all tool entries for *server_name* with *tools*."""
+        # Remove old entries for this server
+        self._tools = {
+            k: v for k, v in self._tools.items() if v[0] != server_name
+        }
+        # Add new entries
+        for tool in tools:
+            qualified_name = f"{server_name}.{tool.name}"
+            self._tools[qualified_name] = (server_name, tool)
+
+    def _make_tools_changed_handler(
+        self, server_name: str
+    ) -> Callable[[str, list[MCPToolSpec]], Awaitable[None]]:
+        """Return an async handler bound to *server_name*."""
+
+        async def _handler(
+            _server_name: str, new_tools: list[MCPToolSpec]
+        ) -> None:
+            self._update_tools_for_server(server_name, new_tools)
+            assert self._on_tools_changed is not None
+            await self._on_tools_changed(server_name, new_tools)
+
+        return _handler
 
     async def disconnect(self, name: str) -> None:
         """Disconnect from an MCP server."""
@@ -100,6 +149,21 @@ class MCPConnection:
         self._msg_counter = 0
         self._connected = False
         self._reconnect_lock = asyncio.Lock()
+        self._notification_callback: (
+            Callable[[str, list[MCPToolSpec]], Awaitable[None]] | None
+        ) = None
+
+    def set_notification_callback(
+        self,
+        callback: Callable[[str, list[MCPToolSpec]], Awaitable[None]],
+    ) -> None:
+        """Register a callback for ``notifications/tools/list_changed``.
+
+        The callback receives ``(server_name, new_tool_list)`` and is
+        invoked during normal request-response processing whenever a
+        notification is encountered inline.
+        """
+        self._notification_callback = callback
 
     async def connect(self) -> None:
         """Connect and initialize."""
@@ -160,7 +224,7 @@ class MCPConnection:
         request = make_request(method, params, msg_id)
         await self._transport.send(request)
 
-        # Read response (skip notifications), bounded by server timeout
+        # Read response (dispatch notifications), bounded by server timeout
         deadline = asyncio.get_event_loop().time() + (self._config.timeout_ms / 1000)
         while True:
             remaining = deadline - asyncio.get_event_loop().time()
@@ -172,11 +236,33 @@ class MCPConnection:
             response = await asyncio.wait_for(
                 self._transport.receive(), timeout=remaining,
             )
+            # Handle server-initiated notifications inline
+            if is_notification(response):
+                await self._handle_notification(response)
+                continue
             if response.id == msg_id:
                 if response.error:
                     raise MCPCallError(response.error.code, response.error.message)
                 return response.result
-            # else: notification, skip
+            # else: response for a different id, skip
+
+    async def _handle_notification(self, message: Any) -> None:
+        """Route a server notification to the appropriate handler."""
+        method = message.method
+        if method == "notifications/tools/list_changed":
+            logger.info(
+                "MCP server '%s' signalled tools/list_changed",
+                self._config.name,
+            )
+            if self._notification_callback is not None:
+                new_tools = await self.list_tools()
+                await self._notification_callback(self._config.name, new_tools)
+        else:
+            logger.debug(
+                "Ignoring unknown MCP notification '%s' from '%s'",
+                method,
+                self._config.name,
+            )
 
     async def _reconnect(self) -> None:
         """Reconnect with exponential backoff (serialized via lock)."""
