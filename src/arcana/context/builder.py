@@ -12,6 +12,7 @@ from arcana.contracts.context import (
     ContextLayer,
     ContextReport,
     ContextStrategy,
+    MessageDecision,
     StepContext,
     TokenBudget,
     WorkingSet,
@@ -127,7 +128,7 @@ class WorkingSetBuilder:
         messages: list[Message],
         *,
         current_turn: int,
-    ) -> tuple[list[Message], int, int]:
+    ) -> tuple[list[Message], int, int, dict[int, int]]:
         """Zero-cost pruning: replace old tool results with summary placeholders.
 
         Rules:
@@ -141,7 +142,8 @@ class WorkingSetBuilder:
           - A header: "[tool result pruned, was ~{original_tokens} tokens]"
 
         Returns:
-            (pruned_messages, count_pruned, tokens_saved)
+            (pruned_messages, count_pruned, tokens_saved, pruning_info)
+            where pruning_info maps pruned message index → original token count.
         """
         staleness_turns = self._strategy.tool_result_staleness_turns
         max_chars = self._strategy.tool_result_prune_max_chars
@@ -152,11 +154,12 @@ class WorkingSetBuilder:
 
         if stale_boundary <= 0:
             # All messages are recent — nothing to prune
-            return messages, 0, 0
+            return messages, 0, 0, {}
 
         result: list[Message] = []
         count_pruned = 0
         tokens_saved = 0
+        pruning_info: dict[int, int] = {}
 
         for i, msg in enumerate(messages):
             # Only prune messages in the stale region
@@ -194,9 +197,87 @@ class WorkingSetBuilder:
 
             count_pruned += 1
             tokens_saved += saved
+            pruning_info[i] = original_tokens
             result.append(pruned_msg)
 
-        return result, count_pruned, tokens_saved
+        return result, count_pruned, tokens_saved, pruning_info
+
+    # ------------------------------------------------------------------
+    # Per-message evidence
+    # ------------------------------------------------------------------
+
+    def _make_decisions(
+        self,
+        messages: list[Message],
+        *,
+        per_index: dict[int, dict[str, Any]] | None = None,
+        phase0_info: dict[int, int] | None = None,
+        default_outcome: str = "kept",
+        default_reason: str = "passthrough",
+    ) -> list[MessageDecision]:
+        """Build one MessageDecision per message in the post-injection,
+        post-pruning strategy input list.
+
+        per_index maps message index → dict with keys:
+          outcome, reason, fidelity (opt), relevance_score (opt),
+          token_count_after (opt)
+
+        phase0_info maps indices pruned by Phase 0 → original token count.
+        These indices are merged into the final decisions so Phase 0 pruning
+        is visible even when the strategy keeps the (pruned) message.
+        """
+        per_index = per_index or {}
+        phase0_info = phase0_info or {}
+        out: list[MessageDecision] = []
+        for i, msg in enumerate(messages):
+            role = msg.role if isinstance(msg.role, str) else msg.role.value
+            # token_count_before: original pre-pruning value if Phase 0 pruned it
+            before = phase0_info.get(i, msg.token_count)
+            entry = per_index.get(i)
+            if entry is None:
+                if i in phase0_info:
+                    # Strategy left it alone — attribute to Phase 0 pruning
+                    out.append(MessageDecision(
+                        index=i,
+                        role=role,
+                        outcome="compressed",
+                        reason="stale_tool_result",
+                        token_count_before=before,
+                        token_count_after=msg.token_count,
+                    ))
+                else:
+                    # Default — typically "kept / passthrough"
+                    after = msg.token_count if default_outcome == "kept" else 0
+                    out.append(MessageDecision(
+                        index=i,
+                        role=role,
+                        outcome=default_outcome,  # type: ignore[arg-type]
+                        reason=default_reason,
+                        token_count_before=msg.token_count,
+                        token_count_after=after,
+                    ))
+            else:
+                outcome = entry.get("outcome", default_outcome)
+                reason = entry.get("reason", default_reason)
+                if i in phase0_info:
+                    reason = f"stale_tool_result+{reason}" if reason else "stale_tool_result"
+                raw_after = entry.get("token_count_after")
+                after_int: int
+                if raw_after is None:
+                    after_int = 0 if outcome == "dropped" else msg.token_count
+                else:
+                    after_int = int(raw_after)
+                out.append(MessageDecision(
+                    index=i,
+                    role=role,
+                    outcome=outcome,
+                    fidelity=entry.get("fidelity"),
+                    relevance_score=entry.get("relevance_score"),
+                    token_count_before=before,
+                    token_count_after=after_int,
+                    reason=reason,
+                ))
+        return out
 
     # ------------------------------------------------------------------
     # V2 Conversation mode — for ConversationAgent
@@ -261,6 +342,33 @@ class WorkingSetBuilder:
             utilization=(curated_total + tool_token_estimate) / max(self._budget.total_window, 1),
             fidelity_distribution=fidelity_dist,
         )
+
+    def _aggressive_truncate_per_index(
+        self,
+        input_messages: list[Message],
+        kept_messages: list[Message],
+    ) -> dict[int, dict[str, Any]]:
+        """Compute per-index decisions for aggressive_truncate.
+
+        Output indices are against input_messages. Kept messages (identity-wise)
+        get reason=aggressive_truncate_kept; the rest are dropped.
+        """
+        kept_ids = {id(m) for m in kept_messages}
+        per_index: dict[int, dict[str, Any]] = {}
+        for i, msg in enumerate(input_messages):
+            if id(msg) in kept_ids:
+                per_index[i] = {
+                    "outcome": "kept",
+                    "reason": "aggressive_truncate_kept",
+                    "token_count_after": msg.token_count,
+                }
+            else:
+                per_index[i] = {
+                    "outcome": "dropped",
+                    "reason": "aggressive_truncate_drop",
+                    "token_count_after": 0,
+                }
+        return per_index
 
     def _aggressive_truncate(
         self,
@@ -346,7 +454,7 @@ class WorkingSetBuilder:
             self._memory_injected = True
 
         # Phase 0: prune stale tool results (zero-cost, before compression)
-        messages, p0_pruned, p0_saved = self._prune_stale_tool_results(
+        messages, p0_pruned, p0_saved, p0_info = self._prune_stale_tool_results(
             messages, current_turn=turn,
         )
         if p0_pruned > 0:
@@ -368,6 +476,7 @@ class WorkingSetBuilder:
         if total <= effective_budget:
             self.last_decision = ContextDecision(
                 turn=turn,
+                strategy="passthrough",
                 budget_total=budget,
                 budget_used=total,
                 budget_tools=effective_tool_tokens,
@@ -375,6 +484,12 @@ class WorkingSetBuilder:
                 messages_in=messages_in,
                 messages_out=len(messages),
                 memory_injected=memory_injected,
+                decisions=self._make_decisions(
+                    messages,
+                    phase0_info=p0_info,
+                    default_outcome="kept",
+                    default_reason="passthrough",
+                ),
                 explanation=f"Under budget ({total}/{budget} tokens), all {len(messages)} messages kept",
             )
             report = self._build_context_report(
@@ -402,6 +517,7 @@ class WorkingSetBuilder:
             messages_in=messages_in,
             effective_tool_tokens=effective_tool_tokens,
             memory_injected=memory_injected,
+            p0_info=p0_info,
         )
 
         # If strategy says aggressive_truncate and relevance compression is still over budget,
@@ -410,16 +526,26 @@ class WorkingSetBuilder:
             result_total = sum(m.token_count for m in result)
             if result_total > effective_budget:
                 curated = self._aggressive_truncate(messages)
+                per_index = self._aggressive_truncate_per_index(messages, curated)
                 self.last_decision = ContextDecision(
                     turn=turn,
+                    strategy="aggressive_truncate",
                     budget_total=budget,
                     budget_used=sum(m.token_count for m in curated),
                     budget_tools=effective_tool_tokens,
                     budget_reserve=self._budget.response_reserve,
                     messages_in=messages_in,
                     messages_out=len(curated),
+                    compressed_count=len(messages) - len(curated),
                     memory_injected=memory_injected,
                     history_compressed=True,
+                    decisions=self._make_decisions(
+                        messages,
+                        per_index=per_index,
+                        phase0_info=p0_info,
+                        default_outcome="kept",
+                        default_reason="aggressive_truncate_kept",
+                    ),
                     explanation=f"Aggressive truncate: kept system + last {self._strategy.aggressive_keep_turns} turns",
                 )
                 report = self._build_context_report(
@@ -461,18 +587,23 @@ class WorkingSetBuilder:
         messages_in: int,
         effective_tool_tokens: int,
         memory_injected: bool,
+        p0_info: dict[int, int] | None = None,
     ) -> list[Message]:
         """Compress messages using relevance-aware strategy.
 
         Instead of blindly truncating middle messages to 150 chars each,
         we score them and give more detail to relevant ones.
         """
+        p0_info = p0_info or {}
         keep_head = 1  # system prompt
         keep_tail = min(len(messages) - keep_head, self._strategy.tail_preserve_keep_recent)
 
         head = messages[:keep_head]
         tail = messages[-keep_tail:] if keep_tail > 0 else []
         middle = messages[keep_head: len(messages) - keep_tail] if keep_tail > 0 else messages[keep_head:]
+        # Original absolute index in `messages` for each middle position
+        middle_orig_indices = list(range(keep_head, keep_head + len(middle)))
+        tail_start_idx = len(messages) - keep_tail if keep_tail > 0 else len(messages)
 
         head_tokens = sum(m.token_count for m in head)
         tail_tokens = sum(m.token_count for m in tail)
@@ -486,8 +617,21 @@ class WorkingSetBuilder:
             compressed_descs.append(f"{role}:{trunc}")
 
         if summary_budget <= 0 or not middle:
+            # No room for summaries — drop middle entirely
+            per_index: dict[int, dict[str, Any]] = {}
+            for i in range(keep_head):
+                per_index[i] = {"outcome": "kept", "reason": "tail_preserve_head"}
+            for orig_idx in middle_orig_indices:
+                per_index[orig_idx] = {
+                    "outcome": "dropped",
+                    "reason": "tail_preserve_no_budget_for_middle",
+                    "token_count_after": 0,
+                }
+            for i in range(tail_start_idx, len(messages)):
+                per_index[i] = {"outcome": "kept", "reason": "tail_preserve_tail"}
             self.last_decision = ContextDecision(
                 turn=turn,
+                strategy="tail_preserve",
                 budget_total=budget,
                 budget_used=head_tokens + tail_tokens,
                 budget_tools=effective_tool_tokens,
@@ -498,6 +642,11 @@ class WorkingSetBuilder:
                 memory_injected=memory_injected,
                 history_compressed=True,
                 compressed_messages=compressed_descs,
+                decisions=self._make_decisions(
+                    messages,
+                    per_index=per_index,
+                    phase0_info=p0_info,
+                ),
                 explanation=f"No budget for summary, {len(middle)} messages dropped",
             )
             return head + tail
@@ -539,6 +688,10 @@ class WorkingSetBuilder:
 
             fidelity_msgs.append(new_msg)
 
+        # Track which middle messages got dropped entirely during budget enforcement.
+        # keyed by original absolute index in `messages`.
+        dropped_orig_indices: set[int] = set()
+
         # Budget enforcement: demote lowest-scored messages until under budget
         result = head + fidelity_msgs + tail
         while sum(m.token_count for m in result) > budget and fidelity_msgs:
@@ -546,7 +699,8 @@ class WorkingSetBuilder:
             min_idx = -1
             min_score = 999.0
             for i, (_, s) in enumerate(scored[:len(fidelity_msgs)]):
-                if s < min_score and fidelity_msgs[i]._fidelity is not None and fidelity_msgs[i]._fidelity < 3:
+                fid = fidelity_msgs[i]._fidelity
+                if s < min_score and fid is not None and fid < 3:
                     min_score = s
                     min_idx = i
 
@@ -558,6 +712,8 @@ class WorkingSetBuilder:
                     if s < min_score:
                         min_score = s
                         min_idx = i
+                # Record the original absolute index of the dropped message
+                dropped_orig_indices.add(middle_orig_indices.pop(min_idx))
                 fidelity_msgs.pop(min_idx)
                 scored.pop(min_idx)
             else:
@@ -589,8 +745,35 @@ class WorkingSetBuilder:
         compressed_tokens = sum(m.token_count for m in fidelity_msgs)
         ratio = original_middle_tokens / max(compressed_tokens, 1)
 
+        # Build per-index decisions
+        per_index = {}
+        for i in range(keep_head):
+            per_index[i] = {"outcome": "kept", "reason": "tail_preserve_head"}
+        # middle_orig_indices and fidelity_msgs/scored are now aligned;
+        # dropped_orig_indices holds those removed during budget enforcement.
+        for pos, orig_idx in enumerate(middle_orig_indices):
+            fmsg = fidelity_msgs[pos]
+            _orig_msg, score = scored[pos]
+            level = fmsg._fidelity if fmsg._fidelity is not None else 0
+            per_index[orig_idx] = {
+                "outcome": "compressed",
+                "reason": "tail_preserve_middle_compressed",
+                "fidelity": f"L{level}",
+                "relevance_score": score,
+                "token_count_after": fmsg.token_count,
+            }
+        for orig_idx in dropped_orig_indices:
+            per_index[orig_idx] = {
+                "outcome": "dropped",
+                "reason": "tail_preserve_middle_dropped",
+                "token_count_after": 0,
+            }
+        for i in range(tail_start_idx, len(messages)):
+            per_index[i] = {"outcome": "kept", "reason": "tail_preserve_tail"}
+
         self.last_decision = ContextDecision(
             turn=turn,
+            strategy="tail_preserve",
             budget_total=budget,
             budget_used=used_tokens,
             budget_tools=effective_tool_tokens,
@@ -601,6 +784,11 @@ class WorkingSetBuilder:
             memory_injected=memory_injected,
             history_compressed=True,
             compressed_messages=compressed_descs,
+            decisions=self._make_decisions(
+                messages,
+                per_index=per_index,
+                phase0_info=p0_info,
+            ),
             explanation=(
                 f"{len(middle)} messages fidelity-compressed ({ratio:.1f}x), "
                 f"budget {used_tokens}/{budget} tokens ({used_tokens * 100 // budget}% full)"
@@ -663,7 +851,7 @@ class WorkingSetBuilder:
             self._memory_injected = True
 
         # Phase 0: prune stale tool results (zero-cost, before compression)
-        messages, p0_pruned, p0_saved = self._prune_stale_tool_results(
+        messages, p0_pruned, p0_saved, p0_info = self._prune_stale_tool_results(
             messages, current_turn=turn,
         )
         if p0_pruned > 0:
@@ -685,6 +873,7 @@ class WorkingSetBuilder:
         if total <= effective_budget:
             self.last_decision = ContextDecision(
                 turn=turn,
+                strategy="passthrough",
                 budget_total=budget,
                 budget_used=total,
                 budget_tools=effective_tool_tokens,
@@ -692,6 +881,12 @@ class WorkingSetBuilder:
                 messages_in=messages_in,
                 messages_out=len(messages),
                 memory_injected=memory_injected,
+                decisions=self._make_decisions(
+                    messages,
+                    phase0_info=p0_info,
+                    default_outcome="kept",
+                    default_reason="passthrough",
+                ),
                 explanation=f"Under budget ({total}/{budget} tokens), all {len(messages)} messages kept",
             )
             report = self._build_context_report(
@@ -719,6 +914,7 @@ class WorkingSetBuilder:
                 messages_in=messages_in,
                 effective_tool_tokens=effective_tool_tokens,
                 memory_injected=memory_injected,
+                p0_info=p0_info,
             )
             # If aggressive was requested and LLM compression is still over budget,
             # fall back to aggressive truncation
@@ -726,16 +922,26 @@ class WorkingSetBuilder:
                 result_total = sum(m.token_count for m in result)
                 if result_total > effective_budget:
                     curated = self._aggressive_truncate(messages)
+                    per_index_at = self._aggressive_truncate_per_index(messages, curated)
                     self.last_decision = ContextDecision(
                         turn=turn,
+                        strategy="aggressive_truncate",
                         budget_total=budget,
                         budget_used=sum(m.token_count for m in curated),
                         budget_tools=effective_tool_tokens,
                         budget_reserve=self._budget.response_reserve,
                         messages_in=messages_in,
                         messages_out=len(curated),
+                        compressed_count=len(messages) - len(curated),
                         memory_injected=memory_injected,
                         history_compressed=True,
+                        decisions=self._make_decisions(
+                            messages,
+                            per_index=per_index_at,
+                            phase0_info=p0_info,
+                            default_outcome="kept",
+                            default_reason="aggressive_truncate_kept",
+                        ),
                         explanation=f"Aggressive truncate: kept system + last {self._strategy.aggressive_keep_turns} turns",
                     )
                     report = self._build_context_report(
@@ -776,22 +982,33 @@ class WorkingSetBuilder:
             messages_in=messages_in,
             effective_tool_tokens=effective_tool_tokens,
             memory_injected=memory_injected,
+            p0_info=p0_info,
         )
         # If aggressive was requested and relevance compression is still over budget
         if strategy_name == "aggressive_truncate":
             result_total = sum(m.token_count for m in result)
             if result_total > effective_budget:
                 curated = self._aggressive_truncate(messages)
+                per_index = self._aggressive_truncate_per_index(messages, curated)
                 self.last_decision = ContextDecision(
                     turn=turn,
+                    strategy="aggressive_truncate",
                     budget_total=budget,
                     budget_used=sum(m.token_count for m in curated),
                     budget_tools=effective_tool_tokens,
                     budget_reserve=self._budget.response_reserve,
                     messages_in=messages_in,
                     messages_out=len(curated),
+                    compressed_count=len(messages) - len(curated),
                     memory_injected=memory_injected,
                     history_compressed=True,
+                    decisions=self._make_decisions(
+                        messages,
+                        per_index=per_index,
+                        phase0_info=p0_info,
+                        default_outcome="kept",
+                        default_reason="aggressive_truncate_kept",
+                    ),
                     explanation=f"Aggressive truncate: kept system + last {self._strategy.aggressive_keep_turns} turns",
                 )
                 report = self._build_context_report(
@@ -832,8 +1049,10 @@ class WorkingSetBuilder:
         messages_in: int,
         effective_tool_tokens: int,
         memory_injected: bool,
+        p0_info: dict[int, int] | None = None,
     ) -> list[Message]:
         """Async compression: uses LLM when available, falls back to keyword-based."""
+        p0_info = p0_info or {}
         keep_head = 1
         keep_tail = min(len(messages) - keep_head, self._strategy.tail_preserve_keep_recent)
 
@@ -846,6 +1065,7 @@ class WorkingSetBuilder:
         summary_budget = budget - head_tokens - tail_tokens - 100
 
         middle_tokens = sum(m.token_count for m in middle)
+        tail_start_idx = len(messages) - keep_tail if keep_tail > 0 else len(messages)
 
         # Try LLM compression if gateway is available and middle section is large enough
         if (
@@ -870,8 +1090,22 @@ class WorkingSetBuilder:
                     trunc = content[:80] + "..." if len(content) > 80 else content
                     compressed_descs.append(f"{role}:{trunc}")
 
+                # Per-index: head kept, middle all summarized, tail kept
+                per_index_llm: dict[int, dict[str, Any]] = {}
+                for i in range(keep_head):
+                    per_index_llm[i] = {"outcome": "kept", "reason": "tail_preserve_head"}
+                for i in range(keep_head, keep_head + len(middle)):
+                    per_index_llm[i] = {
+                        "outcome": "summarized",
+                        "reason": "llm_summarized_into_single",
+                        "token_count_after": 0,
+                    }
+                for i in range(tail_start_idx, len(messages)):
+                    per_index_llm[i] = {"outcome": "kept", "reason": "tail_preserve_tail"}
+
                 self.last_decision = ContextDecision(
                     turn=turn,
+                    strategy="llm_summarize",
                     budget_total=budget,
                     budget_used=used_tokens,
                     budget_tools=effective_tool_tokens,
@@ -882,6 +1116,11 @@ class WorkingSetBuilder:
                     memory_injected=memory_injected,
                     history_compressed=True,
                     compressed_messages=compressed_descs,
+                    decisions=self._make_decisions(
+                        messages,
+                        per_index=per_index_llm,
+                        phase0_info=p0_info,
+                    ),
                     explanation=(
                         f"{len(middle)} messages LLM-compressed ({ratio:.1f}x), "
                         f"budget {used_tokens}/{budget} tokens ({used_tokens * 100 // budget}% full)"
@@ -904,6 +1143,7 @@ class WorkingSetBuilder:
             messages_in=messages_in,
             effective_tool_tokens=effective_tool_tokens,
             memory_injected=memory_injected,
+            p0_info=p0_info,
         )
 
     async def _compress_with_llm(self, messages: list[Message], budget_tokens: int) -> str:

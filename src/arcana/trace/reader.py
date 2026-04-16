@@ -8,7 +8,31 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from arcana.contracts.trace import AgentRole, EventType, TraceEvent
+from pydantic import BaseModel
+
+from arcana.contracts.context import ContextDecision, ContextReport
+from arcana.contracts.trace import (
+    AgentRole,
+    BudgetSnapshot,
+    EventType,
+    PromptSnapshot,
+    TraceEvent,
+)
+
+
+class PromptReplay(BaseModel):
+    """Reconstructed prompt composition for a single LLM call.
+
+    Joins the PROMPT_SNAPSHOT event (what was sent) and CONTEXT_DECISION
+    event (why it was composed that way) for a given turn.
+    """
+
+    run_id: str
+    turn: int
+    prompt_snapshot: PromptSnapshot | None = None
+    context_decision: ContextDecision | None = None
+    context_report: ContextReport | None = None
+    budget_snapshot: BudgetSnapshot | None = None
 
 
 class TraceReader:
@@ -237,3 +261,95 @@ class TraceReader:
             "total_tokens": total_tokens,
             "total_cost_usd": total_cost,
         }
+
+    def list_turns(self, run_id: str) -> list[int]:
+        """Return the turn numbers that have replay evidence in this run.
+
+        Turns appear here if there is a CONTEXT_DECISION or PROMPT_SNAPSHOT
+        event for them. The list is sorted ascending.
+        """
+        turns: set[int] = set()
+        for event in self.iter_events(run_id):
+            if event.event_type not in (
+                EventType.CONTEXT_DECISION,
+                EventType.PROMPT_SNAPSHOT,
+            ):
+                continue
+            turn = event.metadata.get("turn")
+            if turn is None:
+                # Fall back to the decision dump, if present
+                decision = event.metadata.get("context_decision")
+                if isinstance(decision, dict):
+                    turn = decision.get("turn")
+            if isinstance(turn, int):
+                turns.add(turn)
+        return sorted(turns)
+
+    def replay_prompt(self, run_id: str, turn: int) -> PromptReplay | None:
+        """Reconstruct the prompt composition for a specific turn.
+
+        Joins the PROMPT_SNAPSHOT event (what was sent to the LLM) and the
+        CONTEXT_DECISION event (why it was composed that way). Returns None
+        if neither event exists for the requested turn.
+
+        When ``RuntimeConfig.trace_include_prompt_snapshots`` was disabled
+        during the run, ``prompt_snapshot`` will be None but the context
+        decision remains available.
+        """
+        snapshot: PromptSnapshot | None = None
+        decision: ContextDecision | None = None
+        report: ContextReport | None = None
+        budget: BudgetSnapshot | None = None
+        seen = False
+
+        for event in self.iter_events(run_id):
+            if event.event_type not in (
+                EventType.CONTEXT_DECISION,
+                EventType.PROMPT_SNAPSHOT,
+            ):
+                continue
+            event_turn = event.metadata.get("turn")
+            if event_turn is None:
+                decision_dump = event.metadata.get("context_decision")
+                if isinstance(decision_dump, dict):
+                    event_turn = decision_dump.get("turn")
+            if event_turn != turn:
+                continue
+            seen = True
+
+            if event.event_type == EventType.PROMPT_SNAPSHOT:
+                snap = event.metadata.get("prompt_snapshot")
+                if isinstance(snap, dict):
+                    try:
+                        snapshot = PromptSnapshot.model_validate(snap)
+                    except ValueError:
+                        snapshot = None
+                    if snapshot is not None and snapshot.budget_snapshot is not None:
+                        budget = snapshot.budget_snapshot
+            elif event.event_type == EventType.CONTEXT_DECISION:
+                dec = event.metadata.get("context_decision")
+                if isinstance(dec, dict):
+                    try:
+                        decision = ContextDecision.model_validate(dec)
+                    except ValueError:
+                        decision = None
+                rep = event.metadata.get("context_report")
+                if isinstance(rep, dict):
+                    try:
+                        report = ContextReport.model_validate(rep)
+                    except ValueError:
+                        report = None
+            if event.budgets is not None and budget is None:
+                budget = event.budgets
+
+        if not seen:
+            return None
+
+        return PromptReplay(
+            run_id=run_id,
+            turn=turn,
+            prompt_snapshot=snapshot,
+            context_decision=decision,
+            context_report=report,
+            budget_snapshot=budget,
+        )

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -73,6 +73,35 @@ class WorkingSet(BaseModel):
     compressed_keys: list[str] = Field(default_factory=list)
 
 
+class MessageDecision(BaseModel):
+    """Structured per-message evidence for context composition.
+
+    Every message in the input to WorkingSetBuilder produces one of these
+    in the resulting ContextDecision. Answers, for each message: was it
+    kept verbatim, compressed (and to what fidelity), dropped, or folded
+    into a summary?
+    """
+
+    index: int  # position in the original messages list
+    role: str  # user / assistant / tool / system
+    outcome: Literal["kept", "compressed", "dropped", "summarized"]
+
+    # Populated only when the path applies fidelity grading
+    fidelity: Literal["L0", "L1", "L2", "L3"] | None = None
+    # Populated only when the path scores messages
+    relevance_score: float | None = None
+
+    token_count_before: int
+    token_count_after: int = 0  # 0 when dropped
+
+    # Short machine-readable reason, e.g.:
+    #   "passthrough", "tail_preserve_head", "tail_preserve_tail",
+    #   "tail_preserve_middle_compressed", "stale_tool_result",
+    #   "aggressive_truncate_kept", "aggressive_truncate_drop",
+    #   "llm_summarized_into_single", "relevance_compression"
+    reason: str = ""
+
+
 class ContextDecision(BaseModel):
     """Record of why context was composed this way for a single LLM call.
 
@@ -84,6 +113,7 @@ class ContextDecision(BaseModel):
     """
 
     turn: int = 0
+    strategy: str = "passthrough"
 
     # Budget breakdown (tokens)
     budget_total: int = 0
@@ -100,7 +130,11 @@ class ContextDecision(BaseModel):
     memory_injected: bool = False
     history_compressed: bool = False
 
+    # Structured per-message evidence (one entry per input message)
+    decisions: list[MessageDecision] = Field(default_factory=list)
+
     # What was compressed/dropped (message role:summary pairs)
+    # Kept for backward compatibility; authoritative evidence is in `decisions`.
     compressed_messages: list[str] = Field(default_factory=list)
 
     # Human-readable explanation

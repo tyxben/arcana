@@ -91,6 +91,7 @@ class ConversationAgent:
         context_builder: Any | None = None,  # WorkingSetBuilder | None
         initial_messages: list[Message] | None = None,
         channel: ExecutionChannel | None = None,
+        trace_include_prompt_snapshots: bool = False,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -103,6 +104,9 @@ class ConversationAgent:
 
         # Execution channel for Brain/Hands separation (optional, for future use)
         self._channel = channel
+
+        # Opt-in trace verbosity: emit full prompt snapshots per LLM call
+        self._trace_include_prompt_snapshots = trace_include_prompt_snapshots
 
         # Built-in ask_user tool handler
         from arcana.runtime.ask_user import AskUserHandler
@@ -304,27 +308,8 @@ class ConversationAgent:
                     metadata=ctx_report.model_dump(),
                 )
 
-            # Trace the context decision
-            if self.trace_writer and self._context_builder.last_decision:
-                from arcana.contracts.trace import EventType, TraceEvent
-
-                decision = self._context_builder.last_decision
-                self.trace_writer.write(TraceEvent(
-                    run_id=state.run_id,
-                    event_type=EventType.CONTEXT_DECISION,
-                    metadata={
-                        "turn": decision.turn,
-                        "budget_total": decision.budget_total,
-                        "budget_used": decision.budget_used,
-                        "budget_tools": decision.budget_tools,
-                        "messages_in": decision.messages_in,
-                        "messages_out": decision.messages_out,
-                        "compressed_count": decision.compressed_count,
-                        "memory_injected": decision.memory_injected,
-                        "history_compressed": decision.history_compressed,
-                        "explanation": decision.explanation,
-                    },
-                ))
+            # Trace the context decision (full structured evidence)
+            self._emit_context_decision_event(state)
 
             # 3. LLM call
             request = LLMRequest(
@@ -333,6 +318,9 @@ class ConversationAgent:
                 response_format=self._response_format_schema,
             )
             config = self._resolve_model_config()
+
+            # Trace full prompt snapshot if opted in (off by default)
+            self._emit_prompt_snapshot_event(state, request, config)
 
             response: LLMResponse
             if self._response_format_schema:
@@ -1128,6 +1116,10 @@ class ConversationAgent:
             )
             config = self._resolve_model_config()
 
+            # Resume loop: emit prompt snapshot (context decision already traced
+            # by the main loop prior to suspension, if applicable)
+            self._emit_prompt_snapshot_event(state, request, config)
+
             response = await self.gateway.generate(request, config)
             facts = self._parse_turn(response)
             assessment = self._assess_turn(facts, state)
@@ -1195,6 +1187,100 @@ class ConversationAgent:
                 "step": state.current_step,
                 "facts": facts.model_dump(),
                 "assessment": assessment.model_dump(),
+            },
+        ))
+
+    def _emit_context_decision_event(self, state: AgentState) -> None:
+        """Emit the CONTEXT_DECISION trace event with full structured evidence.
+
+        Carries both the ContextDecision (per-message decisions + strategy)
+        and the ContextReport (token accounting). This is what powers
+        offline replay / explainability.
+        """
+        if not self.trace_writer:
+            return
+        decision = self._context_builder.last_decision
+        if decision is None:
+            return
+
+        from arcana.contracts.trace import EventType, TraceEvent
+
+        report = self._context_builder.last_report
+        metadata: dict[str, Any] = {
+            "turn": decision.turn,
+            # New structure (v0.6.0)
+            "context_decision": decision.model_dump(),
+            # Old fields (backward compat for trace show --context)
+            "explanation": decision.explanation,
+        }
+        if report is not None:
+            metadata["context_report"] = report.model_dump()
+            # Old fields (backward compat for trace show --context)
+            metadata["compressed_count"] = report.compressed_count
+            metadata["messages_in"] = report.messages_in
+            metadata["messages_out"] = report.messages_out
+
+        self.trace_writer.write(TraceEvent(
+            run_id=state.run_id,
+            event_type=EventType.CONTEXT_DECISION,
+            metadata=metadata,
+        ))
+
+    def _emit_prompt_snapshot_event(
+        self,
+        state: AgentState,
+        request: LLMRequest,
+        config: ModelConfig,
+    ) -> None:
+        """Emit the PROMPT_SNAPSHOT trace event when opted in.
+
+        Captures the exact messages/tools/model sent to the provider so
+        a run can be offline-replayed via ``TraceReader.replay_prompt``.
+        Gated by ``RuntimeConfig.trace_include_prompt_snapshots`` because
+        prompt content may include PII / secrets and inflates trace size.
+        """
+        if not self._trace_include_prompt_snapshots:
+            return
+        if not self.trace_writer:
+            return
+
+        from arcana.contracts.trace import (
+            BudgetSnapshot,
+            EventType,
+            PromptSnapshot,
+            TraceEvent,
+        )
+
+        budget_snapshot: BudgetSnapshot | None = None
+        if self.budget_tracker is not None:
+            bt = self.budget_tracker
+            budget_snapshot = BudgetSnapshot(
+                max_tokens=bt.max_tokens,
+                max_cost_usd=bt.max_cost_usd,
+                max_time_ms=bt.max_time_ms,
+                max_iterations=bt.max_iterations,
+                tokens_used=bt.tokens_used,
+                cost_usd=bt.cost_usd,
+                time_ms=bt.elapsed_ms,
+                iterations_used=bt.iterations_used,
+            )
+
+        snapshot = PromptSnapshot(
+            turn=state.current_step,
+            model=config.model_id,
+            messages=[m.model_dump() for m in request.messages],
+            tools=list(request.tools or []),
+            response_format=request.response_format,
+            budget_snapshot=budget_snapshot,
+        )
+
+        self.trace_writer.write(TraceEvent(
+            run_id=state.run_id,
+            event_type=EventType.PROMPT_SNAPSHOT,
+            model=config.model_id,
+            metadata={
+                "turn": state.current_step,
+                "prompt_snapshot": snapshot.model_dump(),
             },
         ))
 

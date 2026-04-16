@@ -192,8 +192,8 @@ async def _run_agent(
 
 @app.command()
 def trace(
-    action: str = typer.Argument(..., help="Action: list, show, summary, serve"),
-    run_id: str = typer.Argument(None, help="Run ID for show"),
+    action: str = typer.Argument(..., help="Action: list, show, summary, serve, replay"),
+    run_id: str = typer.Argument(None, help="Run ID for show / replay"),
     trace_dir: str = typer.Option("./traces", "--dir", help="Trace directory"),
     port: int = typer.Option(8100, "--port", help="Port for serve"),
     last: int = typer.Option(0, "--last", help="Limit to last N traces (summary)"),
@@ -201,6 +201,10 @@ def trace(
     tools: bool = typer.Option(False, "--tools", help="Show only tool call events"),
     llm: bool = typer.Option(False, "--llm", help="Show only LLM call events"),
     context: bool = typer.Option(False, "--context", help="Show only context decision events"),
+    turn: int = typer.Option(None, "--turn", help="Turn number to replay (for replay)"),
+    prompt_only: bool = typer.Option(False, "--prompt-only", help="Replay: only show the prompt snapshot"),
+    decision_only: bool = typer.Option(False, "--decision-only", help="Replay: only show the context decision"),
+    as_json: bool = typer.Option(False, "--json", help="Emit raw JSON instead of formatted output"),
 ) -> None:
     """View agent execution traces."""
     import datetime
@@ -317,8 +321,115 @@ def trace(
                     msgs_out = meta.get("messages_out", 0)
                     console.print(f"       [dim]messages: {msgs_in} → {msgs_out} ({compressed} compressed)[/dim]")
 
+    elif action == "replay" and run_id:
+        _trace_replay(
+            trace_path=trace_path,
+            run_id=run_id,
+            turn=turn,
+            prompt_only=prompt_only,
+            decision_only=decision_only,
+            as_json=as_json,
+        )
+
     else:
-        console.print("[red]Usage: arcana trace list | show <run_id> | summary | serve[/red]")
+        console.print(
+            "[red]Usage: arcana trace list | show <run_id> | summary | serve | "
+            "replay <run_id> --turn N[/red]"
+        )
+
+
+def _trace_replay(
+    *,
+    trace_path: Path,
+    run_id: str,
+    turn: int | None,
+    prompt_only: bool,
+    decision_only: bool,
+    as_json: bool,
+) -> None:
+    """Print the reconstructed prompt composition for a given turn."""
+    from arcana.trace.reader import TraceReader
+
+    reader = TraceReader(trace_dir=trace_path)
+    if not reader.exists(run_id):
+        console.print(f"[red]Trace not found: {trace_path / (run_id + '.jsonl')}[/red]")
+        raise typer.Exit(1)
+
+    if turn is None:
+        turns = reader.list_turns(run_id)
+        if not turns:
+            console.print(
+                "[yellow]No replay evidence in this run "
+                "(no CONTEXT_DECISION or PROMPT_SNAPSHOT events).[/yellow]"
+            )
+            raise typer.Exit(1)
+        console.print(
+            "[yellow]--turn is required. Available turns:[/yellow] "
+            + ", ".join(str(t) for t in turns)
+        )
+        raise typer.Exit(2)
+
+    replay = reader.replay_prompt(run_id, turn=turn)
+    if replay is None:
+        console.print(f"[red]No replay events for turn {turn}[/red]")
+        raise typer.Exit(1)
+
+    if as_json:
+        console.print_json(data=replay.model_dump(mode="json"))
+        return
+
+    decision = replay.context_decision
+    report = replay.context_report
+    snapshot = replay.prompt_snapshot
+
+    header_bits: list[str] = [f"run {run_id}", f"turn {turn}"]
+    if decision is not None:
+        header_bits.append(f"strategy={decision.strategy}")
+    if report is not None:
+        header_bits.append(f"utilization={report.utilization:.2%}")
+    console.print("[bold]" + " | ".join(header_bits) + "[/bold]")
+    console.print()
+
+    if not prompt_only and decision is not None:
+        console.print("[cyan]Context decision[/cyan]")
+        console.print(f"  {decision.explanation}")
+        console.print(
+            f"  messages: {decision.messages_in} → {decision.messages_out}, "
+            f"compressed={decision.compressed_count}, "
+            f"budget={decision.budget_used}/{decision.budget_total}"
+        )
+        if decision.decisions:
+            console.print("  per-message:")
+            for d in decision.decisions:
+                fid = f" [{d.fidelity}]" if d.fidelity else ""
+                score = f" score={d.relevance_score:.2f}" if d.relevance_score is not None else ""
+                console.print(
+                    f"    [{d.index:>3}] {d.role:<9} {d.outcome:<10}"
+                    f" {d.token_count_before:>5}→{d.token_count_after:<5}"
+                    f" {d.reason}{fid}{score}"
+                )
+        console.print()
+
+    if not decision_only and snapshot is not None:
+        console.print(f"[cyan]Prompt snapshot[/cyan] (model={snapshot.model})")
+        console.print(f"  messages ({len(snapshot.messages)}):")
+        for i, msg in enumerate(snapshot.messages):
+            role = msg.get("role", "?")
+            content = msg.get("content")
+            if isinstance(content, str):
+                preview = content[:120] + ("..." if len(content) > 120 else "")
+            else:
+                preview = f"<{type(content).__name__}>"
+            console.print(f"    [{i:>3}] {role:<9} {preview}")
+        if snapshot.tools:
+            console.print(f"  tools ({len(snapshot.tools)}):")
+            for t in snapshot.tools:
+                console.print(f"    - {t.get('name', t)}")
+    elif not decision_only and snapshot is None:
+        console.print(
+            "[dim]No prompt snapshot recorded. "
+            "Enable with RuntimeConfig.trace_include_prompt_snapshots=True.[/dim]"
+        )
 
 
 def _trace_summary(trace_path: Path, last: int) -> None:

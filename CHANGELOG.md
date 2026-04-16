@@ -2,6 +2,45 @@
 
 All notable changes to Arcana will be documented in this file.
 
+## [Unreleased]
+
+### v0.6.0 — "The Explainability Release"
+
+#### Added — Context Explainability
+- **`MessageDecision` contract**: Structured per-message evidence for every context composition. Records index / role / outcome (kept / compressed / dropped / summarized) / fidelity level (L0–L3) / relevance score / token counts before/after / reason. One entry per input message.
+- **`ContextDecision.decisions`**: Authoritative list of `MessageDecision` replacing the free-text-only explanation. Covers all 5 strategy paths (passthrough, tail_preserve head/tail/middle, aggressive_truncate, LLM summarize, no-summary-budget).
+- **Stale tool result pruning visibility**: `_prune_stale_tool_results` now returns `pruning_info` mapping pruned indices to original token counts. Phase 0 pruning is visible in `decisions` with `reason="stale_tool_result"` (or merged with the downstream strategy reason).
+- **`CONTEXT_DECISION` trace event**: metadata now carries the full `ContextDecision.model_dump()` and `ContextReport.model_dump()` — consumers can losslessly reconstruct either.
+
+#### Added — Prompt Snapshots & Replay
+- **`PromptSnapshot` contract**: Captures the exact `LLMRequest` (messages, tools, model, response_format, budget snapshot) sent to the provider for a single turn.
+- **`EventType.PROMPT_SNAPSHOT`**: Emitted before each `gateway.generate()` / `gateway.stream()` when opted in.
+- **`RuntimeConfig.trace_include_prompt_snapshots: bool = False`**: Opt-in flag. Default off to avoid PII/secret leakage and trace bloat.
+- **`TraceReader.list_turns(run_id)`**: Enumerate turn numbers that have replay evidence.
+- **`TraceReader.replay_prompt(run_id, turn)`**: Reconstruct `PromptReplay` for a single turn (prompt snapshot + context decision + context report + budget snapshot).
+- **`arcana trace replay <run_id> --turn N`**: CLI subcommand for human-readable or JSON replay output. Supports `--prompt-only` / `--decision-only` / `--json` modes.
+
+#### Constitutional guard (explicitly NOT done)
+- Framework does not inject `MessageDecision` or relevance scores into the LLM prompt itself (would violate Prohibition 1 / P4)
+- No automatic recovery, retry, or tool expansion based on decisions (decisions are retrospective evidence, not an input channel)
+- Existing strategy selection / compression thresholds / fidelity logic unchanged (pure transparency layer)
+- Prompt snapshots default off (anti context/trace hoarding, anti PII leakage)
+
+#### Stats
+- 1337 tests passing (+13 new): `test_context_decision_evidence.py` (5) + `test_trace_replay.py` (8)
+
+### v0.5.0 — "The Resilience Release"
+
+#### Added — Runtime OS Reliability
+- **Phase 0 tool result pruning**: zero-cost compression stage before strategy-level compression. Old tool results (outside `tool_result_staleness_turns * 3` recent messages) replaced with summary placeholders. Error/failure results never pruned.
+- **Iteration budget sharing**: `BudgetTracker.max_iterations` / `iterations_used`; `Budget.max_iterations` propagates to shared tracker; team agents share a global iteration cap.
+- **MCP dynamic tool discovery**: `MCPConnection` listens for `notifications/tools/list_changed`; `MCPToolProvider` refreshes the registry on change.
+
+#### Constitutional review decisions (from specs/v050-upgrade.md)
+- **Rejected**: Parallel tool conflict detection — tool authors should self-protect (over-engineering, framework overreach)
+- **Rejected**: Diagnosis → recovery loop — framework crossing into LLM strategy territory (violates Principle 6 boundary)
+- **Rejected**: ChatSession persistence — application-layer concern, not Runtime OS
+
 ## [0.4.0] - 2026-04-11
 
 ### Added — Execution Isolation Architecture

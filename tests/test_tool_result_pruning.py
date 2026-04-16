@@ -269,7 +269,7 @@ class TestTokensSavedCalculation:
         msgs = _make_conversation(old_tool_content=large_content, staleness_turns=2)
 
         # Use the internal method directly to check tokens_saved
-        _, count, saved = builder._prune_stale_tool_results(msgs, current_turn=10)
+        _, count, saved, _info = builder._prune_stale_tool_results(msgs, current_turn=10)
         assert count == 6  # 6 old tool messages
         assert saved > 0
 

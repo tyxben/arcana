@@ -47,6 +47,7 @@ class EventType(str, Enum):
 
     # Context management
     CONTEXT_DECISION = "context_decision"
+    PROMPT_SNAPSHOT = "prompt_snapshot"
 
     # Orchestrator events
     TASK_SUBMIT = "task_submit"
@@ -104,6 +105,26 @@ class BudgetSnapshot(BaseModel):
         if self.max_iterations and self.iterations_used >= self.max_iterations:
             return True
         return False
+
+
+class PromptSnapshot(BaseModel):
+    """Full capture of a single LLM prompt for offline replay.
+
+    Stored inside ``TraceEvent.metadata["prompt_snapshot"]`` when
+    ``RuntimeConfig.trace_include_prompt_snapshots`` is enabled. Disabled
+    by default: snapshots can contain PII / secrets and bloat trace size.
+
+    The schema mirrors what was sent to ``gateway.generate()`` at the
+    time of the call — messages, tool schemas, model, budget at that
+    moment. It is retrospective evidence, not an input channel.
+    """
+
+    turn: int
+    model: str
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    tools: list[dict[str, Any]] = Field(default_factory=list)
+    response_format: dict[str, Any] | None = None
+    budget_snapshot: BudgetSnapshot | None = None
 
 
 class ToolCallRecord(BaseModel):

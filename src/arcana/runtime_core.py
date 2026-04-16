@@ -257,6 +257,11 @@ class RuntimeConfig(BaseModel):
     trace_dir: str = "./traces"
     system_prompt: str | None = None
 
+    # When True, trace emits PROMPT_SNAPSHOT events containing the full
+    # messages/tools/model for each LLM call. Off by default: prompts can
+    # carry PII / secrets and bloat trace files. Opt in for deep replay.
+    trace_include_prompt_snapshots: bool = False
+
 
 class Runtime:
     """
@@ -586,6 +591,7 @@ class Runtime:
             "trace_writer": self._trace_writer,
             "intent_classifier": classifier,
             "max_turns": max_turns or self._config.max_turns,
+            "trace_include_prompt_snapshots": self._config.trace_include_prompt_snapshots,
         }
         if memory_context:
             agent_kwargs["memory_context"] = memory_context
@@ -1595,6 +1601,7 @@ class Session:
                 "trace_writer": self._runtime._trace_writer,
                 "intent_classifier": classifier,
                 "max_turns": self._max_turns,
+                "trace_include_prompt_snapshots": self._runtime._config.trace_include_prompt_snapshots,
             }
             # Resolve system prompt: run(system=) > RuntimeConfig > default
             resolved_system = self._system or self._runtime._config.system_prompt
@@ -2000,6 +2007,7 @@ class ChatSession:
             "context_builder": context_builder,
             "initial_messages": list(self._messages),  # Copy
             "input_handler": self._input_handler,
+            "trace_include_prompt_snapshots": self._runtime._config.trace_include_prompt_snapshots,
         }
 
         # Tool gateway
