@@ -33,6 +33,7 @@ nav:
     - Quick Start: guide/quickstart.md
     - Configuration: guide/configuration.md
     - Providers: guide/providers.md
+    - Context Explainability: guide/context-explainability.md
   - Examples: examples/index.md
   - API Reference:
     - Overview: api/index.md
