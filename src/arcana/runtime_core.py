@@ -1883,6 +1883,42 @@ class ChatResponse(BaseModel):
     context_report: Any = None  # ContextReport | None
 
 
+class _PoolTaggedTraceWriter:
+    """Trace-writer wrapper that stamps ``metadata["source_agent"]`` on every
+    event emitted by a pool-member :class:`ChatSession`.
+
+    Does not introduce a new ``TraceEvent`` field — the pool name lives
+    inside the existing ``metadata`` dict so v0.6.0/v0.7.0 trace readers
+    continue to work unchanged. Pre-existing ``metadata`` keys are never
+    overwritten (if an upstream call already set ``source_agent``, we keep
+    it; otherwise we write our own).
+
+    Only :meth:`write` is customised; every other attribute is proxied to
+    the wrapped ``TraceWriter``.
+    """
+
+    __slots__ = ("_inner", "_source_agent")
+
+    def __init__(self, inner: Any, source_agent: str) -> None:
+        object.__setattr__(self, "_inner", inner)
+        object.__setattr__(self, "_source_agent", source_agent)
+
+    def write(self, event: Any) -> None:
+        # Mutate metadata in place (TraceEvent is a regular pydantic model,
+        # not frozen). Keep existing key if caller already tagged it.
+        try:
+            meta = event.metadata
+            if "source_agent" not in meta:
+                meta["source_agent"] = self._source_agent
+        except AttributeError:
+            # Not a TraceEvent-shaped object; nothing to tag.
+            pass
+        self._inner.write(event)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
 class ChatSession:
     """Multi-turn conversational session.
 
@@ -2151,11 +2187,19 @@ class ChatSession:
             ),
         )
 
+        # For pool sessions, wrap the shared TraceWriter so every emitted
+        # event gets stamped with metadata["source_agent"] = <pool_name>.
+        trace_writer = self._runtime._trace_writer
+        if self._pool_agent_name and trace_writer is not None:
+            trace_writer = _PoolTaggedTraceWriter(
+                trace_writer, self._pool_agent_name
+            )
+
         agent_kwargs: dict[str, Any] = {
             "gateway": self._runtime._gateway,
             "model_config": model_config,
             "budget_tracker": self._budget_tracker,
-            "trace_writer": self._runtime._trace_writer,
+            "trace_writer": trace_writer,
             "max_turns": self._max_turns,
             "system_prompt": self._system_prompt,
             "context_builder": context_builder,
