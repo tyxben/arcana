@@ -1,5 +1,7 @@
 # The Arcana Constitution
 
+**Version: 3.0** — see [Revision History](#revision-history)
+
 This is not a style guide. This is the architectural law of Arcana. Every line of code, every PR, every design decision must answer to this document.
 
 ---
@@ -142,6 +144,24 @@ No agent is subordinate to another by framework decree. If a planner-executor pa
 
 The framework's role: ensure every agent gets its turn, stays within budget, and can see what others have said. The agents' role: decide what to say, when to agree, when to disagree, and when to declare the task complete.
 
+### Principle 9: Cognitive Primitives as Services
+
+The runtime provides services not only for the world external to the LLM (tools, memory, trace), but also for the LLM's own reasoning state. The LLM may invoke these cognitive primitives to:
+
+- **Recall** — retrieve earlier turn content bypassing working-set compression
+- **Pin** — protect specified content from compression in future working sets
+- **Branch** — open a sandboxed reasoning frame that can be committed or discarded
+- **Anchor** — mark an assumption as provisional, so future invalidation can be surfaced
+- **Hint** — signal preferences that the next working-set build should consider
+
+These primitives are exposed as intercepted tools -- the same mechanism as `ask_user`. The LLM sees them in its tool list, calls them by name; the runtime intercepts and services the call without going through `ToolGateway`.
+
+**The LLM invokes these services by choice. The framework never compels their use, never prescribes when to use them.**
+
+A cognitive primitive in the tool list is a door the LLM may open; it is not a corridor the LLM must walk. Offering a service is not prescribing its use.
+
+See `specs/constitution-amendment-1-cognitive-primitives.md` for the full argument and `specs/v0.7.0-cognitive-primitives.md` for the first implementation.
+
 ---
 
 ## Chapter IV: The Division of Responsibility
@@ -154,6 +174,7 @@ The framework's role: ensure every agent gets its turn, stays within budget, and
 - **Organizing context**: working set management, compression, retrieval
 - **Classifying errors**: structured diagnostics, recovery options
 - **Enabling interaction**: providing mechanisms for the LLM to communicate with the user mid-execution
+- **Providing cognitive primitives**: services for the LLM to operate on its own reasoning state (recall compressed history, pin critical content, branch reasoning, anchor assumptions, hint future context). These services are available for the LLM to invoke; the framework never compels their use.
 
 ### The LLM Is Responsible For:
 
@@ -179,6 +200,8 @@ The framework never decides strategy. The LLM never enforces budgets. The framew
 **The user is never forced to interact mid-execution.** If no input handler is provided, the LLM proceeds with its best judgment. Interaction is a capability, not a dependency.
 
 **The LLM may ask but must never block on an answer.** A question without a response is a signal to adapt, not a reason to halt. The LLM must always be able to make progress without user input -- asking is an optimization, not a prerequisite.
+
+**The framework never decides when or how the LLM uses cognitive primitives.** Offering a service is not prescribing its use. The framework may provide `recall`, `pin`, `branch`, etc. as available tools, but never calls them on the LLM's behalf, never hints at their use in prompts, and never evaluates whether the LLM used them appropriately.
 
 When you find yourself writing code where the framework makes a judgment call that belongs to the LLM, stop. Refactor. That is a constitutional violation.
 
@@ -215,3 +238,13 @@ If the answer is "constraining it because we don't trust it" -- that is a violat
 ---
 
 *This constitution is a living document. It can be amended, but amendments require the same rigor as the original: a clear argument for why the change serves the LLM's capability rather than our comfort.*
+
+---
+
+## Revision History
+
+- **v3.0** (2026-04-18) — Add Principle 9 (Cognitive Primitives as Services) and two Chapter IV entries (Framework Responsibility + Inviolable Rule). The runtime explicitly provides reasoning-state primitives (recall, pin, branch, anchor, hint) that the LLM may invoke at its discretion. See `specs/constitution-amendment-1-cognitive-primitives.md`.
+- **v2.0** — Add Principle 8 (Agent Autonomy in Collaboration); expand Chapter IV with user role and user optionality rules (user never forced to interact mid-execution; LLM may ask but must not block).
+- **v1.0** — Original document. Four Prohibitions + seven Principles + Chapter IV division of responsibility + Chapter V contributor compact.
+
+Amendments require the same rigor as the original: a clear argument for why the change serves the LLM's capability rather than framework comfort.
