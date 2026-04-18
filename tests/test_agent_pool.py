@@ -342,3 +342,164 @@ class TestChatSessionOverrides:
         rt = _make_runtime_with_mock()
         session = ChatSession(rt, system_prompt="test")
         assert isinstance(session._budget_tracker, BudgetTracker)
+
+
+# ── Per-agent cognitive primitives (v0.8.0) ─────────────────────────────
+
+
+class TestPerAgentCognitivePrimitives:
+    """v0.8.0: each pool agent owns its cognitive primitives config.
+
+    Pool-level default is inherited when the per-agent arg is omitted.
+    Per-agent ``[]`` is an explicit opt-out even when pool default opts in.
+    """
+
+    def test_session_resolves_per_agent_override(self):
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt)
+        session = pool.add("planner", cognitive_primitives=["recall", "pin"])
+
+        assert session._resolve_cognitive_primitives() == ["recall", "pin"]
+
+    def test_session_resolves_pool_default_when_no_override(self):
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt, default_cognitive_primitives=["pin"])
+        session = pool.add("worker")  # no per-agent arg
+
+        assert session._resolve_cognitive_primitives() == ["pin"]
+
+    def test_per_agent_empty_opts_out_of_pool_default(self):
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt, default_cognitive_primitives=["recall", "pin"])
+        session = pool.add("silent", cognitive_primitives=[])
+
+        assert session._resolve_cognitive_primitives() == []
+
+    def test_per_agent_overrides_pool_default_with_subset(self):
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt, default_cognitive_primitives=["recall", "pin"])
+        session = pool.add("minimal", cognitive_primitives=["pin"])
+
+        assert session._resolve_cognitive_primitives() == ["pin"]
+
+    def test_bare_runtime_chat_unaffected(self):
+        """Sessions built via runtime.chat() still read runtime config."""
+        rt = _make_runtime_with_mock()
+        rt._config.cognitive_primitives = ["recall"]
+        session = ChatSession(rt, system_prompt="x")
+
+        assert session._resolve_cognitive_primitives() == ["recall"]
+
+    def test_each_pool_agent_is_independent_session(self):
+        """Per-agent cognitive state lives on independent ChatSessions —
+        no shared handler, no shared config."""
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt)
+
+        a = pool.add("a", cognitive_primitives=["pin"])
+        b = pool.add("b", cognitive_primitives=["recall"])
+
+        assert a is not b
+        assert a._cognitive_primitives_override == ["pin"]
+        assert b._cognitive_primitives_override == ["recall"]
+
+    def test_pool_collaborate_default_propagates(self):
+        """runtime.collaborate(cognitive_primitives=[...]) sets pool default."""
+        rt = _make_runtime_with_mock()
+        pool = rt.collaborate(cognitive_primitives=["pin"])
+        session = pool.add("w")
+
+        assert session._resolve_cognitive_primitives() == ["pin"]
+
+
+class TestPerAgentCognitiveCollision:
+    """Tool-name collision with an active cognitive primitive is a
+    configuration error — either rename the user tool or drop the
+    primitive (Principle 5: structured feedback, not silent shadowing)."""
+
+    def test_user_tool_named_recall_collides_when_recall_active(self):
+        import arcana
+
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt)
+
+        @arcana.tool()
+        def recall(turn: int) -> str:
+            """User tool."""
+            return f"user recall {turn}"
+
+        with pytest.raises(ValueError, match="recall"):
+            pool.add(
+                "collider",
+                cognitive_primitives=["recall"],
+                tools=[recall],
+            )
+
+    def test_user_tool_named_pin_collides(self):
+        import arcana
+
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt)
+
+        @arcana.tool()
+        def pin(content: str) -> str:
+            """User tool."""
+            return content
+
+        with pytest.raises(ValueError, match="pin"):
+            pool.add("collider", cognitive_primitives=["pin"], tools=[pin])
+
+    def test_user_tool_named_unpin_collides_when_pin_active(self):
+        """Activating 'pin' also reserves 'unpin' — they're a family."""
+        import arcana
+
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt)
+
+        @arcana.tool()
+        def unpin(pin_id: str) -> str:
+            """User tool."""
+            return pin_id
+
+        with pytest.raises(ValueError, match="unpin"):
+            pool.add("collider", cognitive_primitives=["pin"], tools=[unpin])
+
+    def test_user_tool_with_same_name_is_fine_when_primitive_inactive(self):
+        """If the primitive isn't active for this agent, the user tool
+        is free to use the name — no shadowing happens."""
+        import arcana
+
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt)
+
+        @arcana.tool()
+        def recall(turn: int) -> str:
+            """User tool."""
+            return f"user recall {turn}"
+
+        # cognitive_primitives=[] means this agent has no recall primitive;
+        # the user's own 'recall' tool should be allowed.
+        session = pool.add(
+            "plain",
+            cognitive_primitives=[],
+            tools=[recall],
+        )
+        assert session is not None
+
+    def test_unrelated_user_tools_pass_through(self):
+        import arcana
+
+        rt = _make_runtime_with_mock()
+        pool = AgentPool(rt)
+
+        @arcana.tool()
+        def search(query: str) -> str:
+            """User tool."""
+            return f"results for {query}"
+
+        session = pool.add(
+            "searcher",
+            cognitive_primitives=["recall", "pin"],
+            tools=[search],
+        )
+        assert session is not None

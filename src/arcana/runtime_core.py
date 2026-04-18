@@ -1283,6 +1283,7 @@ class Runtime:
         self,
         *,
         budget: Budget | None = None,
+        cognitive_primitives: list[str] | None = None,
     ) -> AgentPool:
         """Create a collaboration pool for multi-agent communication.
 
@@ -1292,11 +1293,22 @@ class Runtime:
         responsible for orchestration; the framework does not impose
         topology, turn order, or stop conditions.
 
+        Args:
+            budget: Optional pool-level budget; all agents in the pool
+                share one ``BudgetTracker``.
+            cognitive_primitives: Pool-level default for
+                :ref:`cognitive primitives <cognitive-primitives>` (v0.7.0+).
+                Each :meth:`AgentPool.add` call inherits this list unless it
+                supplies its own ``cognitive_primitives`` argument. ``None``
+                (default) falls back to ``RuntimeConfig.cognitive_primitives``.
+
         Usage::
 
-            async with runtime.collaborate() as pool:
+            async with runtime.collaborate(cognitive_primitives=["pin"]) as pool:
                 planner = pool.add("planner", system="You plan")
-                executor = pool.add("executor", system="You execute")
+                # executor opts out even though the pool enables pin
+                executor = pool.add("executor", system="You execute",
+                                    cognitive_primitives=[])
 
                 plan = await planner.send("Make a plan for: ...")
                 result = await executor.send(f"Execute: {plan.content}")
@@ -1313,7 +1325,11 @@ class Runtime:
                 max_tokens=budget.max_tokens,
             )
 
-        return AgentPool(self, budget_tracker=budget_tracker)
+        return AgentPool(
+            self,
+            budget_tracker=budget_tracker,
+            default_cognitive_primitives=cognitive_primitives,
+        )
 
     def _create_pool_session(
         self,
@@ -1325,11 +1341,12 @@ class Runtime:
         model: str | None = None,
         max_history: int | None = None,
         budget_tracker: Any = None,
+        cognitive_primitives: list[str] | None = None,
     ) -> ChatSession:
         """Create a ChatSession for use in an AgentPool.
 
         Internal helper -- shares the pool's BudgetTracker and supports
-        per-agent provider/model/tools overrides.
+        per-agent provider/model/tools/cognitive_primitives overrides.
         """
         return ChatSession(
             runtime=self,
@@ -1339,6 +1356,8 @@ class Runtime:
             _provider=provider,
             _model=model,
             _tools=tools,
+            _cognitive_primitives=cognitive_primitives,
+            _pool_agent_name=name,
         )
 
     # ------------------------------------------------------------------
@@ -1888,6 +1907,8 @@ class ChatSession:
         _provider: str | None = None,  # Provider override (for pool agents)
         _model: str | None = None,  # Model override (for pool agents)
         _tools: list[Any] | None = None,  # Per-session tools (for pool agents)
+        _cognitive_primitives: list[str] | None = None,  # Per-session cognitive primitives override
+        _pool_agent_name: str | None = None,  # Pool agent name for trace source_agent metadata
     ) -> None:
         self._runtime = runtime
         self._system_prompt = system_prompt or "You are a helpful assistant."
@@ -1899,6 +1920,12 @@ class ChatSession:
         self._provider_override = _provider
         self._model_override = _model
         self._per_session_tools = _tools
+        # None → inherit from runtime._config.cognitive_primitives
+        # []   → explicit opt-out
+        # [...] → explicit opt-in list (overrides runtime default)
+        self._cognitive_primitives_override = _cognitive_primitives
+        # Pool membership (None for non-pool sessions)
+        self._pool_agent_name = _pool_agent_name
 
         # Persistent state across send() calls
         from arcana.contracts.llm import Message, MessageRole
@@ -2135,7 +2162,7 @@ class ChatSession:
             "initial_messages": list(self._messages),  # Copy
             "input_handler": self._input_handler,
             "trace_include_prompt_snapshots": self._runtime._config.trace_include_prompt_snapshots,
-            "cognitive_primitives": list(self._runtime._config.cognitive_primitives),
+            "cognitive_primitives": list(self._resolve_cognitive_primitives()),
             "pin_budget_fraction": self._runtime._config.pin_budget_fraction,
         }
 
@@ -2145,6 +2172,17 @@ class ChatSession:
             agent_kwargs["tool_gateway"] = tool_gw
 
         return ConversationAgent(**agent_kwargs)
+
+    def _resolve_cognitive_primitives(self) -> list[str]:
+        """Resolve the effective cognitive_primitives list for this session.
+
+        Per-session override takes priority over the runtime default. An
+        explicit empty list (``[]``) opts this session out even when the
+        runtime default enables primitives.
+        """
+        if self._cognitive_primitives_override is not None:
+            return list(self._cognitive_primitives_override)
+        return list(self._runtime._config.cognitive_primitives)
 
     def _resolve_tool_gateway(self) -> Any:
         """Resolve the tool gateway for this session.
