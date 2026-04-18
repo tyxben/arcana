@@ -10,6 +10,7 @@ from arcana.contracts.streaming import StreamEventType as StreamEventType
 from arcana.graph import END as END
 from arcana.graph import START as START
 from arcana.graph import StateGraph as StateGraph
+from arcana.multi_agent.agent_pool import AgentPool as AgentPool
 from arcana.runtime_core import AgentConfig as AgentConfig
 from arcana.runtime_core import BatchResult as BatchResult
 from arcana.runtime_core import Budget as Budget

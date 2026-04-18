@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from arcana.graph.nodes.llm_node import LLMNode
     from arcana.graph.nodes.tool_node import ToolNode
     from arcana.graph.state_graph import StateGraph
+    from arcana.multi_agent.agent_pool import AgentPool
 
 from pydantic import BaseModel, Field
 
@@ -262,14 +263,14 @@ class RuntimeConfig(BaseModel):
     # carry PII / secrets and bloat trace files. Opt in for deep replay.
     trace_include_prompt_snapshots: bool = False
 
-    # Cognitive primitives the LLM may invoke as intercepted tools
-    # (Principle 9). Accepted values: "recall", "pin". When empty
+    # Cognitive primitives (v0.7.0). List of primitive names to expose as
+    # intercepted tools. Accepted values: "recall", "pin". When empty
     # (default), no behavioral change — no tool specs injected, no
     # handlers instantiated. Opt in per-runtime.
     cognitive_primitives: list[str] = Field(default_factory=list)
 
     # Hard cap on total pin token budget, as a fraction of the total
-    # context budget. Pin calls that would exceed the cap are rejected with
+    # token window. New pins that would exceed this cap are rejected via
     # a structured PinResult; the framework never auto-unpins. See
     # Principle 9 in CONSTITUTION.md.
     pin_budget_fraction: float = 0.5
@@ -806,7 +807,19 @@ class Runtime:
             max_rounds: Maximum conversation rounds (each agent speaks once per round)
             budget: Budget for the entire team run
             mode: Collaboration mode — ``"shared"`` or ``"session"``
+
+        .. deprecated::
+            Use :meth:`collaborate` for user-controlled multi-agent orchestration.
         """
+        import warnings
+
+        warnings.warn(
+            "runtime.team() is deprecated. Use runtime.collaborate() for "
+            "user-controlled multi-agent orchestration.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         if mode not in ("shared", "session"):
             raise ValueError(f"Invalid team mode '{mode}'. Use 'shared' or 'session'.")
 
@@ -1261,6 +1274,72 @@ class Runtime:
         from arcana.graph.state_graph import StateGraph
 
         return StateGraph(state_schema=state_schema)
+
+    # ------------------------------------------------------------------
+    # Multi-agent collaboration
+    # ------------------------------------------------------------------
+
+    def collaborate(
+        self,
+        *,
+        budget: Budget | None = None,
+    ) -> AgentPool:
+        """Create a collaboration pool for multi-agent communication.
+
+        Returns an :class:`AgentPool` that provides shared communication
+        primitives. The pool itself is an async context manager — enter it
+        with ``async with`` to get automatic cleanup on exit. The user is
+        responsible for orchestration; the framework does not impose
+        topology, turn order, or stop conditions.
+
+        Usage::
+
+            async with runtime.collaborate() as pool:
+                planner = pool.add("planner", system="You plan")
+                executor = pool.add("executor", system="You execute")
+
+                plan = await planner.send("Make a plan for: ...")
+                result = await executor.send(f"Execute: {plan.content}")
+
+        This is a synchronous factory. Do not ``await`` the return value.
+        """
+        from arcana.gateway.budget import BudgetTracker
+        from arcana.multi_agent.agent_pool import AgentPool
+
+        budget_tracker = None
+        if budget:
+            budget_tracker = BudgetTracker(
+                max_cost_usd=budget.max_cost_usd,
+                max_tokens=budget.max_tokens,
+            )
+
+        return AgentPool(self, budget_tracker=budget_tracker)
+
+    def _create_pool_session(
+        self,
+        *,
+        name: str,
+        system: str,
+        tools: list[Any] | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        max_history: int | None = None,
+        budget_tracker: Any = None,
+    ) -> ChatSession:
+        """Create a ChatSession for use in an AgentPool.
+
+        Internal helper -- shares the pool's BudgetTracker and supports
+        per-agent provider/model/tools overrides.
+        """
+        return ChatSession(
+            runtime=self,
+            system_prompt=system,
+            max_history=max_history,
+            _budget_tracker=budget_tracker,
+            _provider=provider,
+            _model=model,
+            _tools=tools,
+        )
 
     # ------------------------------------------------------------------
     # Properties
@@ -1805,6 +1884,10 @@ class ChatSession:
         budget: Budget | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
         max_history: int | None = None,
+        _budget_tracker: Any = None,  # Pre-existing BudgetTracker (for pool sharing)
+        _provider: str | None = None,  # Provider override (for pool agents)
+        _model: str | None = None,  # Model override (for pool agents)
+        _tools: list[Any] | None = None,  # Per-session tools (for pool agents)
     ) -> None:
         self._runtime = runtime
         self._system_prompt = system_prompt or "You are a helpful assistant."
@@ -1813,6 +1896,9 @@ class ChatSession:
         self._input_handler = input_handler
         self._max_history: int | None = max_history  # None = unlimited (backward compat)
         self._session_id = str(uuid4())
+        self._provider_override = _provider
+        self._model_override = _model
+        self._per_session_tools = _tools
 
         # Persistent state across send() calls
         from arcana.contracts.llm import Message, MessageRole
@@ -1822,12 +1908,15 @@ class ChatSession:
         ]
 
         # Shared budget tracker for the entire chat session
-        from arcana.gateway.budget import BudgetTracker
+        if _budget_tracker is not None:
+            self._budget_tracker = _budget_tracker
+        else:
+            from arcana.gateway.budget import BudgetTracker
 
-        self._budget_tracker = BudgetTracker(
-            max_cost_usd=self._budget_config.max_cost_usd,
-            max_tokens=self._budget_config.max_tokens,
-        )
+            self._budget_tracker = BudgetTracker(
+                max_cost_usd=self._budget_config.max_cost_usd,
+                max_tokens=self._budget_config.max_tokens,
+            )
 
         self._total_tokens = 0
         self._total_cost_usd = 0.0
@@ -1992,7 +2081,29 @@ class ChatSession:
         from arcana.contracts.context import ContextStrategy, TokenBudget
         from arcana.runtime.conversation import ConversationAgent
 
-        model_config = self._runtime._resolve_model_config()
+        # Resolve model config: per-session override > runtime default
+        if self._provider_override or self._model_override:
+            resolved_provider = self._provider_override or self._runtime._config.default_provider
+
+            # If provider was overridden but model wasn't, query the new provider's default
+            if self._provider_override and not self._model_override:
+                p = self._runtime._gateway.get(self._provider_override)
+                if p and hasattr(p, "default_model") and isinstance(p.default_model, str):
+                    resolved_model = p.default_model
+                else:
+                    raise ValueError(f"No default model for provider '{self._provider_override}'")
+            else:
+                resolved_model = self._model_override or self._runtime._config.default_model
+
+            if not resolved_model:
+                p = self._runtime._gateway.get(resolved_provider)
+                if p and hasattr(p, "default_model") and isinstance(p.default_model, str):
+                    resolved_model = p.default_model
+                else:
+                    raise ValueError(f"No default model for provider '{resolved_provider}'")
+            model_config = ModelConfig(provider=resolved_provider, model_id=resolved_model)
+        else:
+            model_config = self._runtime._resolve_model_config()
 
         # Resolve context window from provider
         context_window = 128_000
@@ -2028,11 +2139,34 @@ class ChatSession:
             "pin_budget_fraction": self._runtime._config.pin_budget_fraction,
         }
 
-        # Tool gateway
-        if self._runtime._tool_gateway:
-            agent_kwargs["tool_gateway"] = self._runtime._tool_gateway
+        # Tool gateway: per-session tools override > runtime tools
+        tool_gw = self._resolve_tool_gateway()
+        if tool_gw:
+            agent_kwargs["tool_gateway"] = tool_gw
 
         return ConversationAgent(**agent_kwargs)
+
+    def _resolve_tool_gateway(self) -> Any:
+        """Resolve the tool gateway for this session.
+
+        Per-session tools (from pool.add) take priority; if none, falls
+        back to the runtime's shared tool gateway.
+        """
+        if self._per_session_tools is not None:
+            from arcana.sdk import _FunctionToolProvider
+            from arcana.tool_gateway.gateway import ToolGateway
+            from arcana.tool_gateway.registry import ToolRegistry
+
+            registry = ToolRegistry()
+            for func in self._per_session_tools:
+                if hasattr(func, "_fn"):
+                    func = func._fn
+                spec = getattr(func, "_arcana_tool_spec", None)
+                if spec is None:
+                    continue
+                registry.register(_FunctionToolProvider(spec=spec, func=func))
+            return ToolGateway(registry=registry)
+        return self._runtime._tool_gateway
 
     # ------------------------------------------------------------------
     # Properties
