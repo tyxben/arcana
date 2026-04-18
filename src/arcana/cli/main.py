@@ -192,8 +192,8 @@ async def _run_agent(
 
 @app.command()
 def trace(
-    action: str = typer.Argument(..., help="Action: list, show, summary, serve, replay"),
-    run_id: str = typer.Argument(None, help="Run ID for show / replay"),
+    action: str = typer.Argument(..., help="Action: list, show, summary, serve, replay, pool-replay"),
+    run_id: str = typer.Argument(None, help="Run ID for show / replay / pool-replay"),
     trace_dir: str = typer.Option("./traces", "--dir", help="Trace directory"),
     port: int = typer.Option(8100, "--port", help="Port for serve"),
     last: int = typer.Option(0, "--last", help="Limit to last N traces (summary)"),
@@ -202,10 +202,11 @@ def trace(
     llm: bool = typer.Option(False, "--llm", help="Show only LLM call events"),
     context: bool = typer.Option(False, "--context", help="Show only context decision events"),
     cognitive: bool = typer.Option(False, "--cognitive", help="Show only cognitive primitive events (recall/pin/unpin)"),
-    turn: int = typer.Option(None, "--turn", help="Turn number to replay (for replay)"),
+    turn: int = typer.Option(None, "--turn", help="Turn number to replay (for replay / pool-replay)"),
     prompt_only: bool = typer.Option(False, "--prompt-only", help="Replay: only show the prompt snapshot"),
     decision_only: bool = typer.Option(False, "--decision-only", help="Replay: only show the context decision"),
     as_json: bool = typer.Option(False, "--json", help="Emit raw JSON instead of formatted output"),
+    agent: str = typer.Option(None, "--agent", help="Filter events by pool agent name (metadata.source_agent)"),
 ) -> None:
     """View agent execution traces."""
     import datetime
@@ -287,9 +288,15 @@ def trace(
                 e for e in all_events
                 if e.get("event_type", "") in filter_types
             ]
+        # v0.8.0 — optional pool-agent scoping via metadata.source_agent
+        if agent is not None:
+            events = [
+                e for e in events
+                if (e.get("metadata", {}) or {}).get("source_agent") == agent
+            ]
 
-        console.print(f"[bold]Trace: {run_id}[/bold]")
-        console.print(f"Events: {len(events)}" + (f" (filtered from {len(all_events)})" if filter_types else ""))
+        console.print(f"[bold]Trace: {run_id}[/bold]" + (f" [dim](agent={agent})[/dim]" if agent else ""))
+        console.print(f"Events: {len(events)}" + (f" (filtered from {len(all_events)})" if filter_types or agent else ""))
         console.print()
 
         for i, event in enumerate(events):
@@ -311,8 +318,11 @@ def trace(
                 style = "yellow"
             else:
                 style = "dim"
+            # v0.8.0 — show [agent] tag when the event came from a pool member
+            source_agent = (event.get("metadata", {}) or {}).get("source_agent")
+            agent_tag = f" [dim]\\[{source_agent}][/dim]" if source_agent else ""
             console.print(
-                f"  [{style}]{i + 1:3d}. {event_type:20s}[/{style}] {timestamp} {model}"
+                f"  [{style}]{i + 1:3d}. {event_type:20s}[/{style}]{agent_tag} {timestamp} {model}"
             )
 
             # Show context decision details
@@ -384,12 +394,25 @@ def trace(
             prompt_only=prompt_only,
             decision_only=decision_only,
             as_json=as_json,
+            agent=agent,
+        )
+
+    elif action == "pool-replay" and run_id:
+        _trace_pool_replay(
+            trace_path=trace_path,
+            run_id=run_id,
+            turn=turn,
+            agent=agent,
+            prompt_only=prompt_only,
+            decision_only=decision_only,
+            as_json=as_json,
         )
 
     else:
         console.print(
-            "[red]Usage: arcana trace list | show <run_id> | summary | serve | "
-            "replay <run_id> --turn N[/red]"
+            "[red]Usage: arcana trace list | show <run_id> [--agent NAME] | "
+            "summary | serve | replay <run_id> --turn N [--agent NAME] | "
+            "pool-replay <run_id> [--agent NAME --turn N][/red]"
         )
 
 
@@ -401,8 +424,14 @@ def _trace_replay(
     prompt_only: bool,
     decision_only: bool,
     as_json: bool,
+    agent: str | None = None,
 ) -> None:
-    """Print the reconstructed prompt composition for a given turn."""
+    """Print the reconstructed prompt composition for a given turn.
+
+    When ``agent`` is given, only CONTEXT_DECISION / PROMPT_SNAPSHOT
+    events whose metadata.source_agent matches are considered — use this
+    to replay a specific pool member's turn in an interleaved pool trace.
+    """
     from arcana.trace.reader import TraceReader
 
     reader = TraceReader(trace_dir=trace_path)
@@ -411,10 +440,11 @@ def _trace_replay(
         raise typer.Exit(1)
 
     if turn is None:
-        turns = reader.list_turns(run_id)
+        turns = _list_turns(reader, run_id, agent=agent)
         if not turns:
+            scope = f" for agent {agent!r}" if agent else ""
             console.print(
-                "[yellow]No replay evidence in this run "
+                f"[yellow]No replay evidence in this run{scope} "
                 "(no CONTEXT_DECISION or PROMPT_SNAPSHOT events).[/yellow]"
             )
             raise typer.Exit(1)
@@ -424,9 +454,10 @@ def _trace_replay(
         )
         raise typer.Exit(2)
 
-    replay = reader.replay_prompt(run_id, turn=turn)
+    replay = _replay_prompt_scoped(reader, run_id, turn=turn, agent=agent)
     if replay is None:
-        console.print(f"[red]No replay events for turn {turn}[/red]")
+        scope = f" for agent {agent!r}" if agent else ""
+        console.print(f"[red]No replay events for turn {turn}{scope}[/red]")
         raise typer.Exit(1)
 
     if as_json:
@@ -438,6 +469,8 @@ def _trace_replay(
     snapshot = replay.prompt_snapshot
 
     header_bits: list[str] = [f"run {run_id}", f"turn {turn}"]
+    if agent:
+        header_bits.append(f"agent={agent}")
     if decision is not None:
         header_bits.append(f"strategy={decision.strategy}")
     if report is not None:
@@ -488,7 +521,7 @@ def _trace_replay(
 
     # v0.7.0 — derive and show active pin state at this turn from
     # COGNITIVE_PRIMITIVE trace events.
-    active_pins = _active_pins_at_turn(reader, run_id, turn)
+    active_pins = _active_pins_at_turn(reader, run_id, turn, agent=agent)
     if active_pins:
         console.print()
         console.print(f"[cyan]Active pins at turn {turn}[/cyan]")
@@ -506,13 +539,16 @@ def _active_pins_at_turn(
     reader: Any,  # arcana.trace.reader.TraceReader
     run_id: str,
     turn: int,
+    agent: str | None = None,
 ) -> list[dict[str, Any]]:
     """Replay COGNITIVE_PRIMITIVE events to derive pin state at ``turn``.
 
     Returns a list of dicts {pin_id, label, token_count, created_turn}.
     Pins whose ``until_turn`` has passed are filtered out. Pins with a
     later unpin event are excluded. Best-effort — malformed events are
-    skipped silently.
+    skipped silently. When ``agent`` is given (v0.8.0 pool replay), only
+    events whose metadata.source_agent matches are considered — pool
+    agents have independent ``PinState``s.
     """
     pins: dict[str, dict] = {}
     try:
@@ -523,6 +559,8 @@ def _active_pins_at_turn(
         if event.event_type.value != "cognitive_primitive":
             continue
         meta = event.metadata or {}
+        if agent is not None and meta.get("source_agent") != agent:
+            continue
         primitive = meta.get("primitive")
         args = meta.get("args") or {}
         result = meta.get("result") or {}
@@ -554,6 +592,219 @@ def _active_pins_at_turn(
             continue
         active.append(pin)
     return active
+
+
+def _event_agent(event: Any) -> str | None:
+    """Best-effort extraction of the pool source_agent from a TraceEvent."""
+    meta = getattr(event, "metadata", None) or {}
+    value = meta.get("source_agent")
+    return value if isinstance(value, str) else None
+
+
+def _list_turns(reader: Any, run_id: str, agent: str | None = None) -> list[int]:
+    """Like ``TraceReader.list_turns`` but scoped to a pool agent.
+
+    ``agent=None`` delegates to the reader unchanged (v0.7.0 behaviour).
+    """
+    if agent is None:
+        return list(reader.list_turns(run_id))
+
+    from arcana.contracts.trace import EventType
+
+    turns: set[int] = set()
+    try:
+        events = reader.iter_events(run_id)
+    except Exception:  # pragma: no cover — best effort
+        return []
+    for event in events:
+        if event.event_type not in (
+            EventType.CONTEXT_DECISION,
+            EventType.PROMPT_SNAPSHOT,
+        ):
+            continue
+        if _event_agent(event) != agent:
+            continue
+        meta = event.metadata or {}
+        turn = meta.get("turn")
+        if turn is None:
+            decision = meta.get("context_decision")
+            if isinstance(decision, dict):
+                turn = decision.get("turn")
+        if isinstance(turn, int):
+            turns.add(turn)
+    return sorted(turns)
+
+
+def _replay_prompt_scoped(
+    reader: Any,
+    run_id: str,
+    *,
+    turn: int,
+    agent: str | None,
+) -> Any:
+    """Like ``TraceReader.replay_prompt`` but scoped to a pool agent.
+
+    When ``agent`` is None, delegates unchanged. When set, only events
+    matching ``metadata.source_agent == agent`` participate in replay
+    reconstruction.
+    """
+    if agent is None:
+        return reader.replay_prompt(run_id, turn=turn)
+
+    from arcana.contracts.trace import EventType
+    from arcana.trace.reader import (
+        BudgetSnapshot,
+        ContextDecision,
+        ContextReport,
+        PromptReplay,
+        PromptSnapshot,
+    )
+
+    # Local reconstruction mirroring TraceReader.replay_prompt, but with
+    # the source_agent filter. Any future field additions to PromptReplay
+    # should be mirrored here or (better) pushed into the reader as an
+    # optional filter kwarg.
+
+    snapshot: PromptSnapshot | None = None
+    decision: ContextDecision | None = None
+    report: ContextReport | None = None
+    budget: BudgetSnapshot | None = None
+    seen = False
+
+    for event in reader.iter_events(run_id):
+        if event.event_type not in (
+            EventType.CONTEXT_DECISION,
+            EventType.PROMPT_SNAPSHOT,
+        ):
+            continue
+        if _event_agent(event) != agent:
+            continue
+        meta = event.metadata or {}
+        event_turn = meta.get("turn")
+        if event_turn is None:
+            decision_dump = meta.get("context_decision")
+            if isinstance(decision_dump, dict):
+                event_turn = decision_dump.get("turn")
+        if event_turn != turn:
+            continue
+        seen = True
+
+        if event.event_type == EventType.PROMPT_SNAPSHOT:
+            snap = meta.get("prompt_snapshot")
+            if isinstance(snap, dict):
+                try:
+                    snapshot = PromptSnapshot.model_validate(snap)
+                except ValueError:
+                    snapshot = None
+                if snapshot is not None and snapshot.budget_snapshot is not None:
+                    budget = snapshot.budget_snapshot
+        elif event.event_type == EventType.CONTEXT_DECISION:
+            dec = meta.get("context_decision")
+            if isinstance(dec, dict):
+                try:
+                    decision = ContextDecision.model_validate(dec)
+                except ValueError:
+                    decision = None
+            rep = meta.get("context_report")
+            if isinstance(rep, dict):
+                try:
+                    report = ContextReport.model_validate(rep)
+                except ValueError:
+                    report = None
+
+    if not seen:
+        return None
+    return PromptReplay(
+        run_id=run_id,
+        turn=turn,
+        prompt_snapshot=snapshot,
+        context_decision=decision,
+        context_report=report,
+        budget_snapshot=budget,
+    )
+
+
+def _pool_agents_in_trace(reader: Any, run_id: str) -> dict[str, int]:
+    """Count events per pool agent found in ``run_id``'s trace.
+
+    Agent attribution is via ``metadata.source_agent`` (set by
+    :class:`_PoolTaggedTraceWriter` in v0.8.0). Returns an
+    agent-name → event-count dict. Events without ``source_agent`` are
+    bucketed under ``"(no-agent)"`` — typically present only when pool
+    traces are mixed with non-pool events.
+    """
+    counts: dict[str, int] = {}
+    try:
+        events = reader.iter_events(run_id)
+    except Exception:  # pragma: no cover
+        return {}
+    for event in events:
+        name = _event_agent(event) or "(no-agent)"
+        counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def _trace_pool_replay(
+    *,
+    trace_path: Path,
+    run_id: str,
+    turn: int | None,
+    agent: str | None,
+    prompt_only: bool,
+    decision_only: bool,
+    as_json: bool,
+) -> None:
+    """v0.8.0 — pool-aware replay.
+
+    Without ``--agent``: lists which pool members participated and how
+    many events each emitted. With ``--agent``: defers to
+    :func:`_trace_replay` scoped to that agent.
+    """
+    from arcana.trace.reader import TraceReader
+
+    reader = TraceReader(trace_dir=trace_path)
+    if not reader.exists(run_id):
+        console.print(f"[red]Trace not found: {trace_path / (run_id + '.jsonl')}[/red]")
+        raise typer.Exit(1)
+
+    if agent is None:
+        counts = _pool_agents_in_trace(reader, run_id)
+        if not counts or (len(counts) == 1 and "(no-agent)" in counts):
+            console.print(
+                "[yellow]No pool events in this trace "
+                "(no metadata.source_agent found). "
+                "Was the run produced by runtime.collaborate()?[/yellow]"
+            )
+            raise typer.Exit(1)
+
+        console.print(f"[bold]Pool trace: {run_id}[/bold]")
+        console.print()
+        table = Table(title="Pool agents")
+        table.add_column("Agent")
+        table.add_column("Events", justify="right")
+        table.add_column("Replayable turns")
+        for name in sorted(counts):
+            turns = _list_turns(reader, run_id, agent=name if name != "(no-agent)" else None)
+            turn_list = ", ".join(str(t) for t in turns) if turns else "(none)"
+            table.add_row(name, str(counts[name]), turn_list)
+        console.print(table)
+        console.print()
+        console.print(
+            "[dim]Next: arcana trace pool-replay "
+            f"{run_id} --agent <name> --turn <N>[/dim]"
+        )
+        return
+
+    # With --agent → delegate
+    _trace_replay(
+        trace_path=trace_path,
+        run_id=run_id,
+        turn=turn,
+        prompt_only=prompt_only,
+        decision_only=decision_only,
+        as_json=as_json,
+        agent=agent,
+    )
 
 
 def _trace_summary(trace_path: Path, last: int) -> None:
