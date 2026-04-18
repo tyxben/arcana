@@ -4,6 +4,97 @@ All notable changes to Arcana will be documented in this file.
 
 ## [Unreleased]
 
+### v0.8.0 — "The Collaborative Cognition Release"
+
+Multi-agent pools where each member is an independent cognitive instance.
+Extends v0.7.0 primitives to pool settings without adding orchestration —
+Principle 8 still holds, there is no graph DSL, no turn scheduler, no role
+hierarchy. See the user guide at `docs/guide/multi-agent.md` and the spec
+at `specs/v0.8.0-collaborative-cognition.md`.
+
+#### Added — Multi-agent infrastructure
+- **`runtime.collaborate(budget?, cognitive_primitives?)`** — returns an
+  `AgentPool`. Sync factory; the pool itself is an async context manager
+  (`async with runtime.collaborate() as pool`). No `await` on the factory.
+- **`AgentPool.add(name, *, system?, tools?, provider?, model?,
+  max_history?, cognitive_primitives?)`** — registers a named
+  `ChatSession` that shares the pool's `BudgetTracker`, `Channel`, and
+  `SharedContext` but keeps its own prompt, tools, history, and
+  cognitive state.
+- **`AgentPool.channel`** — name-addressed `Channel` with point-to-point
+  and broadcast delivery.
+- **`AgentPool.shared`** — thread-safe `SharedContext` key-value store.
+- **`AgentPool.agents`** — read-only snapshot of registered sessions.
+- **`AgentPool` is an async context manager** — `__aexit__` releases
+  sessions, drains the channel, and clears shared state. No orchestration
+  actions (no auto-summaries, no strategy decisions).
+
+#### Added — Per-agent cognitive primitives
+- **Per-agent `cognitive_primitives` override** on both
+  `runtime.collaborate(...)` (pool default) and `pool.add(...)`
+  (per-agent override). Resolution: per-agent explicit → pool default →
+  `RuntimeConfig.cognitive_primitives`. Explicit `[]` opts an agent out
+  even when a higher level opts in.
+- **Isolated state per pool member** — each agent owns its own
+  `CognitiveHandler`, `PinState`, and recall log. Pins made by agent A
+  are never visible to agent B. `pin_budget_fraction` is evaluated
+  against each agent's own context window.
+- **Tool-name / primitive collision raises `ValueError`** at
+  `pool.add(...)` time — a user tool named `recall`, `pin`, or `unpin`
+  that collides with an active cognitive primitive is rejected instead
+  of silently shadowed (Principle 5).
+
+#### Added — Pool-aware trace + CLI
+- **`metadata["source_agent"]`** — every `TraceEvent` emitted during a
+  pool run carries the originating agent's name in the existing
+  `metadata` dict. The `TraceEvent` schema itself is unchanged, so
+  v0.6.0/v0.7.0 trace consumers keep working.
+- **`arcana trace pool-replay <run_id>`** — summary table listing each
+  pool agent, their event count, and replayable turn list.
+- **`arcana trace pool-replay <run_id> --agent <name> --turn <N>`** —
+  per-agent prompt-composition replay scoped to one pool member.
+- **`arcana trace show <run_id> --agent <name>`** and
+  **`arcana trace replay <run_id> --agent <name> --turn N`** — agent
+  scoping on the existing subcommands.
+- **`arcana trace show`** annotates each event line with its
+  `[source_agent]` tag when present; makes interleaved pool traces
+  readable at a glance.
+
+#### Added — Contracts
+- New `arcana.contracts.multi_agent.ChannelMessage` — immutable
+  (`model_config = ConfigDict(frozen=True)`) so the single instance
+  `Channel.send` fans out to all recipients cannot be mutated in place
+  by one receiver at the others' expense. Use `model_copy(update=...)`
+  to derive a modified message.
+- `MessageType.CHAT` — added for default `ChannelMessage` classification.
+
+#### Changed — Deprecations
+- **`runtime.team()` is deprecated** (emits `DeprecationWarning`). Use
+  `runtime.collaborate()` instead. See the migration recipe at the bottom
+  of `docs/guide/multi-agent.md`. Scheduled for removal in v1.0.0.
+
+#### Fixed — Pre-release bug fixes (from uncommitted v0.7.x pool work)
+- **Bug: `Runtime.collaborate()` was `async def`** — the documented
+  `async with runtime.collaborate() as pool` pattern failed with
+  `TypeError: 'coroutine' object does not support the asynchronous
+  context manager protocol`. Now a sync factory returning an
+  `AgentPool` whose own `__aenter__/__aexit__` handle the context
+  manager protocol (matches `runtime.chat()`).
+- **Bug: `Channel.send` broadcast shared one mutable `ChannelMessage`**
+  across all recipients plus `history`, so a mutation by any receiver
+  bled across the others. `ChannelMessage` is now frozen; the shared
+  instance is safe to fan out. Regression tests cover both bugs.
+
+#### Constitutional guard (explicitly NOT done)
+- No graph DSL, no `StateGraph`-equivalent for multi-agent flows.
+- No turn scheduler. Who talks when is user code (`async for` / `if` /
+  `await`).
+- No role hierarchy. Roles live in system prompts, not framework types.
+- No auto stop conditions. Stop when user code decides to stop.
+- No cross-agent cognitive inheritance. Pool agent A's pins never
+  populate agent B's state; explicit `pool.shared.set(...)` remains the
+  only intentional hand-off.
+
 ### v0.7.0 — "The Cognitive Primitives Release"
 
 Runtime services for the LLM's own reasoning state. The LLM can now invoke
