@@ -34,6 +34,7 @@ nav:
     - Configuration: guide/configuration.md
     - Providers: guide/providers.md
     - Context Explainability: guide/context-explainability.md
+    - Cognitive Primitives: guide/cognitive-primitives.md
   - Examples: examples/index.md
   - API Reference:
     - Overview: api/index.md

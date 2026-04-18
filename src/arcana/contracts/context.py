@@ -26,6 +26,11 @@ class ContextBlock(BaseModel):
     compressible: bool = True
     source: str | None = None
 
+    # v0.7.0 — pin flag. When True, WorkingSetBuilder treats this block as
+    # protected from compression (independent block inside the Working
+    # layer, not a new layer). See Principle 9 in CONSTITUTION.md.
+    pinned: bool = False
+
 
 class TokenBudget(BaseModel):
     """Token allocation for a single LLM call."""

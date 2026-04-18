@@ -49,6 +49,9 @@ class EventType(str, Enum):
     CONTEXT_DECISION = "context_decision"
     PROMPT_SNAPSHOT = "prompt_snapshot"
 
+    # Cognitive primitives (v0.7.0) — recall / pin / unpin invocations
+    COGNITIVE_PRIMITIVE = "cognitive_primitive"
+
     # Orchestrator events
     TASK_SUBMIT = "task_submit"
     TASK_START = "task_start"

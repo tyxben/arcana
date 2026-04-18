@@ -201,6 +201,7 @@ def trace(
     tools: bool = typer.Option(False, "--tools", help="Show only tool call events"),
     llm: bool = typer.Option(False, "--llm", help="Show only LLM call events"),
     context: bool = typer.Option(False, "--context", help="Show only context decision events"),
+    cognitive: bool = typer.Option(False, "--cognitive", help="Show only cognitive primitive events (recall/pin/unpin)"),
     turn: int = typer.Option(None, "--turn", help="Turn number to replay (for replay)"),
     prompt_only: bool = typer.Option(False, "--prompt-only", help="Replay: only show the prompt snapshot"),
     decision_only: bool = typer.Option(False, "--decision-only", help="Replay: only show the context decision"),
@@ -267,7 +268,7 @@ def trace(
 
         # Apply filters
         filter_types: set[str] | None = None
-        if errors or tools or llm or context:
+        if errors or tools or llm or context or cognitive:
             filter_types = set()
             if errors:
                 filter_types.add("error")
@@ -277,6 +278,8 @@ def trace(
                 filter_types.add("llm_call")
             if context:
                 filter_types.add("context_decision")
+            if cognitive:
+                filter_types.add("cognitive_primitive")
 
         events = all_events
         if filter_types is not None:
@@ -300,6 +303,8 @@ def trace(
                 style = "red"
             elif "context_decision" in event_type:
                 style = "magenta"
+            elif "cognitive_primitive" in event_type:
+                style = "bright_magenta"
             elif "llm" in event_type:
                 style = "cyan"
             elif "tool" in event_type:
@@ -320,6 +325,56 @@ def trace(
                     msgs_in = meta.get("messages_in", 0)
                     msgs_out = meta.get("messages_out", 0)
                     console.print(f"       [dim]messages: {msgs_in} → {msgs_out} ({compressed} compressed)[/dim]")
+                # v0.7.0 — flag pinned entries with [PIN]
+                decision = meta.get("context_decision", {})
+                if isinstance(decision, dict):
+                    for d in decision.get("decisions", []):
+                        if d.get("reason") == "pinned":
+                            role = d.get("role", "?")
+                            before = d.get("token_count_before", 0)
+                            console.print(
+                                f"       [bright_magenta][PIN][/bright_magenta] "
+                                f"[{d.get('index', '?')}] {role} "
+                                f"{before} tokens (kept at L0)"
+                            )
+
+            # Show cognitive primitive details
+            if event_type == "cognitive_primitive" and cognitive:
+                meta = event.get("metadata", {})
+                primitive = meta.get("primitive", "?")
+                args = meta.get("args", {}) or {}
+                result = meta.get("result", {}) or {}
+                if primitive == "recall":
+                    turn_val = args.get("turn")
+                    found = result.get("found")
+                    msg_count = len(result.get("messages", []) or [])
+                    note = result.get("note") or ""
+                    status = f"→ {msg_count} messages" if found else f"→ {note}"
+                    console.print(
+                        f"       [bright_magenta]recall[/bright_magenta] "
+                        f"turn={turn_val} {status}"
+                    )
+                elif primitive == "pin":
+                    pid = result.get("pin_id")
+                    label = result.get("label") or "(no label)"
+                    pinned = result.get("pinned")
+                    if pinned:
+                        console.print(
+                            f"       [bright_magenta]pin[/bright_magenta] "
+                            f"pin_id={pid} label={label!r}"
+                        )
+                    else:
+                        reason = result.get("reason", "?")
+                        console.print(
+                            f"       [red]pin REJECTED[/red] reason={reason}"
+                        )
+                elif primitive == "unpin":
+                    pid = args.get("pin_id")
+                    unpinned = result.get("unpinned")
+                    console.print(
+                        f"       [bright_magenta]unpin[/bright_magenta] "
+                        f"pin_id={pid} {'ok' if unpinned else '(unknown id)'}"
+                    )
 
     elif action == "replay" and run_id:
         _trace_replay(
@@ -430,6 +485,75 @@ def _trace_replay(
             "[dim]No prompt snapshot recorded. "
             "Enable with RuntimeConfig.trace_include_prompt_snapshots=True.[/dim]"
         )
+
+    # v0.7.0 — derive and show active pin state at this turn from
+    # COGNITIVE_PRIMITIVE trace events.
+    active_pins = _active_pins_at_turn(reader, run_id, turn)
+    if active_pins:
+        console.print()
+        console.print(f"[cyan]Active pins at turn {turn}[/cyan]")
+        for p in active_pins:
+            label = p.get("label") or "(no label)"
+            pid = p.get("pin_id", "?")
+            tokens = p.get("token_count", 0)
+            created = p.get("created_turn", "?")
+            console.print(
+                f"  {pid}  label={label!r}  {tokens} tokens  pinned at turn {created}"
+            )
+
+
+def _active_pins_at_turn(
+    reader: Any,  # arcana.trace.reader.TraceReader
+    run_id: str,
+    turn: int,
+) -> list[dict[str, Any]]:
+    """Replay COGNITIVE_PRIMITIVE events to derive pin state at ``turn``.
+
+    Returns a list of dicts {pin_id, label, token_count, created_turn}.
+    Pins whose ``until_turn`` has passed are filtered out. Pins with a
+    later unpin event are excluded. Best-effort — malformed events are
+    skipped silently.
+    """
+    pins: dict[str, dict] = {}
+    try:
+        events = reader.read_events(run_id)
+    except Exception:  # pragma: no cover — best effort
+        return []
+    for event in events:
+        if event.event_type.value != "cognitive_primitive":
+            continue
+        meta = event.metadata or {}
+        primitive = meta.get("primitive")
+        args = meta.get("args") or {}
+        result = meta.get("result") or {}
+        if primitive == "pin" and result.get("pinned") and not result.get("already_pinned"):
+            pid = result.get("pin_id")
+            if pid:
+                created = result.get("created_turn") or meta.get("turn") or 0
+                # Best-effort: derive token count from args content
+                content = args.get("content", "") or ""
+                from arcana.context.builder import estimate_tokens
+
+                pins[pid] = {
+                    "pin_id": pid,
+                    "label": result.get("label"),
+                    "token_count": estimate_tokens(content),
+                    "created_turn": created,
+                    "until_turn": args.get("until_turn"),
+                }
+        elif primitive == "unpin" and result.get("unpinned"):
+            pid = args.get("pin_id")
+            if pid and pid in pins:
+                pins.pop(pid)
+
+    # Filter out expired pins
+    active = []
+    for pin in pins.values():
+        until = pin.get("until_turn")
+        if until is not None and until < turn:
+            continue
+        active.append(pin)
+    return active
 
 
 def _trace_summary(trace_path: Path, last: int) -> None:

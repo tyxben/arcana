@@ -262,6 +262,18 @@ class RuntimeConfig(BaseModel):
     # carry PII / secrets and bloat trace files. Opt in for deep replay.
     trace_include_prompt_snapshots: bool = False
 
+    # Cognitive primitives the LLM may invoke as intercepted tools
+    # (Principle 9). Accepted values: "recall", "pin". When empty
+    # (default), no behavioral change — no tool specs injected, no
+    # handlers instantiated. Opt in per-runtime.
+    cognitive_primitives: list[str] = Field(default_factory=list)
+
+    # Hard cap on total pin token budget, as a fraction of the total
+    # context budget. Pin calls that would exceed the cap are rejected with
+    # a structured PinResult; the framework never auto-unpins. See
+    # Principle 9 in CONSTITUTION.md.
+    pin_budget_fraction: float = 0.5
+
 
 class Runtime:
     """
@@ -592,6 +604,8 @@ class Runtime:
             "intent_classifier": classifier,
             "max_turns": max_turns or self._config.max_turns,
             "trace_include_prompt_snapshots": self._config.trace_include_prompt_snapshots,
+            "cognitive_primitives": list(self._config.cognitive_primitives),
+            "pin_budget_fraction": self._config.pin_budget_fraction,
         }
         if memory_context:
             agent_kwargs["memory_context"] = memory_context
@@ -1602,6 +1616,8 @@ class Session:
                 "intent_classifier": classifier,
                 "max_turns": self._max_turns,
                 "trace_include_prompt_snapshots": self._runtime._config.trace_include_prompt_snapshots,
+                "cognitive_primitives": list(self._runtime._config.cognitive_primitives),
+                "pin_budget_fraction": self._runtime._config.pin_budget_fraction,
             }
             # Resolve system prompt: run(system=) > RuntimeConfig > default
             resolved_system = self._system or self._runtime._config.system_prompt
@@ -2008,6 +2024,8 @@ class ChatSession:
             "initial_messages": list(self._messages),  # Copy
             "input_handler": self._input_handler,
             "trace_include_prompt_snapshots": self._runtime._config.trace_include_prompt_snapshots,
+            "cognitive_primitives": list(self._runtime._config.cognitive_primitives),
+            "pin_budget_fraction": self._runtime._config.pin_budget_fraction,
         }
 
         # Tool gateway

@@ -4,6 +4,83 @@ All notable changes to Arcana will be documented in this file.
 
 ## [Unreleased]
 
+### v0.7.0 — "The Cognitive Primitives Release"
+
+Runtime services for the LLM's own reasoning state. The LLM can now invoke
+two intercepted tools — `recall` and `pin` (with companion `unpin`) — to
+work around the lossiness of working-set compression. See the user guide at
+`docs/guide/cognitive-primitives.md` and Principle 9 in `CONSTITUTION.md`.
+
+#### Added — Cognitive primitives
+- **`recall(turn, include?)`** — retrieve an earlier turn's messages at
+  full fidelity, bypassing any working-set compression. Supports
+  `include="all"` (default) / `"assistant_only"` / `"tool_calls"` filters.
+  Delegates to the live conversation log, falls back to the trace reader.
+  Out-of-range / invalid turns return structured `RecallResult` with
+  `found=False` and an actionable `note` — never exceptions (Principle 5).
+- **`pin(content, label?, until_turn?)`** — protect specific content from
+  compression in future working sets. Returns a `pin_id` the LLM uses with
+  `unpin`. Idempotent by SHA-256 of content (duplicate pin returns the
+  existing id). Budget-capped at
+  `RuntimeConfig.pin_budget_fraction * total_window` (default 50%) —
+  over-cap requests are rejected with a structured diagnosis that includes
+  current usage, requested size, cap, and a remediation suggestion. The
+  framework never auto-unpins or truncates existing pins.
+- **`unpin(pin_id)`** — remove an earlier pin; always returns a structured
+  result whether or not the id existed.
+- **Pinned blocks render inside the Working layer** as independent
+  `ContextBlock(pinned=True)` entries, excluded from
+  `_compress_with_relevance` / `_aggressive_truncate`, and surfaced in
+  `ContextDecision.decisions` with `outcome="kept"` and `reason="pinned"`.
+  Principle 2's four-layer structure (Identity/Task/Working/External) is
+  unchanged — no new layer.
+- **`RuntimeConfig.cognitive_primitives: list[str] = []`** and
+  **`RuntimeConfig.pin_budget_fraction: float = 0.5`** — opt-in per
+  runtime; empty default means no behavioural change.
+- **`EventType.COGNITIVE_PRIMITIVE`** — every primitive invocation emits
+  a trace event with `{primitive, args, result}` metadata.
+
+#### Added — Contracts
+- New module `arcana.contracts.cognitive` — `RecallRequest/Result`,
+  `PinRequest/Result`, `UnpinRequest/Result`, `PinEntry`, `PinState`.
+- `ContextBlock.pinned: bool = False` — per-block flag.
+
+#### Added — Runtime
+- `arcana.runtime.cognitive.CognitiveHandler` — session-local handler
+  that owns `PinState` and services interception, wired into
+  `ConversationAgent._execute_tools` via the same mechanism as `ask_user`.
+- `WorkingSetBuilder.set_pin_state(pin_state)` — attaches the session's
+  pin state so active pins are rendered as independent messages in every
+  working set build.
+
+#### Added — CLI
+- `arcana trace show <run_id> --cognitive` — filter to
+  `COGNITIVE_PRIMITIVE` events with human-readable formatting per primitive.
+- `arcana trace show <run_id> --context` — pinned entries are now flagged
+  with a `[PIN]` prefix in the per-message decisions view.
+- `arcana trace replay <run_id> --turn N` — appends an *Active pins at
+  turn N* section reconstructed from the run's cognitive events.
+
+#### Added — Documentation
+- New user guide: `docs/guide/cognitive-primitives.md`.
+- `CONSTITUTION.md` v3.0 — Principle 9 (Cognitive Primitives as Services)
+  and two Chapter IV entries.
+
+#### Constitutional guard (explicitly NOT done)
+- Framework does not call a primitive on the LLM's behalf; every
+  invocation is an explicit LLM tool call with a `tool_call_id` and trace
+  record.
+- No system-prompt hints such as *"consider using recall here"*.
+- No auto-unpin, no pin truncation, no eviction on budget pressure — the
+  LLM decides how to free budget when rejected.
+- Default-off: empty `cognitive_primitives` list means zero behavioural
+  change over v0.6.0.
+
+#### Stats
+- 1368 tests passing (+31 new): `test_cognitive_recall.py` (11) +
+  `test_cognitive_pin.py` (19) + `test_context_decision_evidence.py` (+1
+  pinned-block case).
+
 ### v0.6.0 — "The Explainability Release"
 
 #### Added — Context Explainability

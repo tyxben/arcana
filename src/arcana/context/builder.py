@@ -109,6 +109,11 @@ class WorkingSetBuilder:
         # Last context report — richer than ContextDecision, for v0.3.0 visibility
         self.last_report: ContextReport | None = None
 
+        # v0.7.0 — optional pin state (session-local). When set, active pins
+        # are rendered as independent pinned blocks inside the Working
+        # layer, excluded from compression, and surfaced in decisions.
+        self._pin_state: Any | None = None
+
     @property
     def budget(self) -> TokenBudget:
         return self._budget
@@ -118,6 +123,122 @@ class WorkingSetBuilder:
         self._goal = goal
         self._goal_keywords = _extract_keywords(goal)
         self._memory_injected = False
+
+    def set_pin_state(self, pin_state: Any) -> None:
+        """Attach a session-local pin state (v0.7.0).
+
+        When set, the builder renders active pins as independent blocks
+        inside the Working layer that are excluded from compression and
+        surfaced in ``ContextDecision.decisions`` with ``reason="pinned"``.
+        Passing ``None`` disables pin rendering.
+        """
+        self._pin_state = pin_state
+
+    def _active_pins(self, *, turn: int) -> list[Any]:
+        """Return active pins for ``turn`` (or empty when no pin state).
+
+        Imported lazily to avoid a circular dependency with cognitive
+        contracts.
+        """
+        if self._pin_state is None:
+            return []
+        try:
+            return list(self._pin_state.active_at(turn))
+        except Exception:  # pragma: no cover — defensive
+            return []
+
+    def _pin_messages(self, *, turn: int) -> list[Message]:
+        """Render active pins as system-role ``Message`` objects.
+
+        Each pinned block carries a small header so the LLM can tell it
+        apart from ordinary system content. Pinned messages have the
+        ``_pinned`` attribute set so downstream code can skip them during
+        compression.
+        """
+        pins = self._active_pins(turn=turn)
+        out: list[Message] = []
+        for entry in pins:
+            label = entry.label or "pinned content"
+            content = f"[pinned: {label}]\n{entry.content}"
+            msg = Message(role=MessageRole.SYSTEM, content=content)
+            # Mark as pinned for downstream filtering.
+            msg._pinned = True  # type: ignore[attr-defined]
+            msg._pin_id = entry.pin_id  # type: ignore[attr-defined]
+            msg._pin_label = entry.label  # type: ignore[attr-defined]
+            out.append(msg)
+        return out
+
+    def _pin_token_total(self, pin_messages: list[Message]) -> int:
+        return sum(m.token_count for m in pin_messages)
+
+    def _apply_pins(
+        self,
+        curated: list[Message],
+        pin_messages: list[Message],
+    ) -> list[Message]:
+        """Insert pinned messages into the curated list right after system.
+
+        Also updates ``self.last_decision`` and ``self.last_report`` in
+        place so callers see pins reflected in both. No-op when there
+        are no pins.
+        """
+        if not pin_messages:
+            return curated
+
+        if curated:
+            out = [curated[0], *pin_messages, *curated[1:]]
+        else:
+            out = list(pin_messages)
+
+        # Augment last_decision with per-pin entries
+        self._append_pin_decisions(self.last_decision, pin_messages)
+        if self.last_decision is not None:
+            self.last_decision.messages_out = len(out)
+            self.last_decision.budget_used = (
+                self.last_decision.budget_used
+                + sum(m.token_count for m in pin_messages)
+            )
+
+        # Augment last_report with pin token accounting
+        if self.last_report is not None:
+            pin_total = sum(m.token_count for m in pin_messages)
+            self.last_report.total_tokens += pin_total
+            self.last_report.history_tokens += pin_total
+            self.last_report.window_size = self._budget.total_window
+            self.last_report.utilization = (
+                self.last_report.total_tokens
+                / max(self._budget.total_window, 1)
+            )
+
+        return out
+
+    def _append_pin_decisions(
+        self,
+        decision: ContextDecision | None,
+        pin_messages: list[Message],
+    ) -> None:
+        """Add one MessageDecision per active pin to ``decision.decisions``.
+
+        The pin entries are placed at the end of the decisions list with
+        synthetic indices starting at ``len(decision.decisions)``; this is
+        additive so existing per-message indices keep their meaning.
+        """
+        if decision is None or not pin_messages:
+            return
+        base_index = len(decision.decisions)
+        for offset, msg in enumerate(pin_messages):
+            role = msg.role if isinstance(msg.role, str) else msg.role.value
+            decision.decisions.append(
+                MessageDecision(
+                    index=base_index + offset,
+                    role=role,
+                    outcome="kept",
+                    fidelity="L0",
+                    token_count_before=msg.token_count,
+                    token_count_after=msg.token_count,
+                    reason="pinned",
+                )
+            )
 
     # ------------------------------------------------------------------
     # Phase 0: Zero-cost tool result pruning
@@ -418,12 +539,25 @@ class WorkingSetBuilder:
         Produces a ContextDecision accessible via self.last_decision and
         a ContextReport accessible via self.last_report.
         """
+        # v0.7.0 — reserve token budget for active pins. The pins
+        # themselves are injected after the compression pipeline so
+        # they're excluded from any compression step.
+        pin_messages = self._pin_messages(turn=turn)
+        pin_tokens = self._pin_token_total(pin_messages)
+
         # Apply per-layer budget caps
         effective_tool_tokens = tool_token_estimate
         if self._budget.tool_budget is not None:
             effective_tool_tokens = min(tool_token_estimate, self._budget.tool_budget)
 
-        budget = self._budget.total_window - self._budget.response_reserve - effective_tool_tokens
+        # Deduct pin tokens from the available budget so compression
+        # makes room for them.
+        budget = (
+            self._budget.total_window
+            - self._budget.response_reserve
+            - effective_tool_tokens
+            - pin_tokens
+        )
 
         # Apply memory budget cap
         memory_injected = False
@@ -505,7 +639,7 @@ class WorkingSetBuilder:
             report.tool_results_pruned = p0_pruned
             report.tool_results_tokens_saved = p0_saved
             self.last_report = report
-            return messages
+            return self._apply_pins(messages, pin_messages)
 
         # Over budget — try tail_preserve first (relevance compression),
         # then fall back to aggressive_truncate if result is still too large.
@@ -561,7 +695,7 @@ class WorkingSetBuilder:
                 report.tool_results_pruned = p0_pruned
                 report.tool_results_tokens_saved = p0_saved
                 self.last_report = report
-                return curated
+                return self._apply_pins(curated, pin_messages)
 
         report = self._build_context_report(
             turn=turn,
@@ -576,7 +710,7 @@ class WorkingSetBuilder:
         report.tool_results_pruned = p0_pruned
         report.tool_results_tokens_saved = p0_saved
         self.last_report = report
-        return result
+        return self._apply_pins(result, pin_messages)
 
     def _compress_with_relevance(
         self,
@@ -816,12 +950,21 @@ class WorkingSetBuilder:
         uses LLM-based semantic compression instead of keyword truncation.
         Falls back to sync compression if no gateway is set or on failure.
         """
+        # v0.7.0 — reserve budget for active pins (async path).
+        pin_messages = self._pin_messages(turn=turn)
+        pin_tokens = self._pin_token_total(pin_messages)
+
         # Apply per-layer budget caps (identical to sync version)
         effective_tool_tokens = tool_token_estimate
         if self._budget.tool_budget is not None:
             effective_tool_tokens = min(tool_token_estimate, self._budget.tool_budget)
 
-        budget = self._budget.total_window - self._budget.response_reserve - effective_tool_tokens
+        budget = (
+            self._budget.total_window
+            - self._budget.response_reserve
+            - effective_tool_tokens
+            - pin_tokens
+        )
 
         # Apply memory budget cap
         memory_injected = False
@@ -902,7 +1045,7 @@ class WorkingSetBuilder:
             report.tool_results_pruned = p0_pruned
             report.tool_results_tokens_saved = p0_saved
             self.last_report = report
-            return messages
+            return self._apply_pins(messages, pin_messages)
 
         # Strategy: llm_summarize or aggressive_truncate with gateway available —
         # try LLM compression first (gateway-assisted), fall back to aggressive truncate
@@ -957,7 +1100,7 @@ class WorkingSetBuilder:
                     report.tool_results_pruned = p0_pruned
                     report.tool_results_tokens_saved = p0_saved
                     self.last_report = report
-                    return curated
+                    return self._apply_pins(curated, pin_messages)
             report = self._build_context_report(
                 turn=turn,
                 strategy_name="llm_summarize",
@@ -971,7 +1114,7 @@ class WorkingSetBuilder:
             report.tool_results_pruned = p0_pruned
             report.tool_results_tokens_saved = p0_saved
             self.last_report = report
-            return result
+            return self._apply_pins(result, pin_messages)
 
         # Default: tail_preserve (or aggressive without gateway)
         effective_strategy = strategy_name if strategy_name not in ("passthrough",) else "tail_preserve"
@@ -1024,7 +1167,7 @@ class WorkingSetBuilder:
                 report.tool_results_pruned = p0_pruned
                 report.tool_results_tokens_saved = p0_saved
                 self.last_report = report
-                return curated
+                return self._apply_pins(curated, pin_messages)
         report = self._build_context_report(
             turn=turn,
             strategy_name=effective_strategy,
@@ -1038,7 +1181,7 @@ class WorkingSetBuilder:
         report.tool_results_pruned = p0_pruned
         report.tool_results_tokens_saved = p0_saved
         self.last_report = report
-        return result
+        return self._apply_pins(result, pin_messages)
 
     async def _acompress_with_relevance(
         self,

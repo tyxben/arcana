@@ -203,3 +203,42 @@ class TestStaleToolPruning:
             assert d.outcome == "compressed"
             # before > after because pruning shortened the content
             assert d.token_count_before > d.token_count_after
+
+
+# ---------------------------------------------------------------------------
+# v0.7.0 — Pinned blocks appear in ContextDecision.decisions
+# ---------------------------------------------------------------------------
+
+
+class TestPinnedBlockEvidence:
+    def test_pinned_block_appears_in_decisions(self):
+        from arcana.contracts.cognitive import PinEntry, PinState, _content_hash
+
+        builder = _builder()
+        state = PinState()
+        state.add(
+            PinEntry(
+                pin_id="p_evidence",
+                content="LOAD_BEARING",
+                content_hash=_content_hash("LOAD_BEARING"),
+                label="critical",
+                token_count=4,
+            )
+        )
+        builder.set_pin_state(state)
+
+        messages = [
+            _msg(MessageRole.SYSTEM, "sys"),
+            _msg(MessageRole.USER, "q"),
+            _msg(MessageRole.ASSISTANT, "a"),
+        ]
+        builder.build_conversation_context(messages, turn=1)
+
+        decision = builder.last_decision
+        assert decision is not None
+        # Regular per-message decisions plus one per pin
+        assert len(decision.decisions) == len(messages) + 1
+        pinned = [d for d in decision.decisions if d.reason == "pinned"]
+        assert len(pinned) == 1
+        assert pinned[0].outcome == "kept"
+        assert pinned[0].fidelity == "L0"

@@ -92,6 +92,8 @@ class ConversationAgent:
         initial_messages: list[Message] | None = None,
         channel: ExecutionChannel | None = None,
         trace_include_prompt_snapshots: bool = False,
+        cognitive_primitives: list[str] | None = None,
+        pin_budget_fraction: float = 0.5,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -158,8 +160,27 @@ class ConversationAgent:
             [self._ask_user_tool_schema()]
         )
 
+        # Cognitive primitives (v0.7.0) — opt-in via RuntimeConfig.
+        # The handler is always instantiated for API symmetry, but ``enabled``
+        # controls whether any tool specs are injected or interception fires.
+        from arcana.runtime.cognitive import CognitiveHandler
+
+        self._cognitive_handler = CognitiveHandler(
+            enabled=set(cognitive_primitives or []),
+            pin_budget_fraction=pin_budget_fraction,
+            total_token_window=self._context_builder.budget.total_window,
+        )
+        self._cognitive_token_cost = self._estimate_tool_tokens(
+            self._cognitive_tool_schemas()
+        )
+        # Expose pins to the context builder when supported. Older builders
+        # (e.g. test doubles) may not implement set_pin_state.
+        if hasattr(self._context_builder, "set_pin_state"):
+            self._context_builder.set_pin_state(self._cognitive_handler.pin_state)
+
         # Populated during a run; accessed by run() after astream() finishes.
         self._state: AgentState | None = None
+        self._current_turn: int = 0
 
     # ------------------------------------------------------------------
     # Properties
@@ -245,10 +266,15 @@ class ConversationAgent:
             self._lazy_registry.select_initial_tools(goal)
             active_tools = self._lazy_registry.to_openai_tools() or []
             active_tools.append(self._ask_user_tool_schema())
+            active_tools.extend(self._cognitive_tool_schemas())
         else:
             active_tools = self._get_current_tools()
         if self._lazy_registry:
-            tool_token_cost = self._lazy_registry.tool_token_estimate + self._ask_user_token_cost
+            tool_token_cost = (
+                self._lazy_registry.tool_token_estimate
+                + self._ask_user_token_cost
+                + self._cognitive_token_cost
+            )
         else:
             tool_token_cost = self._estimate_tool_tokens(active_tools)
 
@@ -263,6 +289,13 @@ class ConversationAgent:
         # ------------------------------------------------------------------
         for _turn in range(self.max_turns):
             # ── Steps 1-6: happen EVERY turn ──
+
+            # Track 1-indexed turn for cognitive primitives
+            self._current_turn = _turn + 1
+
+            # Snapshot message count at turn start so recall can record
+            # exactly what was added this turn.
+            _turn_start_idx = len(messages)
 
             # 1. Budget check + consume iteration
             if self.budget_tracker:
@@ -421,15 +454,23 @@ class ConversationAgent:
                     [tc.name for tc in facts.tool_calls],
                 )
                 # Expand lazy registry for any tools the LLM requested
-                # (skip ask_user -- it's a built-in, not in the registry)
+                # (skip ask_user / cognitive primitives — they're built-in,
+                # not in the registry)
+                from arcana.runtime.cognitive import is_cognitive_tool
+
                 if self._lazy_registry:
                     for tc in facts.tool_calls:
-                        if tc.name != ASK_USER_TOOL_NAME:
+                        if tc.name != ASK_USER_TOOL_NAME and not is_cognitive_tool(tc.name):
                             self._lazy_registry.get_tool_on_demand(tc.name)
                     # Refresh active tools and token cost for next turn
                     active_tools = self._lazy_registry.to_openai_tools() or []
                     active_tools.append(self._ask_user_tool_schema())
-                    tool_token_cost = self._lazy_registry.tool_token_estimate + self._ask_user_token_cost
+                    active_tools.extend(self._cognitive_tool_schemas())
+                    tool_token_cost = (
+                        self._lazy_registry.tool_token_estimate
+                        + self._ask_user_token_cost
+                        + self._cognitive_token_cost
+                    )
 
                 # Yield TOOL_START events before execution
                 import time as _time
@@ -545,6 +586,24 @@ class ConversationAgent:
                 step_id=str(state.current_step),
                 turn_tokens=facts.usage.total_tokens if facts.usage else 0,
                 turn_cost_usd=facts.usage.cost_estimate if facts.usage else 0.0,
+            )
+
+            # Record messages added this turn so `recall` can serve them.
+            # When nothing was appended (terminal turn with completed text
+            # only), include the assistant's final text as the turn's
+            # single message so recall still works.
+            turn_messages = [
+                m.model_dump() for m in messages[_turn_start_idx:]
+            ]
+            if not turn_messages and facts.assistant_text:
+                turn_messages = [
+                    {
+                        "role": "assistant",
+                        "content": facts.assistant_text,
+                    }
+                ]
+            self._cognitive_handler.record_turn(
+                self._current_turn, turn_messages,
             )
 
             # Keep _state in sync so cancellation preserves budget data
@@ -738,12 +797,17 @@ class ConversationAgent:
             )
 
         # Separate built-in tool calls from gateway calls
+        from arcana.runtime.cognitive import is_cognitive_tool
+
         ask_user_calls: list[ToolCallRequest] = []
+        cognitive_calls: list[ToolCallRequest] = []
         gateway_tool_calls: list[ToolCallRequest] = []
 
         for tc in tool_calls:
             if tc.name == ASK_USER_TOOL_NAME:
                 ask_user_calls.append(tc)
+            elif is_cognitive_tool(tc.name):
+                cognitive_calls.append(tc)
             else:
                 gateway_tool_calls.append(tc)
 
@@ -769,6 +833,13 @@ class ConversationAgent:
                 success=True,
                 output=answer,
             ))
+
+        # Handle cognitive primitives (recall / pin / unpin) — bypass
+        # ToolGateway. Errors are returned as structured tool results,
+        # never as exceptions (Principle 5).
+        for tc in cognitive_calls:
+            result = self._handle_cognitive_tool_call(tc, run_id=run_id)
+            results.append(result)
 
         # Handle regular tool calls via channel (preferred) or ToolGateway
         if gateway_tool_calls:
@@ -817,6 +888,118 @@ class ConversationAgent:
                 )
 
         return results, extra_events
+
+    def _handle_cognitive_tool_call(
+        self,
+        tc: ToolCallRequest,
+        *,
+        run_id: str,
+    ) -> ToolResult:
+        """Service a single recall/pin/unpin tool call.
+
+        Dispatches to ``CognitiveHandler`` and emits a COGNITIVE_PRIMITIVE
+        trace event with the request and result. Returns a ``ToolResult``
+        whose ``output`` is the JSON of the structured response — the LLM
+        can parse it and decide what to do next (Principle 5).
+        """
+        from arcana.contracts.cognitive import (
+            PinRequest,
+            RecallRequest,
+            UnpinRequest,
+        )
+        from arcana.runtime.cognitive import (
+            PIN_TOOL_NAME,
+            RECALL_TOOL_NAME,
+            UNPIN_TOOL_NAME,
+        )
+
+        try:
+            args = json.loads(tc.arguments) if tc.arguments else {}
+        except json.JSONDecodeError:
+            args = {}
+
+        result_payload: dict[str, Any]
+        success = True
+        try:
+            if tc.name == RECALL_TOOL_NAME:
+                recall_req = RecallRequest.model_validate(args)
+                recall_result = self._cognitive_handler.handle_recall(recall_req)
+                success = recall_result.found
+                result_payload = recall_result.model_dump()
+            elif tc.name == PIN_TOOL_NAME:
+                pin_req = PinRequest.model_validate(args)
+                pin_result = self._cognitive_handler.handle_pin(
+                    pin_req, current_turn=self._current_turn,
+                )
+                success = pin_result.pinned
+                result_payload = pin_result.model_dump()
+                # When a new pin is accepted, let the context builder see it.
+                if pin_result.pinned and hasattr(
+                    self._context_builder, "set_pin_state",
+                ):
+                    self._context_builder.set_pin_state(
+                        self._cognitive_handler.pin_state,
+                    )
+            elif tc.name == UNPIN_TOOL_NAME:
+                unpin_req = UnpinRequest.model_validate(args)
+                unpin_result = self._cognitive_handler.handle_unpin(unpin_req)
+                success = unpin_result.unpinned
+                result_payload = unpin_result.model_dump()
+                if hasattr(self._context_builder, "set_pin_state"):
+                    self._context_builder.set_pin_state(
+                        self._cognitive_handler.pin_state,
+                    )
+            else:  # pragma: no cover — defensive
+                result_payload = {
+                    "error": "unknown_cognitive_primitive",
+                    "name": tc.name,
+                }
+                success = False
+        except Exception as e:  # noqa: BLE001 — invalid args → structured result
+            result_payload = {
+                "error": "invalid_arguments",
+                "detail": str(e),
+            }
+            success = False
+
+        self._emit_cognitive_primitive_event(
+            run_id=run_id,
+            primitive=tc.name,
+            args=args,
+            result=result_payload,
+        )
+
+        return ToolResult(
+            tool_call_id=tc.id,
+            name=tc.name,
+            success=success,
+            output=json.dumps(result_payload, ensure_ascii=False),
+        )
+
+    def _emit_cognitive_primitive_event(
+        self,
+        *,
+        run_id: str,
+        primitive: str,
+        args: dict[str, Any],
+        result: dict[str, Any],
+    ) -> None:
+        """Emit a COGNITIVE_PRIMITIVE trace event for observability."""
+        if not self.trace_writer:
+            return
+        from arcana.contracts.trace import EventType, TraceEvent
+
+        self.trace_writer.write(
+            TraceEvent(
+                run_id=run_id,
+                event_type=EventType.COGNITIVE_PRIMITIVE,
+                metadata={
+                    "primitive": primitive,
+                    "args": args,
+                    "result": result,
+                },
+            )
+        )
 
     def _add_tool_messages(
         self,
@@ -899,7 +1082,9 @@ class ConversationAgent:
         """Get tool schemas in OpenAI format from ToolGateway.
 
         Always includes the built-in ask_user tool, even when no
-        other tools are registered.
+        other tools are registered. Cognitive primitive tools
+        (recall / pin / unpin) are injected only when enabled via
+        ``RuntimeConfig.cognitive_primitives``.
         """
         tool_defs: list[dict[str, Any]] = []
         if self.tool_gateway:
@@ -907,6 +1092,10 @@ class ConversationAgent:
 
         # Always inject ask_user
         tool_defs.append(self._ask_user_tool_schema())
+
+        # Inject cognitive primitive tools when enabled
+        tool_defs.extend(self._cognitive_tool_schemas())
+
         return tool_defs if tool_defs else None
 
     @staticmethod
@@ -923,6 +1112,42 @@ class ConversationAgent:
                 "parameters": ASK_USER_SPEC.input_schema,
             },
         }
+
+    def _cognitive_tool_schemas(self) -> list[dict[str, Any]]:
+        """Return tool definitions for enabled cognitive primitives.
+
+        When ``cognitive_primitives`` is empty (default), returns an empty
+        list and no tools are injected into the LLM's tool list. If ``pin``
+        is enabled, ``unpin`` is also exposed (they form a symmetric pair).
+        """
+        from arcana.runtime.cognitive import (
+            PIN_SPEC,
+            PIN_TOOL_NAME,
+            RECALL_SPEC,
+            RECALL_TOOL_NAME,
+            UNPIN_SPEC,
+        )
+        from arcana.tool_gateway.formatter import format_tool_for_llm
+
+        specs: list[Any] = []
+        enabled = self._cognitive_handler.enabled
+        if RECALL_TOOL_NAME in enabled:
+            specs.append(RECALL_SPEC)
+        if PIN_TOOL_NAME in enabled:
+            specs.append(PIN_SPEC)
+            specs.append(UNPIN_SPEC)  # unpin rides with pin
+
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": s.name,
+                    "description": format_tool_for_llm(s),
+                    "parameters": s.input_schema,
+                },
+            }
+            for s in specs
+        ]
 
 
     @staticmethod
@@ -1090,6 +1315,7 @@ class ConversationAgent:
             self._lazy_registry.select_initial_tools(goal)
             active_tools = self._lazy_registry.to_openai_tools() or []
             active_tools.append(self._ask_user_tool_schema())
+            active_tools.extend(self._cognitive_tool_schemas())
         else:
             active_tools = self._get_current_tools()
 
@@ -1100,7 +1326,11 @@ class ConversationAgent:
                 self.budget_tracker.consume_iteration()
 
             if self._lazy_registry:
-                tool_token_cost = self._lazy_registry.tool_token_estimate + self._ask_user_token_cost
+                tool_token_cost = (
+                    self._lazy_registry.tool_token_estimate
+                    + self._ask_user_token_cost
+                    + self._cognitive_token_cost
+                )
             else:
                 tool_token_cost = self._estimate_tool_tokens(active_tools)
             curated = self._context_builder.build_conversation_context(
