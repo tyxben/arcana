@@ -329,3 +329,25 @@ async with runtime.chat() as c:
 
 The runtime gets out of the way. The LLM decides whether to recall, whether
 to pin, and when to unpin.
+
+---
+
+## Using primitives in a multi-agent pool
+
+Each pool member is an independent cognitive instance: its own `PinState`,
+its own recall log, its own compression budget. Enable them per agent:
+
+```python
+async with runtime.collaborate(cognitive_primitives=["pin"]) as pool:
+    a = pool.add("a")                                   # inherits pool default ["pin"]
+    b = pool.add("b", cognitive_primitives=["recall"])  # per-agent override
+    c = pool.add("c", cognitive_primitives=[])          # explicit opt-out
+```
+
+Cognitive state never crosses between pool members — agent A's pins are not
+visible to agent B. Trace replay respects the same boundary: the "active
+pins at turn N" section of `arcana trace replay --agent <name> --turn N`
+belongs to that specific agent.
+
+See [Multi-Agent Collaboration](multi-agent.md) for the full pool API and
+the four canonical collaboration patterns.

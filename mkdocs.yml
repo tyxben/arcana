@@ -35,6 +35,7 @@ nav:
     - Providers: guide/providers.md
     - Context Explainability: guide/context-explainability.md
     - Cognitive Primitives: guide/cognitive-primitives.md
+    - Multi-Agent Collaboration: guide/multi-agent.md
   - Examples: examples/index.md
   - API Reference:
     - Overview: api/index.md
