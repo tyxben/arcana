@@ -651,14 +651,10 @@ def _replay_prompt_scoped(
     if agent is None:
         return reader.replay_prompt(run_id, turn=turn)
 
+    from arcana.contracts.context import ContextDecision, ContextReport
+    from arcana.contracts.llm import BudgetSnapshot, PromptSnapshot
     from arcana.contracts.trace import EventType
-    from arcana.trace.reader import (
-        BudgetSnapshot,
-        ContextDecision,
-        ContextReport,
-        PromptReplay,
-        PromptSnapshot,
-    )
+    from arcana.trace.reader import PromptReplay
 
     # Local reconstruction mirroring TraceReader.replay_prompt, but with
     # the source_agent filter. Any future field additions to PromptReplay

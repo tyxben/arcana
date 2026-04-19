@@ -9,14 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from arcana.contracts.llm import LLMResponse, TokenUsage
 from arcana.contracts.trace import AgentRole, EventType, TraceEvent
 from arcana.multi_agent.agent_pool import AgentPool
 from arcana.runtime_core import Runtime, _PoolTaggedTraceWriter
 from arcana.trace.writer import TraceWriter
-
 
 # ── helpers ─────────────────────────────────────────────────────────────
 
