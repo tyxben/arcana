@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 
 from arcana.contracts.multi_agent import ChannelMessage
 
@@ -12,11 +13,26 @@ class Channel:
 
     Unlike :class:`MessageBus` (role-addressed), ``Channel`` uses agent names
     as addresses.  Supports point-to-point and broadcast messaging.
+
+    Args:
+        history_limit: Maximum number of past messages to retain in
+            :attr:`history`. ``None`` (default) keeps unbounded history --
+            matches pre-v0.8.1 behaviour. Set a positive ``int`` for
+            long-running pools to bound memory. ``0`` disables history
+            retention entirely (queues still deliver live messages).
+            Negative values raise ``ValueError``. Only ``history`` is
+            bounded; per-agent delivery queues are driven by consumer
+            ``receive()`` calls and are not affected.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, history_limit: int | None = None) -> None:
+        if history_limit is not None and history_limit < 0:
+            raise ValueError(
+                f"history_limit must be None or >= 0, got {history_limit}"
+            )
         self._queues: dict[str, asyncio.Queue[ChannelMessage]] = {}
-        self._history: list[ChannelMessage] = []
+        self._history_limit = history_limit
+        self._history: deque[ChannelMessage] = deque(maxlen=history_limit)
 
     # -- sending / receiving ---------------------------------------------------
 

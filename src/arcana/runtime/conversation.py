@@ -287,11 +287,21 @@ class ConversationAgent:
         # ------------------------------------------------------------------
         # Phase 3: Conversation loop
         # ------------------------------------------------------------------
+        prev_turn_step_id: str | None = None
         for _turn in range(self.max_turns):
             # ── Steps 1-6: happen EVERY turn ──
 
             # Track 1-indexed turn for cognitive primitives
             self._current_turn = _turn + 1
+
+            # Pre-generate the step_id for this turn's TURN event so sibling
+            # events (CONTEXT_DECISION, PROMPT_SNAPSHOT) and downstream
+            # TOOL_CALL events can reference it as parent_step_id. This is
+            # what makes ``arcana trace flow`` / ``arcana trace explain`` able
+            # to stitch a turn's causes and effects.
+            turn_step_id = str(uuid4())
+            self._current_turn_step_id = turn_step_id
+            self._prev_turn_step_id = prev_turn_step_id
 
             # Snapshot message count at turn start so recall can record
             # exactly what was added this turn.
@@ -627,6 +637,9 @@ class ConversationAgent:
                         state, _TC(run_id=state.run_id), reason=reason
                     )
 
+            # Advance spine: next turn's TURN event links back to this one.
+            prev_turn_step_id = turn_step_id
+
             # Exit if terminal
             if assessment.completed or assessment.failed:
                 break
@@ -858,13 +871,20 @@ class ConversationAgent:
                     ))
             else:
                 gw_calls: list[ToolCall] = []
+                parent_step_id = getattr(self, "_current_turn_step_id", None)
                 for tc in gateway_tool_calls:
                     try:
                         args = json.loads(tc.arguments) if tc.arguments else {}
                     except json.JSONDecodeError:
                         args = {"_raw": tc.arguments}
                     gw_calls.append(
-                        ToolCall(id=tc.id, name=tc.name, arguments=args)
+                        ToolCall(
+                            id=tc.id,
+                            name=tc.name,
+                            arguments=args,
+                            run_id=run_id,
+                            parent_step_id=parent_step_id,
+                        )
                     )
                 if self._channel:
                     gw_results = await self._channel.execute_many(gw_calls)
@@ -992,6 +1012,7 @@ class ConversationAgent:
         self.trace_writer.write(
             TraceEvent(
                 run_id=run_id,
+                parent_step_id=getattr(self, "_current_turn_step_id", None),
                 event_type=EventType.COGNITIVE_PRIMITIVE,
                 metadata={
                     "primitive": primitive,
@@ -1410,8 +1431,12 @@ class ConversationAgent:
 
         from arcana.contracts.trace import EventType, TraceEvent
 
+        turn_step_id = getattr(self, "_current_turn_step_id", None)
+        prev_turn_step_id = getattr(self, "_prev_turn_step_id", None)
         self.trace_writer.write(TraceEvent(
             run_id=state.run_id,
+            step_id=turn_step_id or str(uuid4()),
+            parent_step_id=prev_turn_step_id,
             event_type=EventType.TURN,
             metadata={
                 "step": state.current_step,
@@ -1452,6 +1477,7 @@ class ConversationAgent:
 
         self.trace_writer.write(TraceEvent(
             run_id=state.run_id,
+            parent_step_id=getattr(self, "_current_turn_step_id", None),
             event_type=EventType.CONTEXT_DECISION,
             metadata=metadata,
         ))
@@ -1506,6 +1532,7 @@ class ConversationAgent:
 
         self.trace_writer.write(TraceEvent(
             run_id=state.run_id,
+            parent_step_id=getattr(self, "_current_turn_step_id", None),
             event_type=EventType.PROMPT_SNAPSHOT,
             model=config.model_id,
             metadata={

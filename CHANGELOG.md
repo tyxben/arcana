@@ -4,6 +4,98 @@ All notable changes to Arcana will be documented in this file.
 
 ## [Unreleased]
 
+### v0.8.1 — "Trace You Can Actually Debug With"
+
+Principle 5 (auditability) has always been Arcana's load-bearing promise.
+v0.8.1 turns the trace from a dump of events into a first-class debugging
+surface: one command per question, causal links between events, and a
+single dev-mode switch that makes every turn fully replayable offline.
+
+Also includes a previously-staged memory-leak fix for long-running pools
+(bounded channel history).
+
+#### Added — Trace debugging
+
+- **`arcana trace explain <run_id> --turn N`** — single-turn full story.
+  One screen that joins *what went in* (curated messages, prompt
+  snapshot, context decision, pinned items) with *what the LLM said*
+  (thinking, assistant text, tool calls) and *what the runtime did with
+  it* (tool results, `TurnAssessment`, error events). This is the
+  "why did this turn do that?" command. `--json` for machine-readable
+  output. Degrades gracefully when prompt snapshots are disabled.
+- **`arcana trace flow <run_id>`** — ASCII DAG of the run.
+  `Turn 1 → [tool_a ✓, tool_b ✗] → Turn 2 (completed)`. Follows
+  `TraceEvent.parent_step_id` links to stitch the causal chain. Compact
+  enough to eyeball in most terminals; `--json` for tooling.
+- **`arcana trace show --errors --explain`** — the error triage shortcut.
+  Lists error events as before, then auto-unfolds `trace explain` for
+  the turn each error belongs to. Deduplicates turns that fired multiple
+  errors.
+- **`RuntimeConfig.dev_mode: bool = False`** — single switch that implies
+  `trace_include_prompt_snapshots=True`. The idea: `dev_mode=True` in
+  development gives you everything `explain` needs offline, without
+  forcing ops-facing users to opt into PII-bearing snapshots. Explicit
+  per-flag overrides still take precedence when already True.
+
+#### Added — Trace schema (backward compatible)
+- **`TraceEvent.parent_step_id: str | None = None`** — causal link. For
+  a single LLM turn, `CONTEXT_DECISION` / `PROMPT_SNAPSHOT` /
+  `COGNITIVE_PRIMITIVE` / `TOOL_CALL` events all share the turn's
+  `step_id` as their `parent_step_id`; the `TURN` event's
+  `parent_step_id` points back to the previous turn (the spine). Legacy
+  trace files (written before this release) parse unchanged — the field
+  is optional and defaults to `None`.
+- **`ToolCall.parent_step_id: str | None`** — threads the turn's
+  `step_id` through to the `ToolGateway` so `TOOL_CALL` events can
+  record it.
+- **`TraceReader.collect_turn(run_id, turn)`** — bundles every event
+  attached to one turn (turn event, context decision, prompt snapshot,
+  tool calls, cognitive primitives, errors) via the parent link. The
+  primitive behind `trace explain`; usable directly from Python.
+
+### v0.8.1 — Bounded channel history
+
+Long-running `AgentPool`s retained every `Channel` message forever, which
+turned the pool into a slow memory leak for daemon-style usage. v0.8.1
+adds an opt-in bound.
+
+#### Added
+- **`Channel(history_limit=N)`** in `arcana.multi_agent.channel`. ``None``
+  (default) keeps unbounded history — pre-v0.8.1 behaviour. ``int >= 0``
+  retains at most ``N`` past messages; ``0`` disables history retention
+  entirely. Negative values raise ``ValueError``. Implemented as a
+  ``collections.deque(maxlen=...)`` — ``Channel.history`` still returns a
+  plain ``list`` copy, so readers are unaffected.
+- **`AgentPool(channel_history_limit=N)`** and
+  **`runtime.collaborate(channel_history_limit=N)`** — plumb the new knob
+  through so users can set it at the entry point they actually use.
+
+#### Scope — what is *not* bounded
+- Per-agent delivery queues (``asyncio.Queue`` per registered agent) are
+  driven by the consumer's ``receive()`` calls. An agent that is
+  registered but never receives will still grow its queue; that is a
+  consumer problem, not a history-retention problem, and stays the
+  user's responsibility.
+- ``SharedContext`` is a user-written key-value store; its size is the
+  user's to bound.
+
+### Governance
+- **Constitution v3.0 → v3.1** (2026-04-21) — Amend Principle 8: "can see
+  what others have said" → "is given the means to see what others have
+  said"; expand agents' role to include addressing and reading decisions.
+  Clarifies that the framework's multi-agent obligation is to provide
+  communication infrastructure, not to guarantee message reception.
+  Resolves the v0.8.0 constitutional audit's only open finding; v0.8.0's
+  `AgentPool` channel-plus-shared design is now the canonical
+  implementation of Principle 8, not a compromise against it. No code
+  change. See `specs/constitution-amendment-2-collaboration-means.md`.
+- **v1.0.0 removals tracking** — `specs/v1.0.0-removals.md` records the
+  policy (physical removal, no compatibility shims by default) and the
+  first scheduled entry: `Runtime.team()` + `TeamSession` + `TeamMode`
+  machinery. Rationale is tied to the amended Principle 8 — `team(mode=
+  "shared")`'s rounds counter and fixed turn order are the exact topology
+  the amendment rules out, so a shim would keep the violation alive.
+
 ### v0.8.0 — "The Collaborative Cognition Release"
 
 Multi-agent pools where each member is an independent cognitive instance.

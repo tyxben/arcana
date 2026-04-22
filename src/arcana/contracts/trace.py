@@ -161,6 +161,12 @@ class TraceEvent(BaseModel):
     run_id: str
     task_id: str | None = None
     step_id: str = Field(default_factory=lambda: str(uuid4()))
+    # Causal parent — links an event to the step that caused it.
+    # Siblings of a single LLM turn (CONTEXT_DECISION, PROMPT_SNAPSHOT, TURN)
+    # share the same parent = the TURN event's step_id. Tool calls emitted
+    # from a turn point to that turn's step_id. Absent on root events
+    # (e.g. TASK_START) and on legacy traces written before this field.
+    parent_step_id: str | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Classification

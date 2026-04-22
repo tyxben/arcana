@@ -68,6 +68,10 @@ class ToolCall(BaseModel):
     # Context
     run_id: str | None = None
     step_id: str | None = None
+    # Causal parent for trace — the step_id of the LLM turn that emitted
+    # this call. Propagated into TOOL_CALL trace events so ``arcana trace
+    # flow`` and ``arcana trace explain`` can stitch the DAG together.
+    parent_step_id: str | None = None
 
 
 class ToolError(BaseModel):

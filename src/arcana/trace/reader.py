@@ -353,3 +353,64 @@ class TraceReader:
             context_report=report,
             budget_snapshot=budget,
         )
+
+    def collect_turn(
+        self,
+        run_id: str,
+        turn: int,
+    ) -> dict[str, Any]:
+        """Collect every trace event belonging to a single turn.
+
+        Returns a dict with keys:
+          - ``turn_event``: the TURN event for this turn (or None)
+          - ``context_decision``: CONTEXT_DECISION event (or None)
+          - ``prompt_snapshot``: PROMPT_SNAPSHOT event (or None)
+          - ``tool_calls``: list of TOOL_CALL events emitted by this turn
+          - ``cognitive``: list of COGNITIVE_PRIMITIVE events for this turn
+          - ``errors``: list of ERROR events whose parent is this turn
+          - ``all``: chronological list of all events attached to this turn
+
+        The join key is ``parent_step_id == turn_event.step_id``. Works even
+        on pool-replay traces (pass the per-agent filtered events in via
+        a TraceReader scoped to that run).
+        """
+        turn_event: TraceEvent | None = None
+        for event in self.iter_events(run_id):
+            if event.event_type != EventType.TURN:
+                continue
+            if event.metadata.get("step") == turn:
+                turn_event = event
+                break
+
+        result: dict[str, Any] = {
+            "turn_event": turn_event,
+            "context_decision": None,
+            "prompt_snapshot": None,
+            "tool_calls": [],
+            "cognitive": [],
+            "errors": [],
+            "all": [],
+        }
+        if turn_event is None:
+            return result
+
+        parent_id = turn_event.step_id
+        for event in self.iter_events(run_id):
+            if event.step_id == parent_id:
+                result["all"].append(event)
+                continue
+            if event.parent_step_id != parent_id:
+                continue
+            result["all"].append(event)
+            if event.event_type == EventType.CONTEXT_DECISION:
+                result["context_decision"] = event
+            elif event.event_type == EventType.PROMPT_SNAPSHOT:
+                result["prompt_snapshot"] = event
+            elif event.event_type == EventType.TOOL_CALL:
+                result["tool_calls"].append(event)
+            elif event.event_type == EventType.COGNITIVE_PRIMITIVE:
+                result["cognitive"].append(event)
+            elif event.event_type == EventType.ERROR:
+                result["errors"].append(event)
+
+        return result

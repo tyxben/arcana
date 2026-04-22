@@ -263,6 +263,20 @@ class RuntimeConfig(BaseModel):
     # carry PII / secrets and bloat trace files. Opt in for deep replay.
     trace_include_prompt_snapshots: bool = False
 
+    # Developer mode — a single switch for a "trace-first" debug loop.
+    # When True, implies ``trace_include_prompt_snapshots=True`` so
+    # ``arcana trace explain`` can reconstruct the full turn offline.
+    # Off by default because prompts may carry PII / secrets and snapshots
+    # inflate trace size. The individual flags (e.g. trace_include_prompt_snapshots)
+    # still take precedence when explicitly set True.
+    dev_mode: bool = False
+
+    def model_post_init(self, __context: Any) -> None:  # noqa: ARG002
+        # dev_mode is a single switch that turns on per-flag trace verbosity.
+        # It only upgrades False → True, never downgrades an explicit True.
+        if self.dev_mode and not self.trace_include_prompt_snapshots:
+            object.__setattr__(self, "trace_include_prompt_snapshots", True)
+
     # Cognitive primitives (v0.7.0). List of primitive names to expose as
     # intercepted tools. Accepted values: "recall", "pin". When empty
     # (default), no behavioral change — no tool specs injected, no
@@ -1284,6 +1298,7 @@ class Runtime:
         *,
         budget: Budget | None = None,
         cognitive_primitives: list[str] | None = None,
+        channel_history_limit: int | None = None,
     ) -> AgentPool:
         """Create a collaboration pool for multi-agent communication.
 
@@ -1301,6 +1316,13 @@ class Runtime:
                 Each :meth:`AgentPool.add` call inherits this list unless it
                 supplies its own ``cognitive_primitives`` argument. ``None``
                 (default) falls back to ``RuntimeConfig.cognitive_primitives``.
+            channel_history_limit: Optional bound on the pool ``Channel``'s
+                retained message history (v0.8.1+). ``None`` (default) keeps
+                unbounded history -- fine for short-lived pools, but
+                long-running pools should set a positive ``int`` to bound
+                memory. ``0`` disables history retention. Negative values
+                raise ``ValueError``. Delivery queues are unaffected; only
+                the read-only ``channel.history`` view is bounded.
 
         Usage::
 
@@ -1329,6 +1351,7 @@ class Runtime:
             self,
             budget_tracker=budget_tracker,
             default_cognitive_primitives=cognitive_primitives,
+            channel_history_limit=channel_history_limit,
         )
 
     def _create_pool_session(

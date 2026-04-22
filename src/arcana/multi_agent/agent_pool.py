@@ -63,6 +63,7 @@ class AgentPool:
         *,
         budget_tracker: BudgetTracker | None = None,
         default_cognitive_primitives: list[str] | None = None,
+        channel_history_limit: int | None = None,
     ) -> None:
         from arcana.multi_agent.channel import Channel
         from arcana.multi_agent.shared_context import SharedContext
@@ -70,7 +71,7 @@ class AgentPool:
         self._runtime = runtime
         self._budget_tracker = budget_tracker
         self._agents: dict[str, ChatSession] = {}
-        self._channel = Channel()
+        self._channel = Channel(history_limit=channel_history_limit)
         self._shared = SharedContext()
         # Pool-level default; inherited by pool.add(...) when it does not
         # specify its own cognitive_primitives. None means "fall back to

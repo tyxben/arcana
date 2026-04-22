@@ -224,6 +224,33 @@ For unstructured back-and-forth, `Channel` is usually the better fit.
 
 ---
 
+## Bounding channel history (v0.8.1+)
+
+`Channel.history` retains every message ever sent. For short-lived pools
+this is fine. For daemon-style pools that run indefinitely, it turns into
+a slow memory leak, so `collaborate()` accepts an opt-in bound:
+
+```python
+async with runtime.collaborate(channel_history_limit=500) as pool:
+    planner = pool.add("planner", system="...")
+    executor = pool.add("executor", system="...")
+    # pool.channel.history now retains at most the 500 most recent messages;
+    # oldest entries are evicted FIFO. Delivery is unaffected.
+```
+
+- `None` (default) — unbounded history, matches pre-v0.8.1 behaviour.
+- positive `int` — retain at most that many past messages.
+- `0` — disable history entirely (useful when you only need live
+  delivery and never introspect `channel.history`).
+- negative — raises `ValueError`.
+
+This bounds only `channel.history`. Per-agent delivery queues are driven
+by your `receive()` calls; an agent that is registered but never reads
+from its queue will still accumulate messages there, which is a consumer
+concern rather than a retention one.
+
+---
+
 ## Tracing pool runs
 
 Every event emitted during a pool run carries

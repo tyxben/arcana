@@ -190,6 +190,31 @@ class TestCollaborate:
         # __aexit__ clears state
         assert pool.agents == {}
 
+    def test_collaborate_default_channel_history_is_unbounded(self):
+        """v0.8.0 back-compat: no history_limit keyword => unbounded."""
+        rt = _make_runtime_with_mock()
+        pool = rt.collaborate()
+
+        assert pool.channel._history.maxlen is None
+
+    def test_collaborate_channel_history_limit_propagates(self):
+        """v0.8.1: channel_history_limit reaches the underlying Channel."""
+        rt = _make_runtime_with_mock()
+        pool = rt.collaborate(channel_history_limit=7)
+
+        assert pool.channel._history.maxlen == 7
+
+    def test_collaborate_channel_history_limit_zero_allowed(self):
+        rt = _make_runtime_with_mock()
+        pool = rt.collaborate(channel_history_limit=0)
+
+        assert pool.channel._history.maxlen == 0
+
+    def test_collaborate_channel_history_limit_negative_raises(self):
+        rt = _make_runtime_with_mock()
+        with pytest.raises(ValueError, match="history_limit"):
+            rt.collaborate(channel_history_limit=-1)
+
 
 # ── Agent.send() with mock gateway ──────────────────────────────────────
 

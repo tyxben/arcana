@@ -202,3 +202,83 @@ class TestChannelMessageContract:
         # which is safe because the contract is immutable).
         assert bob_msgs[0].content == carol_msgs[0].content == "broadcast-me"
         assert ch.history[0].content == "broadcast-me"
+
+
+class TestChannelHistoryLimit:
+    """v0.8.1: bounded history to prevent long-running pool memory leaks."""
+
+    def test_default_history_is_unbounded(self):
+        """No history_limit argument retains v0.8.0 behaviour."""
+        ch = Channel()
+        # The internal deque advertises its unbounded shape via maxlen=None.
+        assert ch._history.maxlen is None
+
+    def test_explicit_none_is_unbounded(self):
+        ch = Channel(history_limit=None)
+        assert ch._history.maxlen is None
+
+    def test_negative_limit_raises(self):
+        with pytest.raises(ValueError, match="history_limit"):
+            Channel(history_limit=-1)
+
+    @pytest.mark.asyncio
+    async def test_limit_trims_oldest_messages(self):
+        """With history_limit=N, the Nth+1 send drops the oldest entry."""
+        ch = Channel(history_limit=3)
+        ch.register("alice")
+        ch.register("bob")
+
+        for i in range(5):
+            await ch.send(_msg("alice", "bob", f"m{i}"))
+
+        history = ch.history
+        assert len(history) == 3
+        # Oldest two (m0, m1) evicted; newest three preserved in order.
+        assert [m.content for m in history] == ["m2", "m3", "m4"]
+
+    @pytest.mark.asyncio
+    async def test_limit_zero_disables_history(self):
+        """history_limit=0 keeps zero past messages but still delivers."""
+        ch = Channel(history_limit=0)
+        ch.register("alice")
+        ch.register("bob")
+
+        await ch.send(_msg("alice", "bob", "live"))
+
+        # Delivery still works -- history bound is a retention policy, not
+        # a delivery gate.
+        bob_msgs = await ch.receive("bob")
+        assert len(bob_msgs) == 1
+        assert bob_msgs[0].content == "live"
+        assert ch.history == []
+
+    @pytest.mark.asyncio
+    async def test_limit_under_broadcast_counts_one_entry_per_send(self):
+        """Broadcast still records one history entry per send, even with a
+        tight limit; the limit bounds *distinct sends retained*, not the
+        count of recipients."""
+        ch = Channel(history_limit=2)
+        ch.register("alice")
+        ch.register("bob")
+        ch.register("carol")
+
+        await ch.send(_msg("alice", None, "first"))
+        await ch.send(_msg("alice", None, "second"))
+        await ch.send(_msg("alice", None, "third"))
+
+        assert [m.content for m in ch.history] == ["second", "third"]
+        # Delivery path untouched: each recipient still gets all three.
+        assert len(await ch.receive("bob")) == 3
+        assert len(await ch.receive("carol")) == 3
+
+    @pytest.mark.asyncio
+    async def test_clear_works_with_bounded_history(self):
+        ch = Channel(history_limit=5)
+        ch.register("alice")
+        ch.register("bob")
+        await ch.send(_msg("alice", "bob", "x"))
+
+        ch.clear()
+
+        assert ch.history == []
+        assert ch.agents == []

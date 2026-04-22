@@ -443,6 +443,7 @@ class ToolGateway:
             run_id=trace_ctx.run_id,
             task_id=trace_ctx.task_id,
             step_id=tool_call.step_id or trace_ctx.new_step_id(),
+            parent_step_id=tool_call.parent_step_id,
             event_type=EventType.TOOL_CALL,
             tool_call=record,
         )
@@ -468,6 +469,7 @@ class ToolGateway:
             run_id=trace_ctx.run_id,
             task_id=trace_ctx.task_id,
             step_id=tool_call.step_id or trace_ctx.new_step_id(),
+            parent_step_id=tool_call.parent_step_id,
             event_type=EventType.TOOL_CALL,
             tool_call=record,
         )

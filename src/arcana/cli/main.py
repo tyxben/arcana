@@ -192,8 +192,8 @@ async def _run_agent(
 
 @app.command()
 def trace(
-    action: str = typer.Argument(..., help="Action: list, show, summary, serve, replay, pool-replay"),
-    run_id: str = typer.Argument(None, help="Run ID for show / replay / pool-replay"),
+    action: str = typer.Argument(..., help="Action: list, show, summary, serve, replay, pool-replay, explain, flow"),
+    run_id: str = typer.Argument(None, help="Run ID for show / replay / pool-replay / explain / flow"),
     trace_dir: str = typer.Option("./traces", "--dir", help="Trace directory"),
     port: int = typer.Option(8100, "--port", help="Port for serve"),
     last: int = typer.Option(0, "--last", help="Limit to last N traces (summary)"),
@@ -202,11 +202,12 @@ def trace(
     llm: bool = typer.Option(False, "--llm", help="Show only LLM call events"),
     context: bool = typer.Option(False, "--context", help="Show only context decision events"),
     cognitive: bool = typer.Option(False, "--cognitive", help="Show only cognitive primitive events (recall/pin/unpin)"),
-    turn: int = typer.Option(None, "--turn", help="Turn number to replay (for replay / pool-replay)"),
+    turn: int = typer.Option(None, "--turn", help="Turn number to replay / explain"),
     prompt_only: bool = typer.Option(False, "--prompt-only", help="Replay: only show the prompt snapshot"),
     decision_only: bool = typer.Option(False, "--decision-only", help="Replay: only show the context decision"),
     as_json: bool = typer.Option(False, "--json", help="Emit raw JSON instead of formatted output"),
     agent: str = typer.Option(None, "--agent", help="Filter events by pool agent name (metadata.source_agent)"),
+    explain: bool = typer.Option(False, "--explain", help="With show --errors: auto-unfold explain view for each error's turn"),
 ) -> None:
     """View agent execution traces."""
     import datetime
@@ -386,6 +387,40 @@ def trace(
                         f"pin_id={pid} {'ok' if unpinned else '(unknown id)'}"
                     )
 
+        # --errors --explain: auto-unfold explain view for each error's turn
+        if errors and explain:
+            from arcana.trace.reader import TraceReader
+
+            reader = TraceReader(trace_dir=trace_path)
+            all_typed = reader.read_events(run_id)
+            # Map turn step_id → turn number
+            turn_by_step = {
+                ev.step_id: (ev.metadata or {}).get("step")
+                for ev in all_typed if ev.event_type.value == "turn"
+            }
+            # For each error event, resolve its turn via parent_step_id
+            error_events = [
+                ev for ev in all_typed if ev.event_type.value == "error"
+            ]
+            seen_turns: set[int] = set()
+            for ev in error_events:
+                t_num = turn_by_step.get(ev.parent_step_id or "")
+                if not isinstance(t_num, int) or t_num in seen_turns:
+                    continue
+                seen_turns.add(t_num)
+                console.print()
+                console.print(f"[bold red]━━ Error at turn {t_num} ━━[/bold red]")
+                _trace_explain(
+                    trace_path=trace_path,
+                    run_id=run_id,
+                    turn=t_num,
+                    as_json=False,
+                )
+            if error_events and not seen_turns:
+                console.print(
+                    "[dim]No error events have parent_step_id linking them to a turn.[/dim]"
+                )
+
     elif action == "replay" and run_id:
         _trace_replay(
             trace_path=trace_path,
@@ -408,11 +443,30 @@ def trace(
             as_json=as_json,
         )
 
+    elif action == "explain" and run_id:
+        if turn is None:
+            console.print("[red]--turn N is required for explain[/red]")
+            raise typer.Exit(1)
+        _trace_explain(
+            trace_path=trace_path,
+            run_id=run_id,
+            turn=turn,
+            as_json=as_json,
+        )
+
+    elif action == "flow" and run_id:
+        _trace_flow(
+            trace_path=trace_path,
+            run_id=run_id,
+            as_json=as_json,
+        )
+
     else:
         console.print(
-            "[red]Usage: arcana trace list | show <run_id> [--agent NAME] | "
+            "[red]Usage: arcana trace list | show <run_id> [--agent NAME] [--errors --explain] | "
             "summary | serve | replay <run_id> --turn N [--agent NAME] | "
-            "pool-replay <run_id> [--agent NAME --turn N][/red]"
+            "pool-replay <run_id> [--agent NAME --turn N] | "
+            "explain <run_id> --turn N | flow <run_id>[/red]"
         )
 
 
@@ -801,6 +855,337 @@ def _trace_pool_replay(
         as_json=as_json,
         agent=agent,
     )
+
+
+def _trace_explain(
+    *,
+    trace_path: Path,
+    run_id: str,
+    turn: int,
+    as_json: bool,
+) -> None:
+    """Single-turn full-story view.
+
+    Prints everything needed to debug one turn: inputs summary, context
+    decision, LLM thinking + assistant text, tool calls + results,
+    TurnAssessment verdict, budget delta. Degrades gracefully when
+    PROMPT_SNAPSHOT is absent (i.e. when ``trace_include_prompt_snapshots``
+    was off during the run).
+    """
+    from arcana.trace.reader import TraceReader
+
+    reader = TraceReader(trace_dir=trace_path)
+    if not reader.exists(run_id):
+        console.print(f"[red]Trace not found: {trace_path / (run_id + '.jsonl')}[/red]")
+        raise typer.Exit(1)
+
+    bundle = reader.collect_turn(run_id, turn)
+    turn_event = bundle["turn_event"]
+    if turn_event is None:
+        available = reader.list_turns(run_id)
+        console.print(
+            f"[red]No TURN event for turn={turn} in run {run_id}[/red]"
+        )
+        if available:
+            console.print(f"[dim]Turns with events: {available}[/dim]")
+        raise typer.Exit(1)
+
+    if as_json:
+        console.print(json.dumps(
+            {
+                "run_id": run_id,
+                "turn": turn,
+                "turn_event": turn_event.model_dump(mode="json"),
+                "context_decision": (
+                    bundle["context_decision"].model_dump(mode="json")
+                    if bundle["context_decision"] else None
+                ),
+                "prompt_snapshot": (
+                    bundle["prompt_snapshot"].model_dump(mode="json")
+                    if bundle["prompt_snapshot"] else None
+                ),
+                "tool_calls": [e.model_dump(mode="json") for e in bundle["tool_calls"]],
+                "cognitive": [e.model_dump(mode="json") for e in bundle["cognitive"]],
+                "errors": [e.model_dump(mode="json") for e in bundle["errors"]],
+            },
+            indent=2,
+            default=str,
+        ))
+        return
+
+    # Header
+    meta = turn_event.metadata or {}
+    facts = meta.get("facts", {}) or {}
+    assessment = meta.get("assessment", {}) or {}
+    model = turn_event.model or facts.get("model") or (
+        (bundle["prompt_snapshot"].metadata or {}).get("prompt_snapshot", {}).get("model")
+        if bundle["prompt_snapshot"] else None
+    ) or "?"
+
+    source_agent = (meta.get("source_agent") or "") if meta else ""
+    agent_label = f" [dim]\\[{source_agent}][/dim]" if source_agent else ""
+    console.print(
+        f"[bold]Turn {turn}[/bold] — run [dim]{run_id}[/dim] · model [cyan]{model}[/cyan]{agent_label}"
+    )
+    console.print(f"[dim]step_id={turn_event.step_id}[/dim]")
+    console.print()
+
+    # Inputs (context decision + prompt snapshot)
+    console.print("[bold yellow]Inputs[/bold yellow]")
+    cd = bundle["context_decision"]
+    if cd is not None:
+        cdm = cd.metadata or {}
+        rep = cdm.get("context_report") or {}
+        msgs_in = rep.get("messages_in", "?")
+        msgs_out = rep.get("messages_out", "?")
+        compressed = rep.get("compressed_count", 0)
+        tokens_in = rep.get("input_tokens")
+        tokens_out = rep.get("output_tokens")
+        line = f"  messages: {msgs_in} → {msgs_out}"
+        if compressed:
+            line += f"  ({compressed} compressed)"
+        if tokens_in is not None and tokens_out is not None:
+            line += f"  · tokens: {tokens_in} → {tokens_out}"
+        console.print(line)
+        explanation = cdm.get("explanation")
+        if explanation:
+            console.print(f"  [dim]{explanation}[/dim]")
+        decision_dump = cdm.get("context_decision") or {}
+        if isinstance(decision_dump, dict):
+            pinned = [
+                d for d in decision_dump.get("decisions", [])
+                if d.get("reason") == "pinned"
+            ]
+            for d in pinned:
+                console.print(
+                    f"  [bright_magenta][PIN][/bright_magenta] "
+                    f"[{d.get('index', '?')}] {d.get('role', '?')} "
+                    f"{d.get('token_count_before', 0)} tokens (kept at L0)"
+                )
+    else:
+        console.print("  [dim]<no context decision recorded>[/dim]")
+
+    ps = bundle["prompt_snapshot"]
+    if ps is not None:
+        snap = (ps.metadata or {}).get("prompt_snapshot") or {}
+        messages = snap.get("messages", [])
+        tools = snap.get("tools", [])
+        console.print(
+            f"  prompt: {len(messages)} messages, {len(tools)} tools available"
+        )
+        for i, m in enumerate(messages[-3:]):  # last 3 messages preview
+            role = m.get("role", "?")
+            content = m.get("content") or ""
+            if isinstance(content, list):
+                parts = [
+                    c.get("text", "") for c in content
+                    if isinstance(c, dict) and c.get("type") == "text"
+                ]
+                content = " ".join(parts)
+            preview = (content or "").strip().replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:120] + "…"
+            console.print(f"    [dim][-{len(messages) - (len(messages)-3) - i}][/dim] [cyan]{role}[/cyan]: {preview}")
+    else:
+        console.print(
+            "  [dim]<prompt snapshot not recorded — enable dev_mode=True or "
+            "trace_include_prompt_snapshots=True for full inputs>[/dim]"
+        )
+    console.print()
+
+    # LLM output
+    console.print("[bold cyan]LLM output[/bold cyan]")
+    thinking = facts.get("thinking") or ""
+    if thinking:
+        preview = thinking.strip().replace("\n", " ")
+        if len(preview) > 500:
+            preview = preview[:500] + "…"
+        console.print(f"  [italic dim]thinking:[/italic dim] {preview}")
+    assistant_text = facts.get("assistant_text") or ""
+    if assistant_text:
+        preview = assistant_text.strip().replace("\n", " ")
+        if len(preview) > 500:
+            preview = preview[:500] + "…"
+        console.print(f"  text: {preview}")
+    tool_call_requests = facts.get("tool_calls") or []
+    if tool_call_requests:
+        console.print(f"  tool_calls: {len(tool_call_requests)}")
+        for tc in tool_call_requests:
+            name = tc.get("name", "?")
+            args = tc.get("arguments") or ""
+            if len(args) > 120:
+                args = args[:120] + "…"
+            console.print(f"    [yellow]→ {name}[/yellow]({args})")
+    if not thinking and not assistant_text and not tool_call_requests:
+        console.print("  [dim]<empty>[/dim]")
+    console.print()
+
+    # Tool results
+    tool_events = bundle["tool_calls"]
+    if tool_events:
+        console.print(f"[bold yellow]Tool results[/bold yellow] ({len(tool_events)})")
+        for ev in tool_events:
+            tc = ev.tool_call
+            if tc is None:
+                continue
+            mark = "[red]✗[/red]" if tc.error else "[green]✓[/green]"
+            dur = f"{tc.duration_ms}ms" if tc.duration_ms is not None else ""
+            detail = ""
+            if tc.error:
+                detail = f"  [red]error:[/red] {tc.error}"
+            elif tc.result_digest:
+                detail = f"  digest={tc.result_digest}"
+            console.print(f"  {mark} [yellow]{tc.name}[/yellow] {dur}{detail}")
+        console.print()
+
+    # Cognitive
+    cog_events = bundle["cognitive"]
+    if cog_events:
+        console.print("[bold bright_magenta]Cognitive[/bold bright_magenta]")
+        for ev in cog_events:
+            em = ev.metadata or {}
+            prim = em.get("primitive", "?")
+            args = em.get("args") or {}
+            result = em.get("result") or {}
+            if prim == "recall":
+                tgt = args.get("turn")
+                n = len(result.get("messages", []) or [])
+                status = f"→ {n} messages" if result.get("found") else "→ not found"
+                console.print(f"  recall turn={tgt} {status}")
+            elif prim == "pin":
+                if result.get("pinned"):
+                    console.print(f"  pin pin_id={result.get('pin_id')} label={result.get('label')!r}")
+                else:
+                    console.print(f"  [red]pin REJECTED[/red] reason={result.get('reason')}")
+            elif prim == "unpin":
+                ok = result.get("unpinned")
+                console.print(f"  unpin pin_id={args.get('pin_id')} {'ok' if ok else '(unknown id)'}")
+        console.print()
+
+    # Verdict
+    console.print("[bold green]Runtime verdict[/bold green]")
+    completed = assessment.get("completed", False)
+    failed = assessment.get("failed", False)
+    confidence = assessment.get("confidence")
+    reason = assessment.get("completion_reason")
+    console.print(f"  completed: {completed}   failed: {failed}")
+    if confidence is not None:
+        console.print(f"  confidence: {confidence}")
+    if reason:
+        console.print(f"  completion_reason: {reason}")
+
+    # Errors attached to this turn
+    err_events = bundle["errors"]
+    if err_events:
+        console.print()
+        console.print(f"[bold red]Errors[/bold red] ({len(err_events)})")
+        for ev in err_events:
+            em = ev.metadata or {}
+            msg = em.get("message") or em.get("error") or str(em)
+            console.print(f"  [red]{msg}[/red]")
+
+
+def _trace_flow(
+    *,
+    trace_path: Path,
+    run_id: str,
+    as_json: bool,
+) -> None:
+    """ASCII DAG of a run — turn → tools → turn chain.
+
+    Walks the causal chain via parent_step_id. Falls back to turn number
+    ordering when parent links are missing (legacy traces).
+    """
+    from arcana.contracts.trace import EventType
+    from arcana.trace.reader import TraceReader
+
+    reader = TraceReader(trace_dir=trace_path)
+    if not reader.exists(run_id):
+        console.print(f"[red]Trace not found: {trace_path / (run_id + '.jsonl')}[/red]")
+        raise typer.Exit(1)
+
+    events = reader.read_events(run_id)
+    if not events:
+        console.print("[dim]<empty trace>[/dim]")
+        return
+
+    turn_events = [e for e in events if e.event_type == EventType.TURN]
+    turn_events.sort(key=lambda e: (e.metadata or {}).get("step", 0))
+
+    tools_by_parent: dict[str, list[Any]] = {}
+    for e in events:
+        if e.event_type == EventType.TOOL_CALL and e.parent_step_id:
+            tools_by_parent.setdefault(e.parent_step_id, []).append(e)
+
+    stop_reason = None
+    for e in reversed(events):
+        if e.stop_reason:
+            stop_reason = e.stop_reason.value
+            break
+    if stop_reason is None and turn_events:
+        last_assessment = (turn_events[-1].metadata or {}).get("assessment") or {}
+        if last_assessment.get("completed"):
+            stop_reason = "completed"
+        elif last_assessment.get("failed"):
+            stop_reason = "failed"
+
+    if as_json:
+        payload = {
+            "run_id": run_id,
+            "turns": [
+                {
+                    "turn": (e.metadata or {}).get("step"),
+                    "step_id": e.step_id,
+                    "parent_step_id": e.parent_step_id,
+                    "model": e.model,
+                    "tool_calls": [
+                        {
+                            "name": te.tool_call.name if te.tool_call else None,
+                            "error": te.tool_call.error if te.tool_call else None,
+                            "duration_ms": te.tool_call.duration_ms if te.tool_call else None,
+                        }
+                        for te in tools_by_parent.get(e.step_id, [])
+                    ],
+                }
+                for e in turn_events
+            ],
+            "stop": stop_reason,
+        }
+        console.print(json.dumps(payload, indent=2, default=str))
+        return
+
+    console.print(f"[bold]Flow[/bold] — run [dim]{run_id}[/dim] · {len(turn_events)} turns")
+    console.print()
+    for i, e in enumerate(turn_events):
+        step = (e.metadata or {}).get("step", i + 1)
+        assessment = (e.metadata or {}).get("assessment") or {}
+        facts = (e.metadata or {}).get("facts") or {}
+        n_tool_calls = len(facts.get("tool_calls") or [])
+        status = ""
+        if assessment.get("completed"):
+            status = " [green](completed)[/green]"
+        elif assessment.get("failed"):
+            status = " [red](failed)[/red]"
+        console.print(
+            f"  [cyan]Turn {step}[/cyan]{status}  [dim]{e.model or '?'}[/dim]"
+        )
+        tool_events = tools_by_parent.get(e.step_id, [])
+        for te in tool_events:
+            tc = te.tool_call
+            if tc is None:
+                continue
+            mark = "[red]✗[/red]" if tc.error else "[green]✓[/green]"
+            dur = f" {tc.duration_ms}ms" if tc.duration_ms is not None else ""
+            console.print(f"    ├─ {mark} [yellow]{tc.name}[/yellow]{dur}")
+        # Legacy fallback: show claimed tool call count when no parent_step_id links
+        if not tool_events and n_tool_calls:
+            console.print(
+                f"    ├─ [dim]{n_tool_calls} tool calls (legacy trace, no parent_step_id)[/dim]"
+            )
+        if i < len(turn_events) - 1:
+            console.print("    │")
+    if stop_reason:
+        console.print(f"  [dim]→ stop: {stop_reason}[/dim]")
 
 
 def _trace_summary(trace_path: Path, last: int) -> None:
