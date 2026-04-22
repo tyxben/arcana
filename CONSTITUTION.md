@@ -142,7 +142,7 @@ When multiple agents collaborate, the framework provides coordination infrastruc
 
 No agent is subordinate to another by framework decree. If a planner-executor pattern emerges, it is because the agents' prompts define those roles, not because the framework enforces a topology.
 
-The framework's role: ensure every agent gets its turn, stays within budget, and can see what others have said. The agents' role: decide what to say, when to agree, when to disagree, and when to declare the task complete.
+The framework's role: ensure every agent gets its turn, stays within budget, and is given the means to see what others have said -- name-addressed channels, shared context stores, or equivalent communication mechanisms the agents may invoke. The agents' role: decide what to say, who to say it to, what to read from whom, when to agree, when to disagree, and when to declare the task complete.
 
 ### Principle 9: Cognitive Primitives as Services
 
@@ -243,6 +243,7 @@ If the answer is "constraining it because we don't trust it" -- that is a violat
 
 ## Revision History
 
+- **v3.1** (2026-04-21) — Amend Principle 8: "can see what others have said" → "is given the means to see what others have said"; expand agents' role to include addressing and reading decisions. Clarifies that the framework's multi-agent obligation is to provide communication infrastructure, not to guarantee message reception. See `specs/constitution-amendment-2-collaboration-means.md`.
 - **v3.0** (2026-04-18) — Add Principle 9 (Cognitive Primitives as Services) and two Chapter IV entries (Framework Responsibility + Inviolable Rule). The runtime explicitly provides reasoning-state primitives (recall, pin, branch, anchor, hint) that the LLM may invoke at its discretion. See `specs/constitution-amendment-1-cognitive-primitives.md`.
 - **v2.0** — Add Principle 8 (Agent Autonomy in Collaboration); expand Chapter IV with user role and user optionality rules (user never forced to interact mid-execution; LLM may ask but must not block).
 - **v1.0** — Original document. Four Prohibitions + seven Principles + Chapter IV division of responsibility + Chapter V contributor compact.
