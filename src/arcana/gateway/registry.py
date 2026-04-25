@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from arcana.contracts.llm import LLMRequest, LLMResponse, ModelConfig, StreamChunk
 from arcana.contracts.trace import TraceContext
@@ -263,9 +263,10 @@ class ModelGatewayRegistry:
 
         # Prefer provider-level batch if available
         if hasattr(provider, "batch_generate"):
-            return await provider.batch_generate(
+            result = await provider.batch_generate(
                 requests, config, concurrency=concurrency, trace_ctx=trace_ctx,
             )
+            return cast("list[LLMResponse | ProviderError]", result)
 
         # Fallback: semaphore + gather over self.generate (includes retry/fallback)
         semaphore = asyncio.Semaphore(concurrency)

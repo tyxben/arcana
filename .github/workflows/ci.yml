@@ -28,6 +28,9 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      - name: Type check (strict)
+        run: uv run mypy src/
+
       - name: Test
         run: uv run pytest -x -q --cov=arcana --cov-report=xml
 

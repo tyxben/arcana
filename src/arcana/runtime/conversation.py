@@ -889,6 +889,9 @@ class ConversationAgent:
                 if self._channel:
                     gw_results = await self._channel.execute_many(gw_calls)
                 else:
+                    # Guarded by the `not self._channel and not self.tool_gateway`
+                    # check above: if we reach this branch, tool_gateway is not None.
+                    assert self.tool_gateway is not None
                     gw_results = await self.tool_gateway.call_many_concurrent(gw_calls)
                 results.extend(gw_results)
 

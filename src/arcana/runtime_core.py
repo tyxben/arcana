@@ -1138,6 +1138,7 @@ class Runtime:
                 else:
                     current_context = ""
 
+        output: Any
         if steps:
             last = steps[-1]
             if isinstance(last, list):
@@ -1512,11 +1513,26 @@ class Runtime:
                 # Custom OpenAI-compatible provider with explicit base_url
                 from arcana.gateway.providers.openai_compatible import ProviderProfile
 
+                def _as_bool(v: str | bool, default: bool) -> bool:
+                    """Coerce config-supplied profile flags (typed ``str | bool``
+                    because the providers dict allows both) to a clean ``bool``.
+                    Strings like ``"true"``/``"false"`` come from env-style
+                    config; anything unrecognised falls back to ``default``."""
+                    if isinstance(v, bool):
+                        return v
+                    if isinstance(v, str):
+                        s = v.strip().lower()
+                        if s in {"true", "1", "yes", "on"}:
+                            return True
+                        if s in {"false", "0", "no", "off", ""}:
+                            return False
+                    return default
+
                 custom_profile = ProviderProfile(
-                    tool_calls=config_value.get("tool_calls", True),
-                    json_schema=config_value.get("json_schema", False),
-                    json_mode=config_value.get("json_mode", True),
-                    stream_options=config_value.get("stream_options", False),
+                    tool_calls=_as_bool(config_value.get("tool_calls", True), True),
+                    json_schema=_as_bool(config_value.get("json_schema", False), False),
+                    json_mode=_as_bool(config_value.get("json_mode", True), True),
+                    stream_options=_as_bool(config_value.get("stream_options", False), False),
                 )
                 provider_instance = OpenAICompatibleProvider(
                     provider_name=name,
@@ -1815,7 +1831,7 @@ class Session:
                     _first_parse_error = None  # type: ignore[assignment]
             else:
                 parsed_json = None
-                _first_parse_error = TypeError(  # type: ignore[assignment]
+                _first_parse_error = TypeError(
                     f"Expected str or dict, got {type(clean_output).__name__}"
                 )
 
@@ -1828,7 +1844,7 @@ class Session:
                     clean_output = parsed_model
                 except Exception as validate_error:
                     parsed_json = None
-                    _first_parse_error = validate_error  # type: ignore[assignment]
+                    _first_parse_error = validate_error
 
             # If we still don't have a parsed model, try the error callback
             if parsed_model is None:
@@ -1836,11 +1852,11 @@ class Session:
                     try:
                         if asyncio.iscoroutinefunction(self._on_parse_error):
                             fixed = await self._on_parse_error(
-                                clean_output, _first_parse_error,  # type: ignore[possibly-undefined]
+                                clean_output, _first_parse_error,
                             )
                         else:
                             fixed = self._on_parse_error(
-                                clean_output, _first_parse_error,  # type: ignore[possibly-undefined]
+                                clean_output, _first_parse_error,
                             )
                         # Ensure callback result is a model, not a raw dict
                         if fixed is not None:
@@ -2172,6 +2188,7 @@ class ChatSession:
             resolved_provider = self._provider_override or self._runtime._config.default_provider
 
             # If provider was overridden but model wasn't, query the new provider's default
+            resolved_model: str | None
             if self._provider_override and not self._model_override:
                 p = self._runtime._gateway.get(self._provider_override)
                 if p and hasattr(p, "default_model") and isinstance(p.default_model, str):
@@ -2212,7 +2229,9 @@ class ChatSession:
 
         # For pool sessions, wrap the shared TraceWriter so every emitted
         # event gets stamped with metadata["source_agent"] = <pool_name>.
-        trace_writer = self._runtime._trace_writer
+        # The wrapper is duck-typed to TraceWriter; widen the annotation so
+        # mypy accepts both the bare writer and the wrapped variant.
+        trace_writer: Any = self._runtime._trace_writer
         if self._pool_agent_name and trace_writer is not None:
             trace_writer = _PoolTaggedTraceWriter(
                 trace_writer, self._pool_agent_name

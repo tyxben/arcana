@@ -604,7 +604,7 @@ def _active_pins_at_turn(
     events whose metadata.source_agent matches are considered — pool
     agents have independent ``PinState``s.
     """
-    pins: dict[str, dict] = {}
+    pins: dict[str, dict[str, Any]] = {}
     try:
         events = reader.read_events(run_id)
     except Exception:  # pragma: no cover — best effort
@@ -706,8 +706,7 @@ def _replay_prompt_scoped(
         return reader.replay_prompt(run_id, turn=turn)
 
     from arcana.contracts.context import ContextDecision, ContextReport
-    from arcana.contracts.llm import BudgetSnapshot, PromptSnapshot
-    from arcana.contracts.trace import EventType
+    from arcana.contracts.trace import BudgetSnapshot, EventType, PromptSnapshot
     from arcana.trace.reader import PromptReplay
 
     # Local reconstruction mirroring TraceReader.replay_prompt, but with

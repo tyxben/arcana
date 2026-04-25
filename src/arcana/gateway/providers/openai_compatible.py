@@ -603,9 +603,9 @@ class OpenAICompatibleProvider(ModelGateway):
         for tool in request.tools or []:
             name = tool.get("function", {}).get("name", "unknown")
             desc = tool.get("function", {}).get("description", "")
-            params = tool.get("function", {}).get("parameters", {})
+            tool_params = tool.get("function", {}).get("parameters", {})
             tool_lines.append(
-                f"- {name}: {desc}\n  Parameters: {_json.dumps(params, ensure_ascii=False)}"
+                f"- {name}: {desc}\n  Parameters: {_json.dumps(tool_params, ensure_ascii=False)}"
             )
 
         tool_instruction = (

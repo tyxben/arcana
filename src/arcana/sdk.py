@@ -273,7 +273,7 @@ async def run(
     response_format: type[BaseModel] | None = None,
     input_handler: Callable | None = None,  # type: ignore[type-arg]
     system: str | None = None,
-    context: dict | str | None = None,
+    context: dict[str, Any] | str | None = None,
     on_parse_error: Callable | None = None,  # type: ignore[type-arg]
 ) -> RunResult:
     """
@@ -351,7 +351,7 @@ async def run(
     from arcana.runtime_core import Budget as RuntimeBudget
     from arcana.runtime_core import Runtime, RuntimeConfig
 
-    providers = {provider: api_key or ""}
+    providers: dict[str, str | dict[str, str]] = {provider: api_key or ""}
     config = RuntimeConfig(default_provider=provider, default_model=model)
     rt = Runtime(
         providers=providers,
