@@ -1,6 +1,6 @@
 # The Arcana Constitution
 
-**Version: 3.0** — see [Revision History](#revision-history)
+**Version: 3.2** — see [Revision History](#revision-history)
 
 This is not a style guide. This is the architectural law of Arcana. Every line of code, every PR, every design decision must answer to this document.
 
@@ -64,7 +64,7 @@ Error recovery is a diagnostic act. What failed? Why? What class of error is thi
 
 ---
 
-## Chapter III: The Seven Principles
+## Chapter III: The Nine Principles
 
 These are the design laws of Arcana. They are not aspirational. They are mandatory.
 
@@ -243,6 +243,7 @@ If the answer is "constraining it because we don't trust it" -- that is a violat
 
 ## Revision History
 
+- **v3.2** (2026-04-25) — Clarify the implementation status of the cognitive primitives introduced in Amendment 1. Of the primitives listed in Principle 9, only `recall`, `pin`, and `unpin` are implemented as runtime services today; `branch`, `anchor`, and `hint` remain on the roadmap. The framework's commitment is the architectural position — cognitive primitives belong as runtime services — not an implementation guarantee for primitives that do not yet exist. See `src/arcana/runtime/cognitive.py` for the source of truth on what is shipped.
 - **v3.1** (2026-04-21) — Amend Principle 8: "can see what others have said" → "is given the means to see what others have said"; expand agents' role to include addressing and reading decisions. Clarifies that the framework's multi-agent obligation is to provide communication infrastructure, not to guarantee message reception. See `specs/constitution-amendment-2-collaboration-means.md`.
 - **v3.0** (2026-04-18) — Add Principle 9 (Cognitive Primitives as Services) and two Chapter IV entries (Framework Responsibility + Inviolable Rule). The runtime explicitly provides reasoning-state primitives (recall, pin, branch, anchor, hint) that the LLM may invoke at its discretion. See `specs/constitution-amendment-1-cognitive-primitives.md`.
 - **v2.0** — Add Principle 8 (Agent Autonomy in Collaboration); expand Chapter IV with user role and user optionality rules (user never forced to interact mid-execution; LLM may ask but must not block).

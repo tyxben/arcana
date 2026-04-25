@@ -16,7 +16,7 @@ Most agent frameworks treat LLMs as unreliable workers that need a manager watch
 
 ## The Arcana Approach
 
-Arcana is an operating system for LLM agents, not a pipeline. The LLM decides strategy; the runtime provides services -- budget enforcement, tool dispatch, trace recording, context management. The framework never interprets LLM output: raw facts (`TurnFacts`) and runtime assessment (`TurnAssessment`) are kept visibly separate. Eight design principles and four prohibitions, codified in a [Constitution](./CONSTITUTION.md), govern every line of code.
+Arcana is an operating system for LLM agents, not a pipeline. The LLM decides strategy; the runtime provides services -- budget enforcement, tool dispatch, trace recording, context management. The framework never interprets LLM output: raw facts (`TurnFacts`) and runtime assessment (`TurnAssessment`) are kept visibly separate. Nine design principles and four prohibitions, codified in a [Constitution](./CONSTITUTION.md), govern every line of code.
 
 ---
 
