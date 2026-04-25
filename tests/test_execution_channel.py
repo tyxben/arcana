@@ -43,13 +43,13 @@ class FakeGateway:
         self.call_log.append(("call", tool_call))
         return _make_tool_result(call_id=tool_call.id, name=tool_call.name)
 
-    async def call_many_concurrent(
+    async def call_many(
         self,
         tool_calls: list[ToolCall],
         *,
         trace_ctx: object | None = None,
     ) -> list[ToolResult]:
-        self.call_many_log.append(("call_many_concurrent", tool_calls))
+        self.call_many_log.append(("call_many", tool_calls))
         return [
             _make_tool_result(call_id=tc.id, name=tc.name) for tc in tool_calls
         ]
@@ -140,7 +140,13 @@ class TestLocalChannelExecute:
 
 
 class TestLocalChannelExecuteMany:
-    """LocalChannel.execute_many delegates to ToolGateway.call_many_concurrent."""
+    """LocalChannel.execute_many delegates to ToolGateway.call_many.
+
+    The dispatcher choice matters: ``call_many`` is side-effect aware
+    (read tools concurrent, write tools sequential), whereas
+    ``call_many_concurrent`` runs everything concurrently and is
+    therefore unsafe as a default.
+    """
 
     @pytest.mark.asyncio
     async def test_execute_many_delegates(self) -> None:
@@ -154,7 +160,7 @@ class TestLocalChannelExecuteMany:
         assert results[0].tool_call_id == "tc-1"
         assert results[1].tool_call_id == "tc-2"
         assert len(gw.call_many_log) == 1
-        assert gw.call_many_log[0] == ("call_many_concurrent", calls)
+        assert gw.call_many_log[0] == ("call_many", calls)
 
     @pytest.mark.asyncio
     async def test_execute_many_empty_list(self) -> None:
@@ -314,7 +320,7 @@ class TestConversationAgentChannelRouting:
         )
 
         fake_gw = AsyncMock()
-        fake_gw.call_many_concurrent = AsyncMock(return_value=[gw_result])
+        fake_gw.call_many = AsyncMock(return_value=[gw_result])
         agent = self._make_agent(tool_gateway=fake_gw)
 
         tool_calls = [
@@ -324,7 +330,7 @@ class TestConversationAgentChannelRouting:
 
         assert len(results) == 1
         assert results[0].output == "from-gateway"
-        fake_gw.call_many_concurrent.assert_called_once()
+        fake_gw.call_many.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_no_channel_no_gateway_returns_errors(self) -> None:

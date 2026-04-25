@@ -892,7 +892,7 @@ class ConversationAgent:
                     # Guarded by the `not self._channel and not self.tool_gateway`
                     # check above: if we reach this branch, tool_gateway is not None.
                     assert self.tool_gateway is not None
-                    gw_results = await self.tool_gateway.call_many_concurrent(gw_calls)
+                    gw_results = await self.tool_gateway.call_many(gw_calls)
                 results.extend(gw_results)
 
         # Log tool results

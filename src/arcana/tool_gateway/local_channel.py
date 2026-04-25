@@ -30,8 +30,13 @@ class LocalChannel:
         return await self._gateway.call(call, trace_ctx=self._trace_ctx)
 
     async def execute_many(self, calls: list[ToolCall]) -> list[ToolResult]:
-        """Execute multiple tool calls concurrently via the gateway."""
-        return await self._gateway.call_many_concurrent(calls, trace_ctx=self._trace_ctx)
+        """Execute multiple tool calls via the gateway.
+
+        Read tools run concurrently; write tools run sequentially. The
+        runtime, not the LLM, owns this safety boundary (Constitution
+        Principle 6, Principle 3).
+        """
+        return await self._gateway.call_many(calls, trace_ctx=self._trace_ctx)
 
     async def close(self) -> None:
         """Release underlying gateway resources."""
