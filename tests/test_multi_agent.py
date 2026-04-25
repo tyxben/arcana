@@ -273,6 +273,118 @@ class TestMessageBus:
         bus.clear("s1")
         assert len(bus.history("s1")) == 0
 
+    @pytest.mark.asyncio
+    async def test_history_limit_bounds_per_session(self):
+        bus = MessageBus(history_limit=3)
+        for i in range(5):
+            await bus.publish(
+                AgentMessage(
+                    sender_role=AgentRole.PLANNER,
+                    recipient_role=AgentRole.EXECUTOR,
+                    message_type=MessageType.PLAN,
+                    content={"step": i},
+                    session_id="s1",
+                )
+            )
+
+        history = bus.history("s1")
+        assert len(history) == 3
+        assert [m.content["step"] for m in history] == [2, 3, 4]
+
+    @pytest.mark.asyncio
+    async def test_history_limit_per_session_independent(self):
+        bus = MessageBus(history_limit=2)
+        for i in range(4):
+            await bus.publish(
+                AgentMessage(
+                    sender_role=AgentRole.PLANNER,
+                    recipient_role=AgentRole.EXECUTOR,
+                    message_type=MessageType.PLAN,
+                    content={"step": i},
+                    session_id="sA",
+                )
+            )
+        for i in range(3):
+            await bus.publish(
+                AgentMessage(
+                    sender_role=AgentRole.PLANNER,
+                    recipient_role=AgentRole.CRITIC,
+                    message_type=MessageType.PLAN,
+                    content={"step": i},
+                    session_id="sB",
+                )
+            )
+
+        history_a = bus.history("sA")
+        history_b = bus.history("sB")
+        assert len(history_a) == 2
+        assert [m.content["step"] for m in history_a] == [2, 3]
+        assert len(history_b) == 2
+        assert [m.content["step"] for m in history_b] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_history_limit_zero_retains_nothing(self):
+        bus = MessageBus(history_limit=0)
+        msg = AgentMessage(
+            sender_role=AgentRole.PLANNER,
+            recipient_role=AgentRole.EXECUTOR,
+            message_type=MessageType.PLAN,
+            content={"plan": "live"},
+            session_id="s1",
+        )
+        await bus.publish(msg)
+
+        assert bus.history("s1") == []
+
+        delivered = await bus.subscribe(AgentRole.EXECUTOR)
+        assert len(delivered) == 1
+        assert delivered[0].content["plan"] == "live"
+
+    def test_history_limit_negative_raises(self):
+        with pytest.raises(ValueError, match="history_limit must be None or >= 0"):
+            MessageBus(history_limit=-1)
+
+    @pytest.mark.asyncio
+    async def test_reset_clears_all_history(self):
+        bus = MessageBus()
+        for sid in ("sA", "sB", "sC"):
+            await bus.publish(
+                AgentMessage(
+                    sender_role=AgentRole.PLANNER,
+                    recipient_role=AgentRole.EXECUTOR,
+                    message_type=MessageType.PLAN,
+                    content={},
+                    session_id=sid,
+                )
+            )
+        assert len(bus.history("sA")) == 1
+        assert len(bus.history("sB")) == 1
+        assert len(bus.history("sC")) == 1
+
+        bus.reset()
+
+        assert bus.history("sA") == []
+        assert bus.history("sB") == []
+        assert bus.history("sC") == []
+
+    @pytest.mark.asyncio
+    async def test_reset_drains_queues(self):
+        bus = MessageBus()
+        await bus.publish(
+            AgentMessage(
+                sender_role=AgentRole.PLANNER,
+                recipient_role=AgentRole.EXECUTOR,
+                message_type=MessageType.PLAN,
+                content={},
+                session_id="s1",
+            )
+        )
+
+        bus.reset()
+
+        delivered = await bus.subscribe(AgentRole.EXECUTOR)
+        assert delivered == []
+
 
 # ── TeamOrchestrator Tests ───────────────────────────────────────────
 
@@ -466,6 +578,31 @@ class TestTeamOrchestrator:
         # Missing verdict
         state = AgentState(run_id="r1", working_memory={})
         assert TeamOrchestrator._extract_verdict(state) is False
+
+    @pytest.mark.asyncio
+    async def test_team_orchestrator_resets_bus_after_run(self):
+        configs = _make_role_configs(verdict="pass")
+        gateway = _make_gateway()
+        team = TeamOrchestrator(configs, gateway, max_rounds=1)
+
+        result = await team.run("Reset test")
+
+        assert len(result.messages) > 0
+        assert team._bus.history(result.session_id) == []
+        assert await team._bus.subscribe(AgentRole.EXECUTOR) == []
+        assert await team._bus.subscribe(AgentRole.CRITIC) == []
+
+    @pytest.mark.asyncio
+    async def test_team_orchestrator_history_limit_plumbs_through(self):
+        configs = _make_role_configs(verdict="pass")
+        gateway = _make_gateway()
+        team = TeamOrchestrator(
+            configs, gateway, max_rounds=1, history_limit=2
+        )
+
+        await team.run("Plumbing test")
+
+        assert team._bus._history_limit == 2
 
 
 # ── Integration Tests ────────────────────────────────────────────────

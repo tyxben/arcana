@@ -76,6 +76,7 @@ class TeamOrchestrator:
         trace_writer: TraceWriter | None = None,
         global_budget: BudgetTracker | None = None,
         hooks: list[RuntimeHook] | None = None,
+        history_limit: int | None = None,
     ) -> None:
         self._role_configs = role_configs
         self._gateway = gateway
@@ -83,7 +84,7 @@ class TeamOrchestrator:
         self._trace_writer = trace_writer
         self._global_budget = global_budget
         self._hooks = hooks or []
-        self._bus = MessageBus()
+        self._bus = MessageBus(history_limit=history_limit)
 
     async def run(self, goal: str) -> HandoffResult:
         """
@@ -98,164 +99,173 @@ class TeamOrchestrator:
         session = CollaborationSession(goal=goal, max_rounds=self._max_rounds)
         session_id = session.session_id
 
-        # Validate all required roles are configured upfront
-        for required_role in (AgentRole.PLANNER, AgentRole.EXECUTOR, AgentRole.CRITIC):
-            if required_role not in self._role_configs:
-                msg = f"No configuration for role: {required_role.value}"
-                raise ValueError(msg)
+        try:
+            # Validate all required roles are configured upfront
+            for required_role in (
+                AgentRole.PLANNER,
+                AgentRole.EXECUTOR,
+                AgentRole.CRITIC,
+            ):
+                if required_role not in self._role_configs:
+                    msg = f"No configuration for role: {required_role.value}"
+                    raise ValueError(msg)
 
-        total_tokens = 0
-        total_cost = 0.0
-        feedback: AgentMessage | None = None
+            total_tokens = 0
+            total_cost = 0.0
+            feedback: AgentMessage | None = None
 
-        for round_num in range(1, self._max_rounds + 1):
-            # ── Budget guard ────────────────────────────────────────
-            if self._is_budget_exhausted():
+            for round_num in range(1, self._max_rounds + 1):
+                # ── Budget guard ────────────────────────────────────────
+                if self._is_budget_exhausted():
+                    self._write_trace_event(
+                        session_id,
+                        EventType.TASK_FAIL,
+                        {"reason": "budget_exhausted", "round": round_num},
+                    )
+                    return HandoffResult(
+                        session_id=session_id,
+                        final_status="budget_exhausted",
+                        rounds=round_num - 1,
+                        messages=self._bus.history(session_id),
+                        total_tokens=total_tokens,
+                        total_cost_usd=total_cost,
+                    )
+
+                # ── 1. Planner ──────────────────────────────────────────
+                planner_goal = self._build_planner_goal(goal, feedback, round_num)
+
+                try:
+                    planner_state = await self._run_role(
+                        AgentRole.PLANNER, planner_goal, session_id
+                    )
+                except Exception as exc:
+                    return self._handle_role_error(
+                        AgentRole.PLANNER, exc, session_id, round_num,
+                        total_tokens, total_cost,
+                    )
+
+                total_tokens += planner_state.tokens_used
+                total_cost += planner_state.cost_usd
+
+                # Publish plan message
+                plan_content = planner_state.working_memory.get(
+                    WM_KEY_PLAN, planner_goal
+                )
+                plan_msg = AgentMessage(
+                    sender_role=AgentRole.PLANNER,
+                    recipient_role=AgentRole.EXECUTOR,
+                    message_type=MessageType.PLAN,
+                    content={WM_KEY_PLAN: plan_content},
+                    session_id=session_id,
+                )
+                await self._bus.publish(plan_msg)
+
+                # ── 2. Executor ─────────────────────────────────────────
+                executor_goal = f"Execute the following plan: {plan_content}"
+
+                try:
+                    executor_state = await self._run_role(
+                        AgentRole.EXECUTOR, executor_goal, session_id
+                    )
+                except Exception as exc:
+                    return self._handle_role_error(
+                        AgentRole.EXECUTOR, exc, session_id, round_num,
+                        total_tokens, total_cost,
+                    )
+
+                total_tokens += executor_state.tokens_used
+                total_cost += executor_state.cost_usd
+
+                # Publish result message
+                result_content = executor_state.working_memory.get(
+                    WM_KEY_RESULT, "Execution completed"
+                )
+                result_msg = AgentMessage(
+                    sender_role=AgentRole.EXECUTOR,
+                    recipient_role=AgentRole.CRITIC,
+                    message_type=MessageType.RESULT,
+                    content={WM_KEY_RESULT: result_content},
+                    session_id=session_id,
+                )
+                await self._bus.publish(result_msg)
+
+                # ── 3. Critic ──────────────────────────────────────────
+                critic_goal = (
+                    f"Verify the following execution result: {result_content}\n"
+                    f"Original goal: {goal}"
+                )
+
+                try:
+                    critic_state = await self._run_role(
+                        AgentRole.CRITIC, critic_goal, session_id
+                    )
+                except Exception as exc:
+                    return self._handle_role_error(
+                        AgentRole.CRITIC, exc, session_id, round_num,
+                        total_tokens, total_cost,
+                    )
+
+                total_tokens += critic_state.tokens_used
+                total_cost += critic_state.cost_usd
+
+                # Check verdict
+                verdict = self._extract_verdict(critic_state)
+
+                if verdict:
+                    # Critic approved
+                    self._write_trace_event(
+                        session_id,
+                        EventType.TASK_COMPLETE,
+                        {"round": round_num, "verdict": "pass"},
+                    )
+                    return HandoffResult(
+                        session_id=session_id,
+                        final_status="completed",
+                        rounds=round_num,
+                        messages=self._bus.history(session_id),
+                        total_tokens=total_tokens,
+                        total_cost_usd=total_cost,
+                    )
+
+                # Critic rejected — create feedback for next round
+                feedback_content = critic_state.working_memory.get(
+                    WM_KEY_FEEDBACK, "Verification failed"
+                )
+                feedback = AgentMessage(
+                    sender_role=AgentRole.CRITIC,
+                    recipient_role=AgentRole.PLANNER,
+                    message_type=MessageType.FEEDBACK,
+                    content={WM_KEY_FEEDBACK: feedback_content},
+                    session_id=session_id,
+                )
+                await self._bus.publish(feedback)
+
                 self._write_trace_event(
                     session_id,
                     EventType.TASK_FAIL,
-                    {"reason": "budget_exhausted", "round": round_num},
-                )
-                return HandoffResult(
-                    session_id=session_id,
-                    final_status="budget_exhausted",
-                    rounds=round_num - 1,
-                    messages=self._bus.history(session_id),
-                    total_tokens=total_tokens,
-                    total_cost_usd=total_cost,
+                    {"round": round_num, "verdict": "fail"},
                 )
 
-            # ── 1. Planner ──────────────────────────────────────────
-            planner_goal = self._build_planner_goal(goal, feedback, round_num)
-
-            try:
-                planner_state = await self._run_role(
-                    AgentRole.PLANNER, planner_goal, session_id
-                )
-            except Exception as exc:
-                return self._handle_role_error(
-                    AgentRole.PLANNER, exc, session_id, round_num,
-                    total_tokens, total_cost,
-                )
-
-            total_tokens += planner_state.tokens_used
-            total_cost += planner_state.cost_usd
-
-            # Publish plan message
-            plan_content = planner_state.working_memory.get(WM_KEY_PLAN, planner_goal)
-            plan_msg = AgentMessage(
-                sender_role=AgentRole.PLANNER,
-                recipient_role=AgentRole.EXECUTOR,
-                message_type=MessageType.PLAN,
-                content={WM_KEY_PLAN: plan_content},
+            # Max rounds exhausted — escalate
+            escalate_msg = AgentMessage(
+                sender_role=AgentRole.SYSTEM,
+                recipient_role=AgentRole.SYSTEM,
+                message_type=MessageType.ESCALATE,
+                content={"reason": "max_rounds_exhausted", "goal": goal},
                 session_id=session_id,
             )
-            await self._bus.publish(plan_msg)
+            await self._bus.publish(escalate_msg)
 
-            # ── 2. Executor ─────────────────────────────────────────
-            executor_goal = f"Execute the following plan: {plan_content}"
-
-            try:
-                executor_state = await self._run_role(
-                    AgentRole.EXECUTOR, executor_goal, session_id
-                )
-            except Exception as exc:
-                return self._handle_role_error(
-                    AgentRole.EXECUTOR, exc, session_id, round_num,
-                    total_tokens, total_cost,
-                )
-
-            total_tokens += executor_state.tokens_used
-            total_cost += executor_state.cost_usd
-
-            # Publish result message
-            result_content = executor_state.working_memory.get(
-                WM_KEY_RESULT, "Execution completed"
-            )
-            result_msg = AgentMessage(
-                sender_role=AgentRole.EXECUTOR,
-                recipient_role=AgentRole.CRITIC,
-                message_type=MessageType.RESULT,
-                content={WM_KEY_RESULT: result_content},
+            return HandoffResult(
                 session_id=session_id,
+                final_status="escalated",
+                rounds=self._max_rounds,
+                messages=self._bus.history(session_id),
+                total_tokens=total_tokens,
+                total_cost_usd=total_cost,
             )
-            await self._bus.publish(result_msg)
-
-            # ── 3. Critic ──────────────────────────────────────────
-            critic_goal = (
-                f"Verify the following execution result: {result_content}\n"
-                f"Original goal: {goal}"
-            )
-
-            try:
-                critic_state = await self._run_role(
-                    AgentRole.CRITIC, critic_goal, session_id
-                )
-            except Exception as exc:
-                return self._handle_role_error(
-                    AgentRole.CRITIC, exc, session_id, round_num,
-                    total_tokens, total_cost,
-                )
-
-            total_tokens += critic_state.tokens_used
-            total_cost += critic_state.cost_usd
-
-            # Check verdict
-            verdict = self._extract_verdict(critic_state)
-
-            if verdict:
-                # Critic approved
-                self._write_trace_event(
-                    session_id,
-                    EventType.TASK_COMPLETE,
-                    {"round": round_num, "verdict": "pass"},
-                )
-                return HandoffResult(
-                    session_id=session_id,
-                    final_status="completed",
-                    rounds=round_num,
-                    messages=self._bus.history(session_id),
-                    total_tokens=total_tokens,
-                    total_cost_usd=total_cost,
-                )
-
-            # Critic rejected — create feedback for next round
-            feedback_content = critic_state.working_memory.get(
-                WM_KEY_FEEDBACK, "Verification failed"
-            )
-            feedback = AgentMessage(
-                sender_role=AgentRole.CRITIC,
-                recipient_role=AgentRole.PLANNER,
-                message_type=MessageType.FEEDBACK,
-                content={WM_KEY_FEEDBACK: feedback_content},
-                session_id=session_id,
-            )
-            await self._bus.publish(feedback)
-
-            self._write_trace_event(
-                session_id,
-                EventType.TASK_FAIL,
-                {"round": round_num, "verdict": "fail"},
-            )
-
-        # Max rounds exhausted — escalate
-        escalate_msg = AgentMessage(
-            sender_role=AgentRole.SYSTEM,
-            recipient_role=AgentRole.SYSTEM,
-            message_type=MessageType.ESCALATE,
-            content={"reason": "max_rounds_exhausted", "goal": goal},
-            session_id=session_id,
-        )
-        await self._bus.publish(escalate_msg)
-
-        return HandoffResult(
-            session_id=session_id,
-            final_status="escalated",
-            rounds=self._max_rounds,
-            messages=self._bus.history(session_id),
-            total_tokens=total_tokens,
-            total_cost_usd=total_cost,
-        )
+        finally:
+            self._bus.reset()
 
     # ── Private Helpers ─────────────────────────────────────────────
 

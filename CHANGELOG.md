@@ -4,6 +4,103 @@ All notable changes to Arcana will be documented in this file.
 
 ## [Unreleased]
 
+### v0.8.2 — Bounded caches for long-running runtimes
+
+v0.8.1 bounded `Channel` history but missed its twin class, `MessageBus`
+(`arcana.multi_agent.message_bus`). The two classes are the same shape --
+session-keyed history plus per-role/per-agent async queues -- and share
+the same retention pattern, so the v0.8.1 leak was only half-fixed. This
+release closes the other half.
+
+`TeamOrchestrator` owns a single `MessageBus` instance that is reused
+across every `run()` call. The orchestrator never calls `subscribe()`, so
+published messages accumulated in per-role `asyncio.Queue` s forever on
+top of the unbounded history. v0.8.2 bounds the history and drains the
+queues at the end of every run.
+
+Behaviour is otherwise unchanged: `HandoffResult.messages` is already a
+detached `list(...)` copy taken before `reset()` fires, so callers who
+retain the result see exactly what they saw before.
+
+#### Added
+- **`MessageBus(history_limit=N)`** in `arcana.multi_agent.message_bus`
+  -- mirrors `Channel(history_limit=N)`. ``None`` (default) keeps
+  unbounded history -- matches pre-v0.8.2 behaviour. ``int >= 0`` retains
+  at most ``N`` past messages per session; ``0`` disables history
+  retention entirely. Negative values raise ``ValueError``. Implemented
+  as a per-session ``collections.deque(maxlen=...)`` -- ``history()``
+  still returns a plain ``list`` copy, so readers are unaffected.
+- **`MessageBus.reset()`** -- new method that clears all history AND
+  drains every per-role queue via non-blocking `get_nowait()`. For owners
+  that reuse a single bus across independent runs (e.g.
+  `TeamOrchestrator`), without which per-role queues leak because the
+  orchestrator never calls `subscribe()`.
+- **`TeamOrchestrator.run()` now calls `self._bus.reset()` in `finally`**
+  -- bus state no longer accumulates across runs. Safe because every
+  `return HandoffResult(...)` path already materialises
+  `messages=self._bus.history(session_id)` as a detached list copy
+  before reset fires.
+- **`TeamOrchestrator(history_limit=N)`** -- keyword-only; forwarded to
+  the owned `MessageBus`. Exposes the knob at the orchestrator level for
+  users who keep an orchestrator alive across many calls.
+
+#### Scope -- what is *not* changed
+- **`Channel._queues`** (per-agent delivery queues in
+  `arcana.multi_agent.channel`) -- still driven by the consumer's
+  `receive()` calls and still the user's responsibility. v0.8.1's
+  decision stands: an agent registered but never drained is a consumer
+  bug, not a retention bug. `MessageBus.reset()` drains *its* queues
+  because the default orchestrator never subscribes; `Channel` consumers
+  do receive.
+
+#### Why
+- Same class of leak as v0.8.1 (`Channel.history`), in a class that was
+  missed because it predates the `Channel` fix and is not the public
+  `AgentPool` API. Separate instance, separate owner, same shape --
+  deserves the same fix.
+
+### v0.8.2 — Bounded tool idempotency cache
+
+`ToolGateway._idempotency_cache` grew unboundedly for the lifetime of
+the owning `Runtime` and was never cleared on teardown -- `close()`
+only released the execution backend. Any long-running service that
+reuses a `Runtime` across many `run()` calls and passes
+`idempotency_key` on tool calls (retries, dedupe, streaming pipelines)
+leaked memory proportional to unique-key-count × `ToolResult.output`
+size. And `ToolResult.output` is exactly the place large payloads
+land: stdout, HTTP response bodies, file contents.
+
+v0.8.2 caps the cache by default and releases it on shutdown.
+
+#### Added
+- **`ToolGateway(idempotency_cache_limit=N)`** -- keyword-only,
+  defaults to ``1024``. ``None`` keeps unbounded retention -- matches
+  pre-v0.8.2 behaviour and is the explicit opt-in for callers that
+  genuinely need it. ``int >= 0`` caps the cache at that size via LRU
+  eviction on insert; cache hits refresh MRU via ``move_to_end`` so
+  eviction favours truly-old entries. ``0`` disables dedup entirely
+  (every insert is immediately evicted -- a repeat call with the same
+  key re-executes). Negative values raise ``ValueError``. Backed by
+  ``collections.OrderedDict``.
+- **`ToolGateway.close()` now clears `_idempotency_cache`** after
+  `backend.cleanup()`, under the existing cache lock. Releases all
+  retained `ToolResult` references on `Runtime` teardown.
+
+#### Behaviour change
+- The default limit of ``1024`` is the behaviour change. A caller
+  with more than 1024 *live* idempotency keys on a single gateway
+  will now see LRU eviction where previously they saw unbounded
+  retention. Pass ``idempotency_cache_limit=None`` to restore the
+  old behaviour if you genuinely relied on it -- but note this was
+  always a memory leak in long-running processes.
+
+#### Why
+- Same class of leak as the `MessageBus` fix above, different
+  owner. `ToolGateway` is constructed once per `Runtime` and reused
+  across every tool call for that runtime's lifetime. A default
+  ``1024`` covers every realistic single-turn / multi-turn /
+  chained-run workload while keeping worst-case memory bounded.
+
 ### v0.8.1 — "Trace You Can Actually Debug With"
 
 Principle 5 (auditability) has always been Arcana's load-bearing promise.

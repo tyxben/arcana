@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -17,11 +17,29 @@ class MessageBus:
 
     Messages are routed by recipient role. Each role has an async queue.
     All messages are also stored in a session-keyed history for auditing.
+
+    Args:
+        history_limit: Maximum number of past messages to retain per session
+            in :meth:`history`. ``None`` (default) keeps unbounded history --
+            matches pre-v0.8.2 behaviour. Set a positive ``int`` for
+            long-running owners (e.g. :class:`TeamOrchestrator` reusing a
+            single bus across runs) to bound memory. ``0`` disables history
+            retention entirely (queues still deliver live messages).
+            Negative values raise ``ValueError``. Only per-session history
+            is bounded; per-role delivery queues are driven by consumer
+            ``subscribe()`` calls and are not affected.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, history_limit: int | None = None) -> None:
+        if history_limit is not None and history_limit < 0:
+            raise ValueError(
+                f"history_limit must be None or >= 0, got {history_limit}"
+            )
         self._queues: dict[AgentRole, asyncio.Queue[AgentMessage]] = {}
-        self._history: dict[str, list[AgentMessage]] = defaultdict(list)
+        self._history_limit = history_limit
+        self._history: dict[str, deque[AgentMessage]] = defaultdict(
+            lambda: deque(maxlen=history_limit)
+        )
 
     async def publish(self, message: AgentMessage) -> None:
         """
@@ -83,3 +101,22 @@ class MessageBus:
             session_id: The collaboration session ID to clear.
         """
         self._history.pop(session_id, None)
+
+    def reset(self) -> None:
+        """
+        Clear all history AND drain every per-role queue.
+
+        Use this when an owner reuses a single ``MessageBus`` across
+        independent runs (e.g. :class:`TeamOrchestrator`): without it, the
+        per-role ``asyncio.Queue`` s accumulate every published message
+        forever because the orchestrator never calls ``subscribe()``. Call
+        this at the end of each run to release both history and queue
+        state.
+        """
+        self._history.clear()
+        for queue in self._queues.values():
+            while not queue.empty():
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break

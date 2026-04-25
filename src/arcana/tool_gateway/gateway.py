@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -78,6 +79,7 @@ class ToolGateway:
         granted_capabilities: set[str] | None = None,
         confirmation_callback: Callable[[ToolCall, ToolSpec], Awaitable[bool]] | None = None,
         backend: ExecutionBackend | None = None,
+        idempotency_cache_limit: int | None = 1024,
     ) -> None:
         """
         Initialize the ToolGateway.
@@ -90,20 +92,35 @@ class ToolGateway:
                 If None and a write tool is called, ConfirmationRequired is raised.
             backend: Execution backend for tool isolation.
                 Defaults to InProcessBackend (current behavior, zero overhead).
+            idempotency_cache_limit: Maximum number of ``ToolResult`` entries
+                retained in the idempotency cache. Defaults to ``1024``.
+                ``None`` keeps unbounded retention -- matches pre-v0.8.2
+                behaviour and is an explicit opt-in for callers that
+                genuinely need it. ``int >= 0`` caps the cache at that size
+                via LRU eviction; ``0`` disables dedup entirely (every
+                insert is immediately evicted). Negative values raise
+                ``ValueError``.
         """
+        if idempotency_cache_limit is not None and idempotency_cache_limit < 0:
+            raise ValueError(
+                f"idempotency_cache_limit must be None or >= 0, got {idempotency_cache_limit}"
+            )
+
         self.registry = registry
         self.trace_writer = trace_writer
         self.granted_capabilities = granted_capabilities or set()
         self.confirmation_callback = confirmation_callback
         self.backend = backend or InProcessBackend()
 
-        # Idempotency cache: key -> ToolResult
-        self._idempotency_cache: dict[str, ToolResult] = {}
+        self._idempotency_cache_limit = idempotency_cache_limit
+        self._idempotency_cache: OrderedDict[str, ToolResult] = OrderedDict()
         self._cache_lock = asyncio.Lock()
 
     async def close(self) -> None:
         """Release backend resources."""
         await self.backend.cleanup()
+        async with self._cache_lock:
+            self._idempotency_cache.clear()
 
     async def call(
         self,
@@ -175,6 +192,7 @@ class ToolGateway:
             async with self._cache_lock:
                 cached = self._idempotency_cache.get(tool_call.idempotency_key)
                 if cached is not None:
+                    self._idempotency_cache.move_to_end(tool_call.idempotency_key)
                     return cached
 
                 # 5. Confirm (write tools)
@@ -187,6 +205,9 @@ class ToolGateway:
 
                 # 7. Cache result
                 self._idempotency_cache[tool_call.idempotency_key] = result
+                if self._idempotency_cache_limit is not None:
+                    while len(self._idempotency_cache) > self._idempotency_cache_limit:
+                        self._idempotency_cache.popitem(last=False)
         else:
             # No idempotency key — skip cache entirely
             confirmation_result = await self._confirm_execution(tool_call, spec)

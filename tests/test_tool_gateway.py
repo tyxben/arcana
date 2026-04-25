@@ -387,6 +387,80 @@ class TestIdempotency:
 
         assert result2.tool_call_id == "call-2"
 
+    async def test_cache_bounded_evicts_oldest(self, registry, trace_ctx):
+        gw = ToolGateway(registry=registry, idempotency_cache_limit=2)
+
+        await gw.call(_make_call("echo", id="c1", idempotency_key="k1"), trace_ctx=trace_ctx)
+        await gw.call(_make_call("echo", id="c2", idempotency_key="k2"), trace_ctx=trace_ctx)
+        await gw.call(_make_call("echo", id="c3", idempotency_key="k3"), trace_ctx=trace_ctx)
+
+        assert len(gw._idempotency_cache) == 2
+        assert "k1" not in gw._idempotency_cache
+        assert "k2" in gw._idempotency_cache
+        assert "k3" in gw._idempotency_cache
+
+    async def test_cache_hit_refreshes_lru(self, registry, trace_ctx):
+        gw = ToolGateway(registry=registry, idempotency_cache_limit=2)
+
+        await gw.call(_make_call("echo", id="c1", idempotency_key="k1"), trace_ctx=trace_ctx)
+        await gw.call(_make_call("echo", id="c2", idempotency_key="k2"), trace_ctx=trace_ctx)
+
+        # Hit k1 — marks it MRU so k2 becomes the oldest.
+        hit = await gw.call(
+            _make_call("echo", id="c1-hit", idempotency_key="k1"),
+            trace_ctx=trace_ctx,
+        )
+        assert hit.tool_call_id == "c1"
+
+        await gw.call(_make_call("echo", id="c3", idempotency_key="k3"), trace_ctx=trace_ctx)
+
+        assert len(gw._idempotency_cache) == 2
+        assert "k1" in gw._idempotency_cache
+        assert "k2" not in gw._idempotency_cache
+        assert "k3" in gw._idempotency_cache
+
+    async def test_cache_limit_zero_disables_dedup(self, registry, trace_ctx):
+        gw = ToolGateway(registry=registry, idempotency_cache_limit=0)
+
+        call1 = _make_call("echo", id="c1", idempotency_key="k1")
+        call2 = _make_call("echo", id="c2", idempotency_key="k1")
+
+        result1 = await gw.call(call1, trace_ctx=trace_ctx)
+        result2 = await gw.call(call2, trace_ctx=trace_ctx)
+
+        # With limit=0 every insert is immediately evicted; second call must
+        # re-execute against its own ToolCall, not return the first result.
+        assert result1.tool_call_id == "c1"
+        assert result2.tool_call_id == "c2"
+        assert len(gw._idempotency_cache) == 0
+
+    async def test_cache_limit_negative_raises(self, registry):
+        with pytest.raises(ValueError, match="idempotency_cache_limit"):
+            ToolGateway(registry=registry, idempotency_cache_limit=-1)
+
+    async def test_cache_limit_none_is_unbounded(self, registry, trace_ctx):
+        gw = ToolGateway(registry=registry, idempotency_cache_limit=None)
+
+        for i in range(100):
+            await gw.call(
+                _make_call("echo", id=f"c{i}", idempotency_key=f"k{i}"),
+                trace_ctx=trace_ctx,
+            )
+
+        assert len(gw._idempotency_cache) == 100
+
+    async def test_close_clears_idempotency_cache(self, registry, trace_ctx):
+        gw = ToolGateway(registry=registry)
+        await gw.call(
+            _make_call("echo", id="c1", idempotency_key="k1"),
+            trace_ctx=trace_ctx,
+        )
+        assert len(gw._idempotency_cache) == 1
+
+        await gw.close()
+
+        assert len(gw._idempotency_cache) == 0
+
 
 # ── TestConfirmation ─────────────────────────────────────────────
 
