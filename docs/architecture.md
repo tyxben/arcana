@@ -1,16 +1,34 @@
 # Arcana 系统架构文档
 
+> 本文档对应当前默认实现：**V2 引擎 `ConversationAgent`**。
+> V1 (`Agent` + `AdaptivePolicy` + `Reducer`) 已降级为兼容路径，详见末节"遗留兼容"。
+
+---
+
 ## 1. 项目简介
 
-Arcana 是一个基于 Contracts-First 设计的 Agent 平台，通过 Pydantic 定义所有数据契约，支持未来向 Go/Rust 迁移而不改变上层逻辑。
+**Arcana 是 LLM Agent 的操作系统 (OS)，不是流水线 (Pipeline)。**
 
-**核心特性**：
-- 🔐 **Contract-Driven Design**: 所有接口先定义数据契约
-- 📝 **JSONL Audit Trail**: 完整的 trace 日志记录
-- 🔄 **Multi-Policy Support**: 支持 ReAct、Plan-Execute 等策略
-- 🛠️ **Tool Gateway**: 工具鉴权、幂等性、重试机制
-- 🧠 **Memory System**: Working/Long-term/Episodic 三层记忆
-- 👥 **Multi-Agent Orchestration**: 任务调度与团队协作
+> A pipeline dictates: do step 1, then step 2, then step 3.
+> An operating system provides: here are your capabilities, here are your boundaries, go solve the problem.
+> — *CONSTITUTION.md, Chapter I*
+
+Arcana 是一个 **Contracts-First** 的 Agent 平台：所有数据流都先在 `contracts/` 里以 Pydantic Schema 定义，实现层永远不发明 ad-hoc dict。这使得未来向 Go/Rust 迁移可以保持上层逻辑不变。
+
+**核心设计原则**（与 `CONSTITUTION.md` 九条 Principles 对齐）：
+
+- **Default to Direct, Escalate to Agent** — 简单请求走单次 LLM 调用，复杂请求才进入 Agent 循环
+- **Context as Working Set, Not Archive** — 上下文是当前推理步骤的工作集，不是仓库
+- **Tools as Capabilities, Not Interfaces** — 工具不是 API 包装，而是 LLM 可推理的能力
+- **Allow Strategy Leaps** — LLM 不欠我们逐步思考过程，可以一步跳到答案
+- **Structured, Actionable Feedback** — 错误反馈必须可推理，不是裸异常字符串
+- **Runtime as OS, Not Form Engine** — Runtime 提供服务，不规定流程
+- **Judge by Outcomes, Not by Process** — 衡量 Agent 看是否达成目标，不是是否走完模板
+- **Agent Autonomy in Collaboration** — 多 Agent 协作时框架只提供通信基建，不强加层级
+- **Cognitive Primitives as Services** — Runtime 也为 LLM 自身的推理状态提供服务（recall / pin / unpin），但绝不代为调用
+
+**四条禁令** (`CONSTITUTION.md` Chapter II)：
+- No Premature Structuring · No Controllability Theater · No Context Hoarding · No Mechanical Retry
 
 ---
 
@@ -18,525 +36,291 @@ Arcana 是一个基于 Contracts-First 设计的 Agent 平台，通过 Pydantic 
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| **Contracts** | ✅ 完成 | 数据契约层：Trace/Tool/State/LLM/Memory/Plan/Multi-Agent |
-| **Trace** | ✅ 完成 | JSONL 审计日志：Writer/Reader/查询/分析 |
-| **Gateway** | ✅ 完成 | 模型网关：Registry/BudgetTracker/OpenAI兼容 |
-| **Runtime** | ✅ 完成 | 执行引擎：Agent/StepExecutor/Policy/Reducer |
-| **ToolGateway** | ✅ 完成 | 工具执行：鉴权/验证/幂等性/重试/审计 |
-| **Memory** | ✅ 完成 | 记忆系统：Working/LongTerm/Episodic/Governance |
-| **Multi-Agent** | ✅ 完成 | 多智能体：Team/MessageBus/Orchestrator |
-| **Orchestrator** | ✅ 完成 | 任务调度：DAG调度/并发执行/重试策略 |
-| **Storage** | ⏳ 待实现 | 存储后端：LevelDB/Redis/Postgres |
-| **RAG** | ⏳ 待实现 | 检索增强：Indexing/Retrieval/Citations |
+| **Contracts** | 完成 | Pydantic 数据契约：`turn` / `routing` / `context` / `diagnosis` / `llm` / `tool` / `state` / `streaming` / `cognitive` 等 |
+| **Trace** | 完成 | JSONL 审计日志：Writer / Reader / Replay；每次 LLM 调用自动落盘 |
+| **Gateway** | 完成 | `ModelGatewayRegistry` + `OpenAICompatibleProvider`，多 provider fallback、prompt caching、`batch_generate` |
+| **Runtime** | 完成 | **`ConversationAgent` (V2，默认引擎)**：LLM Turn → TurnFacts → TurnAssessment → State；并行工具、思考信号、ask_user 拦截、checkpoint |
+| **Routing** | 完成 | `IntentClassifier` 规则 + LLM 双层分流；`DIRECT_ANSWER` 走单次调用，其余进入 ConversationAgent |
+| **Context** | 完成 | `WorkingSetBuilder` 工作集装配 + 4 级保真度压缩 (L0-L3) + LLM 摘要兜底 |
+| **ToolGateway** | 完成 | 鉴权 / 校验 / 幂等 / 重试 / 审计；`call_many` 按 side-effect 分派：read 并发、write 顺序 |
+| **Cognitive Primitives** | 部分 | 已实现：`recall` / `pin` / `unpin`（拦截式工具，不走 ToolGateway）；`branch` / `anchor` / `hint` 仍在 roadmap |
+| **Diagnosis** | 完成 | `DiagnosticBrief` 结构化错误简报，工具失败转为下一轮 user 消息注入给 LLM |
+| **Multi-Agent** | 完成 | `AgentPool` + `Channel` + `SharedContext`；用户控制编排，框架只提供通信基建 |
+| **Streaming** | 完成 | `StreamEvent` / `StreamEventType`；`astream()` / `chat.stream()` |
+| **Memory / RAG** | 部分 | Runtime 级 `RunMemoryStore`；长期记忆 / RAG 检索仍在演进 |
+| **Storage** | 待实现 | 持久化后端（LevelDB / Redis / Postgres）|
 
 ---
 
-## 3. 用户消息完整流转流程图
+## 3. 默认执行路径
+
+```mermaid
+flowchart LR
+    User([用户 Goal]) --> Run["Runtime.run / chat / chain / run_batch"]
+    Run --> Router["Intent Router<br/>(routing.classifier)"]
+    Router -->|DIRECT_ANSWER| Direct["Direct Answer<br/>1 次 LLM 调用"]
+    Router -->|其他意图| Agent["ConversationAgent<br/>(runtime.conversation)"]
+    Direct --> Result([RunResult])
+    Agent --> Result
+```
+
+入口是 `Runtime`，它持有长寿命资源（providers、tools、budget、trace、memory）。每次 `run()` 内部：
+
+1. **意图分类**（可选）：`IntentClassifier` 用规则 + LLM fallback 决定是否走快路径
+2. **快路径** (`DIRECT_ANSWER`)：调用 `DirectExecutor.direct_answer`，单次 LLM 调用直接返回
+3. **Agent 路径**：交给 `ConversationAgent.astream()` 跑 turn 循环
+
+> **No Premature Structuring**：Arcana 不在 Agent 进入循环前规划步骤；规划是 LLM 自己的事。
+
+---
+
+## 4. Turn Loop（V2 核心）
+
+`ConversationAgent` 以一条很薄的抽象取代了 V1 的 `Policy → StepExecutor → Reducer` 链：
+
+> **`LLMResponse` → `TurnFacts` → `TurnAssessment` → `State`**
 
 ```mermaid
 flowchart TD
-    Start([用户输入 Goal]) --> Init[Agent.run 初始化]
-    Init --> CreateState[创建 AgentState]
-    CreateState --> SetRunning[状态转换 → RUNNING]
-    SetRunning --> HookStart[调用 on_run_start Hooks]
-    HookStart --> MainLoop{主循环}
+    Start([astream goal]) --> Init["初始化 AgentState + Messages"]
+    Init --> LoopHead{turn < max_turns?}
 
-    MainLoop --> CheckStop[检查停止条件]
-    CheckStop -->|达到 max_steps| StopMaxSteps[停止: MAX_STEPS]
-    CheckStop -->|无进展次数过多| StopNoProgress[停止: NO_PROGRESS]
-    CheckStop -->|预算耗尽| StopBudget[停止: MAX_TOKENS/COST/TIME]
-    CheckStop -->|连续错误过多| StopError[停止: ERROR]
-    CheckStop -->|无停止条件| ExecuteStep[执行单步]
+    LoopHead -->|否| Exhausted["状态 → FAILED<br/>(max_turns 耗尽)"]
+    LoopHead -->|是| BudgetCheck["1. Budget 检查<br/>BudgetTracker.check_budget"]
 
-    ExecuteStep --> PolicyDecide[Policy.decide]
-    PolicyDecide --> ReActCheck{Policy 类型?}
+    BudgetCheck --> CtxBuild["2. WorkingSetBuilder<br/>abuild_conversation_context<br/>(L0-L3 保真度压缩)"]
+    CtxBuild --> LLMCall["3. LLM 调用 (流式)<br/>gateway.stream / generate"]
 
-    ReActCheck -->|ReAct| ReActDecision[ReAct Policy<br/>构建 history + memory<br/>返回 llm_call]
-    ReActCheck -->|PlanExecute| PlanCheck{Plan 状态?}
+    LLMCall --> Parse["4. _parse_turn(response)<br/>→ TurnFacts<br/>(纯映射，零判断)"]
+    Parse --> Assess["5. _assess_turn(facts, state)<br/>→ TurnAssessment<br/>(完成 / 失败 / 信心度)"]
+    Assess --> Trace["6. _trace_turn<br/>(facts + assessment 分别落盘)"]
 
-    PlanCheck -->|无 Plan| PlanPhase[Plan 阶段<br/>返回 llm_call]
-    PlanCheck -->|Plan 失败| FailDecision[返回 fail]
-    PlanCheck -->|Plan 未完成| ExecutePhase[Execute 阶段<br/>执行下一步<br/>返回 llm_call]
-    PlanCheck -->|Plan 完成| VerifyPhase[Verify 阶段<br/>返回 verify]
+    Trace --> Branch{有 tool_calls?}
 
-    ReActDecision --> StepExecute[StepExecutor.execute]
-    PlanPhase --> StepExecute
-    ExecutePhase --> StepExecute
-    VerifyPhase --> StepExecute
-    FailDecision --> StepExecute
+    Branch -->|是| Tools["7. _execute_tools<br/>ask_user / cognitive 拦截<br/>其余走 Channel / ToolGateway"]
+    Tools --> Diagnose["失败工具 → DiagnosticBrief<br/>注入下一轮 user 消息"]
+    Diagnose --> NextTurn
 
-    StepExecute --> ActionType{decision.action_type?}
+    Branch -->|否, completed| Complete["状态 → COMPLETED<br/>working_memory.answer"]
+    Branch -->|否, failed| Failed["状态 → FAILED"]
+    Branch -->|否, 中间文本| Continue["追加 assistant 消息"]
+    Continue --> NextTurn
 
-    ActionType -->|llm_call| LLMCall[执行 LLM 调用]
-    ActionType -->|tool_call| ToolCall[执行工具调用]
-    ActionType -->|complete| CompleteAction[返回 goal_reached=True]
-    ActionType -->|verify| VerifyAction[执行验证]
-    ActionType -->|fail| FailAction[返回失败结果]
-
-    LLMCall --> BuildRequest[构建 LLMRequest]
-    BuildRequest --> CheckBudget[BudgetTracker.check_budget]
-    CheckBudget -->|预算不足| BudgetError[抛出 BudgetExceeded]
-    CheckBudget -->|预算充足| GatewayGenerate[Gateway.generate]
-
-    GatewayGenerate --> GetProvider[Registry.get provider]
-    GetProvider --> ProviderCall[Provider.generate]
-    ProviderCall --> UpdateBudget[更新 BudgetTracker]
-    UpdateBudget --> Validate{是否需要验证?}
-
-    Validate -->|有 schema| ValidateJSON[OutputValidator.validate_json]
-    Validate -->|需要结构化| ValidateStructured[validate_structured_format]
-    Validate -->|无需验证| ParseResponse[解析 Thought/Action]
-
-    ValidateJSON -->|验证失败| RetryCheck{重试次数?}
-    ValidateStructured -->|验证失败| RetryCheck
-    RetryCheck -->|< max_retries| RetryPrompt[添加错误反馈<br/>重试 LLM 调用]
-    RetryCheck -->|= max_retries| ValidationError[返回验证失败 StepResult]
-
-    ValidateJSON -->|验证成功| ParseResponse
-    ValidateStructured -->|验证成功| ParseResponse
-    ParseResponse --> CheckFinish{Action == FINISH?}
-    CheckFinish -->|是| StepFinish[StepResult: goal_reached=True]
-    CheckFinish -->|否| StepThink[StepResult: THINK]
-
-    ToolCall --> CheckGateway{ToolGateway?}
-    CheckGateway -->|未配置| ToolError[返回错误]
-    CheckGateway -->|已配置| CallMany[ToolGateway.call_many]
-
-    CallMany --> SeparateCalls[区分 Read/Write 调用]
-    SeparateCalls --> ReadParallel[Read 工具并发执行]
-    SeparateCalls --> WriteSerial[Write 工具顺序执行]
-    ReadParallel --> SingleCall[ToolGateway.call 单个工具]
-    WriteSerial --> SingleCall
-
-    SingleCall --> ResolveProvider[Registry.get provider]
-    ResolveProvider -->|未找到| NotFoundError[返回 TOOL_NOT_FOUND]
-    ResolveProvider -->|找到| CheckCapabilities[检查 capabilities]
-
-    CheckCapabilities -->|缺少权限| AuthError[返回 UNAUTHORIZED]
-    CheckCapabilities -->|有权限| ValidateArgs[validate_arguments]
-
-    ValidateArgs -->|参数错误| ArgError[返回 NON_RETRYABLE]
-    ValidateArgs -->|参数正确| CheckIdempotency[检查幂等性缓存]
-
-    CheckIdempotency -->|命中缓存| CachedResult[返回缓存结果]
-    CheckIdempotency -->|无缓存| ConfirmCheck{需要确认?}
-
-    ConfirmCheck -->|Write 工具| ConfirmCallback[调用 confirmation_callback]
-    ConfirmCheck -->|Read 工具| ExecuteWithRetry[执行带重试]
-
-    ConfirmCallback -->|拒绝| ConfirmReject[返回 CONFIRMATION_REJECTED]
-    ConfirmCallback -->|批准| ExecuteWithRetry
-
-    ExecuteWithRetry --> ProviderExecute[Provider.execute]
-    ProviderExecute -->|成功| CacheAndAudit[缓存结果 + 审计日志]
-    ProviderExecute -->|失败 + 可重试| RetryBackoff{重试次数?}
-    ProviderExecute -->|失败 + 不可重试| ReturnFailure[返回失败结果]
-
-    RetryBackoff -->|< max_retries| ExponentialBackoff[指数退避延迟]
-    RetryBackoff -->|= max_retries| ReturnFailure
-    ExponentialBackoff --> ProviderExecute
-
-    CacheAndAudit --> TraceLog[TraceWriter.write<br/>ToolCallRecord]
-    TraceLog --> ToolResultDone[返回 ToolResult]
-
-    ToolResultDone --> AggregateResults[聚合所有工具结果]
-    AggregateResults --> StepAct[StepResult: ACT]
-
-    CompleteAction --> StepComplete[StepResult: VERIFY]
-    VerifyAction --> StepVerify[StepResult: VERIFY]
-    FailAction --> StepFail[StepResult: 失败]
-
-    StepFinish --> ReducerReduce[Reducer.reduce]
-    StepThink --> ReducerReduce
-    StepAct --> ReducerReduce
-    StepComplete --> ReducerReduce
-    StepVerify --> ReducerReduce
-    StepFail --> ReducerReduce
-
-    ReducerReduce --> UpdateState[更新 AgentState]
-    UpdateState --> ProgressDetect[ProgressDetector.record_step]
-    ProgressDetect --> CheckProgress{是否有进展?}
-
-    CheckProgress -->|无进展| IncrementNoProgress[consecutive_no_progress++]
-    CheckProgress -->|有进展| ResetNoProgress[consecutive_no_progress=0]
-
-    IncrementNoProgress --> CheckGoalReached{goal_reached?}
-    ResetNoProgress --> CheckGoalReached
-
-    CheckGoalReached -->|是| HandleStop[处理停止: GOAL_REACHED]
-    CheckGoalReached -->|否| CheckCheckpoint{是否需要 Checkpoint?}
-
-    CheckCheckpoint -->|需要| CreateCheckpoint[StateManager.checkpoint<br/>保存 StateSnapshot]
-    CheckCheckpoint -->|不需要| HookStepComplete[调用 on_step_complete Hooks]
-
-    CreateCheckpoint --> HookStepComplete
-    HookStepComplete --> MainLoop
-
-    StopMaxSteps --> HandleStop
-    StopNoProgress --> HandleStop
-    StopBudget --> HandleStop
-    StopError --> HandleStop
-    BudgetError --> HandleError[处理异常]
-
-    HandleStop --> TransitionState{停止原因?}
-    TransitionState -->|GOAL_REACHED| SetCompleted[状态 → COMPLETED]
-    TransitionState -->|其他| SetFailed[状态 → FAILED]
-
-    SetCompleted --> LogStopEvent[TraceWriter.write<br/>STATE_CHANGE]
-    SetFailed --> LogStopEvent
-
-    HandleError --> IncrementErrors[consecutive_errors++]
-    IncrementErrors --> SetFailedError[状态 → FAILED]
-    SetFailedError --> LogErrorEvent[TraceWriter.write<br/>ERROR]
-
-    LogStopEvent --> HookRunEnd[调用 on_run_end Hooks]
-    LogErrorEvent --> HookRunEnd
-    HookRunEnd --> End([返回最终 AgentState])
+    NextTurn["增 step / 计 token / checkpoint?"] --> LoopHead
+    Complete --> Done([RUN_COMPLETE])
+    Failed --> Done
+    Exhausted --> Done
 ```
+
+### 4.1 `TurnFacts` vs `TurnAssessment` —— 必须可见地分离
+
+`contracts/turn.py` 强制此分离：
+
+| | 由谁产出 | 内容 |
+|---|---|---|
+| `TurnFacts` | LLM (provider response) | `assistant_text` · `tool_calls` · `usage` · `finish_reason` · `thinking` |
+| `TurnAssessment` | Runtime | `completed` · `failed` · `answer` · `completion_reason` · `confidence` |
+
+> *The LLM does not judge its own output; the runtime does not generate content.*
+
+`_parse_turn()` 只做 provider → framework 的纯映射，**禁止**填写任何 `completed / failed`。`_assess_turn()` 才做解读：
+
+- 有 `tool_calls` → 未完成（LLM 还想做事）
+- 既无文本也无工具 → `failed = empty_response`
+- `finish_reason == "stop"` 且有文本 → `completed`，置信度 0.85
+- 若 thinking 含"need to verify / 需要验证"等 → `completed = False`（**Thinking as Signal**）
+- 若 thinking 含"not sure / 不确定" → `confidence *= 0.6`
+
+> **关键约束**：Runtime 听 thinking 信号是为了改善自身判断，**不是**反过来约束 LLM 的策略。"听" ≠ "强迫思考"。
 
 ---
 
-## 4. Gateway 子流程
+## 5. Runtime Services
 
-```mermaid
-flowchart TD
-    Start([Gateway.generate]) --> CheckProvider{provider 存在?}
-    CheckProvider -->|不存在| FallbackDefault[使用 default_provider]
-    CheckProvider -->|存在| PrimaryProvider[使用指定 provider]
-    FallbackDefault --> ProviderNotFound{找到 provider?}
-    PrimaryProvider --> ProviderNotFound
+> **Runtime as OS** —— Runtime 提供服务，不规定流程。每个服务都是 LLM 可调用的能力，而不是它必须经过的步骤。
 
-    ProviderNotFound -->|未找到| ThrowKeyError[抛出 KeyError]
-    ProviderNotFound -->|找到| TryGenerate[尝试调用 provider.generate]
+### 5.1 Budget Enforcement
+`gateway.budget.BudgetTracker` 管 `max_cost_usd` / `max_tokens` / `max_iterations` / `max_time_ms`。每个 turn 开头 `check_budget()` 一次，每次 LLM 用量 `add_usage()`。超额抛 `BudgetExceededError`。
 
-    TryGenerate -->|成功| ReturnResponse[返回 LLMResponse]
-    TryGenerate -->|ProviderError| CheckRetryable{error.retryable?}
+### 5.2 Trace
+`TraceWriter` 写 JSONL：`TURN`（含 facts + assessment）、`CONTEXT_DECISION`、`TOOL_CALL`、`COGNITIVE_PRIMITIVE`、可选 `PROMPT_SNAPSHOT`。所有摘要走 `utils/hashing.py` 的 SHA-256 截断 16 字符。
 
-    CheckRetryable -->|不可重试| RethrowError[重新抛出异常]
-    CheckRetryable -->|可重试| CheckFallback{是否使用 fallback?}
+### 5.3 Tool Dispatch
+工具调用走 `ExecutionChannel`（默认 `LocalChannel` 包装 `ToolGateway`），便于未来切到子进程 / 容器 / 远程后端。
 
-    CheckFallback -->|禁用| RethrowError
-    CheckFallback -->|启用| GetFallbackChain[获取 fallback_chains]
+**派发模型**（按宪章 Principle 3 + side-effect 区分）：
 
-    GetFallbackChain --> IterateFallbacks{遍历 fallback providers}
-    IterateFallbacks -->|无更多 fallback| ThrowLastError[抛出最后的错误]
-    IterateFallbacks -->|下一个 fallback| CreateFallbackConfig[创建 fallback ModelConfig]
+- **Read 工具**：`asyncio.gather` 并发执行
+- **Write 工具**：顺序执行，避免冲突
+- 由 `ToolGateway.call_many()` 根据 `ToolSpec.side_effect` 自动分流
 
-    CreateFallbackConfig --> TryFallbackGenerate[尝试 fallback.generate]
-    TryFallbackGenerate -->|成功| ReturnResponse
-    TryFallbackGenerate -->|失败 + 可重试| IterateFallbacks
-    TryFallbackGenerate -->|失败 + 不可重试| RethrowError
+`ask_user` 与认知原语（`recall` / `pin` / `unpin`）**不走** ToolGateway —— `ConversationAgent._execute_tools` 直接拦截分发。
 
-    ThrowKeyError --> End([异常结束])
-    RethrowError --> End
-    ThrowLastError --> End
-    ReturnResponse --> Success([成功返回])
-```
+### 5.4 Context — Working Set + Fidelity Compression
+`context.builder.WorkingSetBuilder.abuild_conversation_context()` 每个 turn 重建一次工作集，按 token budget 在 4 级保真度间裁剪：
 
----
-
-## 5. ToolGateway 子流程
-
-```mermaid
-flowchart TD
-    Start([ToolGateway.call]) --> Resolve[1. Resolve Provider]
-    Resolve --> FoundCheck{provider 存在?}
-    FoundCheck -->|否| NotFound[返回 TOOL_NOT_FOUND]
-    FoundCheck -->|是| Authorize[2. Authorize]
-
-    Authorize --> CapCheck[检查 capabilities]
-    CapCheck --> CapResult{缺少权限?}
-    CapResult -->|是| UnauthorizedLog[记录 audit log]
-    UnauthorizedLog --> Unauthorized[返回 UNAUTHORIZED]
-    CapResult -->|否| Validate[3. Validate Arguments]
-
-    Validate --> ValidateArgs[validate_arguments]
-    ValidateArgs --> ValidResult{验证结果?}
-    ValidResult -->|失败| ReturnValidError[返回 validation error]
-    ValidResult -->|成功| Idempotency[4. Check Idempotency]
-
-    Idempotency --> CacheCheck{idempotency_key?}
-    CacheCheck -->|无| Confirm[5. Confirm Execution]
-    CacheCheck -->|有| CacheLookup[查询缓存]
-    CacheLookup --> CacheHit{命中缓存?}
-    CacheHit -->|是| ReturnCached[返回缓存结果]
-    CacheHit -->|否| Confirm
-
-    Confirm --> SideEffectCheck{SideEffect?}
-    SideEffectCheck -->|READ| Execute[6. Execute with Retry]
-    SideEffectCheck -->|WRITE| ConfirmCallback{callback 存在?}
-
-    ConfirmCallback -->|否| RequireConfirm[返回 CONFIRMATION_REQUIRED]
-    ConfirmCallback -->|是| CallbackExec[调用 confirmation_callback]
-
-    CallbackExec --> Approved{批准?}
-    Approved -->|否| Rejected[返回 CONFIRMATION_REJECTED]
-    Approved -->|是| Execute
-
-    Execute --> RetryLoop[for attempt in 0..max_retries]
-    RetryLoop --> ProviderExec[provider.execute]
-
-    ProviderExec --> Success{成功?}
-    Success -->|是| CacheResult[7. Cache Result]
-    Success -->|否| ErrorCheck{error 可重试?}
-
-    ErrorCheck -->|否| FinalFailure[返回失败]
-    ErrorCheck -->|是| RetryRemaining{还有重试次数?}
-
-    RetryRemaining -->|否| FinalFailure
-    RetryRemaining -->|是| Backoff[指数退避延迟]
-    Backoff --> RetryLoop
-
-    CacheResult --> Audit[8. Audit]
-    Audit --> WriteTrace[TraceWriter.write ToolCallRecord]
-    WriteTrace --> ReturnResult[返回 ToolResult]
-
-    NotFound --> End([结束])
-    Unauthorized --> End
-    ReturnValidError --> End
-    ReturnCached --> End
-    RequireConfirm --> End
-    Rejected --> End
-    FinalFailure --> End
-    ReturnResult --> End
-```
-
----
-
-## 6. Memory 子流程
-
-```mermaid
-flowchart TD
-    Start([MemoryManager.write]) --> GovCheck[1. Governance Check]
-    GovCheck --> Evaluate[WritePolicy.evaluate]
-    Evaluate --> EvalResult{评估结果?}
-
-    EvalResult -->|拒绝| Rejected[返回 rejected_reason]
-    EvalResult -->|通过| CreateEntry[2. Create MemoryEntry]
-
-    CreateEntry --> GenerateID[生成 UUID]
-    GenerateID --> ComputeHash[计算 content_hash]
-    ComputeHash --> Route[3. Route to Store]
-
-    Route --> TypeCheck{memory_type?}
-
-    TypeCheck -->|WORKING| WorkingStore[WorkingMemoryStore.put]
-    TypeCheck -->|LONG_TERM| LongTermStore[LongTermMemoryStore.store]
-    TypeCheck -->|EPISODIC| EpisodicStore[EpisodicMemoryStore.record_event]
-
-    WorkingStore --> CheckRunID{run_id 存在?}
-    CheckRunID -->|否| ErrorRunID[返回错误: 需要 run_id]
-    CheckRunID -->|是| PutWorking[存储到 working memory]
-
-    LongTermStore --> StoreEmbed[向量化 + 存储]
-    EpisodicStore --> RecordEvent[记录事件到 episode trace]
-
-    PutWorking --> LogEpisodic[4. Log to Episodic]
-    StoreEmbed --> LogEpisodic
-    RecordEvent --> Success
-
-    LogEpisodic --> NotEpisodic{非 EPISODIC 类型?}
-    NotEpisodic -->|是| RecordAudit[记录到 episodic trace]
-    NotEpisodic -->|否| Success[返回成功]
-
-    RecordAudit --> Success
-
-    Rejected --> End([结束])
-    ErrorRunID --> End
-    Success --> End
-```
-
----
-
-## 7. Multi-Agent Team 协作流程
-
-```mermaid
-flowchart TD
-    Start([TeamOrchestrator.run]) --> InitSession[创建 CollaborationSession]
-    InitSession --> RoundLoop{for round in 1..max_rounds}
-
-    RoundLoop --> BudgetGuard[检查全局预算]
-    BudgetGuard --> BudgetOK{预算充足?}
-    BudgetOK -->|否| BudgetExhausted[返回 budget_exhausted]
-    BudgetOK -->|是| BuildPlannerGoal[构建 Planner Goal]
-
-    BuildPlannerGoal --> HasFeedback{有反馈?}
-    HasFeedback -->|是| AddFeedback[添加上轮反馈]
-    HasFeedback -->|否| PlainGoal[使用原始 goal]
-
-    AddFeedback --> RunPlanner[1. 运行 Planner]
-    PlainGoal --> RunPlanner
-
-    RunPlanner --> CreatePlannerAgent[创建 Planner Agent]
-    CreatePlannerAgent --> PlannerRun[Planner.run]
-    PlannerRun --> PlannerError{异常?}
-
-    PlannerError -->|是| HandleError[处理角色错误]
-    PlannerError -->|否| ExtractPlan[从 working_memory 提取 plan]
-
-    ExtractPlan --> PublishPlan[MessageBus.publish PLAN message]
-    PublishPlan --> RunExecutor[2. 运行 Executor]
-
-    RunExecutor --> CreateExecutorAgent[创建 Executor Agent]
-    CreateExecutorAgent --> ExecutorRun[Executor.run]
-    ExecutorRun --> ExecutorError{异常?}
-
-    ExecutorError -->|是| HandleError
-    ExecutorError -->|否| ExtractResult[从 working_memory 提取 result]
-
-    ExtractResult --> PublishResult[MessageBus.publish RESULT message]
-    PublishResult --> RunCritic[3. 运行 Critic]
-
-    RunCritic --> CreateCriticAgent[创建 Critic Agent]
-    CreateCriticAgent --> CriticRun[Critic.run]
-    CriticRun --> CriticError{异常?}
-
-    CriticError -->|是| HandleError
-    CriticError -->|否| ExtractVerdict[从 working_memory 提取 verdict]
-
-    ExtractVerdict --> CheckVerdict{verdict in APPROVED?}
-
-    CheckVerdict -->|是| Approved[记录 TASK_COMPLETE]
-    Approved --> ReturnCompleted[返回 status=completed]
-
-    CheckVerdict -->|否| Rejected[记录 TASK_FAIL]
-    Rejected --> ExtractFeedback[提取 feedback]
-    ExtractFeedback --> PublishFeedback[MessageBus.publish FEEDBACK message]
-    PublishFeedback --> NextRound{round < max_rounds?}
-
-    NextRound -->|是| RoundLoop
-    NextRound -->|否| Escalate[发布 ESCALATE message]
-
-    Escalate --> ReturnEscalated[返回 status=escalated]
-
-    HandleError --> LogError[记录错误 trace]
-    LogError --> ReturnError[返回 status=error]
-
-    BudgetExhausted --> End([返回 HandoffResult])
-    ReturnCompleted --> End
-    ReturnEscalated --> End
-    ReturnError --> End
-```
-
----
-
-## 8. 核心数据流
-
-### 8.1 执行流程
-
-```
-用户 Goal
-  ↓
-Agent.run() 初始化
-  ↓
-while 未达停止条件:
-  ├─ Policy.decide() → PolicyDecision
-  ├─ StepExecutor.execute(decision)
-  │   ├─ llm_call → Gateway.generate() → LLMResponse
-  │   └─ tool_call → ToolGateway.call() → ToolResult
-  ├─ Reducer.reduce(state, step_result) → new_state
-  ├─ ProgressDetector.record_step()
-  └─ StateManager.checkpoint() (if needed)
-  ↓
-返回最终 AgentState
-```
-
-### 8.2 Checkpoint 触发条件
-
-- **interval**: 每 N 步 (默认 5)
-- **error**: 步骤执行失败
-- **plan_step**: Plan-Execute 策略完成一个步骤
-- **verification**: 执行验证步骤后
-- **budget**: 预算达到阈值 (50%, 75%, 90%)
-
-### 8.3 停止条件
-
-- **GOAL_REACHED**: `goal_reached=True` (状态 → COMPLETED)
-- **MAX_STEPS**: 达到 `max_steps` (状态 → FAILED)
-- **NO_PROGRESS**: 连续 N 轮无进展 (状态 → FAILED)
-- **MAX_TOKENS/COST/TIME**: 预算耗尽 (状态 → FAILED)
-- **ERROR**: 连续错误次数过多 (状态 → FAILED)
-
----
-
-## 9. 技术要点
-
-### 9.1 Canonical Hashing
-所有摘要使用 SHA-256 对排序后的 JSON 计算，截断至 16 字符：
-```python
-from arcana.utils.hashing import canonical_hash
-digest = canonical_hash({"key": "value"})  # "a1b2c3d4e5f6g7h8"
-```
-
-### 9.2 TraceEvent 审计
-每个重要操作自动写入 JSONL 日志：
-```json
-{
-  "run_id": "uuid",
-  "step_id": "uuid",
-  "event_type": "LLM_CALL",
-  "request_digest": "hash",
-  "response_digest": "hash",
-  "timestamp": "ISO8601"
-}
-```
-
-### 9.3 BudgetTracker
-实时跟踪资源消耗：
-```python
-tracker = BudgetTracker(max_tokens=10000, max_cost_usd=1.0)
-tracker.check_budget()  # 抛出 BudgetExceededError
-```
-
-### 9.4 Tool Authorization
-基于 capabilities 的权限控制：
-```python
-gateway = ToolGateway(
-    registry=registry,
-    granted_capabilities={"file.read", "web.search"}
-)
-# 调用 file.write 会返回 UNAUTHORIZED
-```
-
-### 9.5 Memory Governance
-WritePolicy 控制写入规则：
-```python
-policy = WritePolicy(
-    min_confidence=0.7,
-    max_write_rate=100  # per minute
-)
-result = policy.evaluate(write_request)
-```
-
----
-
-## 10. 关键文件路径
-
-| 组件 | 路径 |
+| 级别 | 处理 |
 |------|------|
-| Agent 主循环 | `src/arcana/runtime/agent.py` |
-| Step 执行器 | `src/arcana/runtime/step.py` |
-| ReAct Policy | `src/arcana/runtime/policies/react.py` |
-| Plan-Execute Policy | `src/arcana/runtime/policies/plan_execute.py` |
-| Model Gateway | `src/arcana/gateway/registry.py` |
-| Tool Gateway | `src/arcana/tool_gateway/gateway.py` |
-| Memory Manager | `src/arcana/memory/manager.py` |
-| Team Orchestrator | `src/arcana/multi_agent/team.py` |
-| Task Orchestrator | `src/arcana/orchestrator/orchestrator.py` |
-| State Contracts | `src/arcana/contracts/state.py` |
-| Runtime Contracts | `src/arcana/contracts/runtime.py` |
+| **L0** | 原文保留 |
+| **L1** | 截断到约 300 字符 |
+| **L2** | 单行摘要 |
+| **L3** | 仅保留角色标签；继续超额时整条丢弃 |
+
+低相关度消息先被降级；预算仍紧张时回退到 LLM 摘要 → 直接丢弃。pinned 内容（来自 `pin` 原语）以 `pinned=True` 的 `ContextBlock` 注入 Working 层，**不可压缩**。
+
+### 5.5 Diagnostics
+`runtime.diagnosis.diagnoser.diagnose_tool_error` 把 `ToolError` 转成 `DiagnosticBrief`：包含失败类别、可能原因、可执行的下一步建议。结果作为 user 消息追加到对话，让 LLM 自己决定恢复策略 —— 这是宪章 Principle 5 (**Structured, Actionable Feedback**) + 第 4 禁令 (**No Mechanical Retry**) 的实现。
+
+### 5.6 ask_user — 能力，不是流程
+`runtime.ask_user.ASK_USER_SPEC` 注册为内置工具，schema 出现在工具列表里。当 LLM 调用 `ask_user` 时：
+
+1. 在 `_execute_tools` 里被拦截，**不进** ToolGateway
+2. 通过 `AskUserHandler` 调用用户提供的 `input_handler`
+3. **若没有 input_handler**：LLM 收到 fallback 消息，继续按自身判断推进
+
+> **Inviolable Rule**：用户从不被强制中途交互。`ask_user` 是 LLM 可开的门，不是它必须走的走廊。LLM 也**绝不阻塞等待**用户回答 —— 没回应就当作信号，自己想办法。
+
+### 5.7 Cognitive Primitives — 仅 `recall` / `pin` / `unpin`
+v0.7.0 引入，由 `RuntimeConfig.cognitive_primitives` 显式启用（默认空，零行为变化）。以拦截式工具（与 `ask_user` 同机制）暴露给 LLM：
+
+- **`recall(turn, include?)`** — 取出某历史 turn 的原始内容，绕开 working-set 压缩
+- **`pin(content, label?, until_turn?)`** — 把关键内容钉住，未来 working-set 不压缩；幂等（同内容返回同 `pin_id`）；超出 `pin_budget_fraction * total_window` 即拒绝
+- **`unpin(pin_id)`** — 释放 pin
+
+> Roadmap（**当前未实现**，宪章 Principle 9 中已提及但 `runtime/cognitive.py` 尚未实现）：
+> - `branch` — 沙箱化推理分支，可提交或丢弃
+> - `anchor` — 标记暂定假设，未来可被信号化失效
+> - `hint` — 提示下一次 working-set 构建偏好
+>
+> 这三个是**未来工作**；引用它们不应假设当前可调用。
+
+> **Inviolable Rule**：框架绝不代 LLM 调用认知原语，绝不在 prompt 里暗示使用，绝不评估 LLM 是否"用得对"。提供服务 ≠ 规定使用。
 
 ---
 
-## 11. 扩展阅读
+## 6. 公开 API
 
-- [specs/](./specs/) - 功能规格文档 (RAG, State, Tool, Trace)
-- [legacy/KNOWLEDGE.md](./legacy/KNOWLEDGE.md) - 核心概念深度解析 (v1)
-- [legacy/RUNTIME_KNOWLEDGE.md](./legacy/RUNTIME_KNOWLEDGE.md) - Runtime 模块详解 (v1)
-- [../CLAUDE.md](../CLAUDE.md) - 开发者指南
+入口都在 `arcana.Runtime` 上：
+
+| 方法 | 用途 |
+|------|------|
+| `runtime.run(goal, ...)` | 单次任务：路由 → ConversationAgent / Direct → `RunResult` |
+| `runtime.stream(goal)` | 流式版本，逐事件吐 `StreamEvent` |
+| `runtime.chat()` | 多轮会话；返回 `ChatSession`，`send` / `stream` 内部委托给 `ConversationAgent`，因此自动获得 ask_user / 懒加载工具 / 保真度压缩 / 思考评估 |
+| `runtime.chain(steps, input?)` | 顺序流水线，`ChainStep` 组成；嵌套 `list[ChainStep]` 表示并行分支；上一步输出自动作为下一步 `<context>` |
+| `runtime.run_batch(tasks, concurrency=5)` | 并发跑多个独立任务，`asyncio.Semaphore` 控量；返回 `BatchResult`（含每条 `RunResult`） |
+| `runtime.collaborate(...)` | 多 Agent 协作池；返回 `AgentPool`（async context manager） |
+| `runtime.session()` | 手动控制底层 `Session`（高级用法） |
+| `runtime.budget_scope(...)` | 局部 budget 子作用域 |
+| `runtime.on / off` | Runtime 事件钩子（pub/sub） |
+
+`run()` 关键参数：`engine`（默认 `"conversation"`）、`provider` / `model`、`tools`、`response_format`（Pydantic 类，结构化输出）、`images`（多模态）、`input_handler`、`system`、`context`、`on_parse_error`、`budget`。
+
+> `runtime.team(...)` 已 deprecated（保留向后兼容），新代码应使用 `runtime.collaborate(...)`。
 
 ---
 
-**文档版本**: 2.0
-**更新日期**: 2026-03-18
-**作者**: doc-writer (arcana-report team)
+## 7. Contracts 层 —— 数据法
+
+所有跨模块数据都先在 `src/arcana/contracts/` 定义为 Pydantic 模型。这是 Arcana 的"数据法"：实现可以替换，契约不能脱钩。
+
+| 文件 | 关键模型 |
+|------|---------|
+| `turn.py` | `TurnFacts` · `TurnAssessment` · `TurnOutcome` |
+| `routing.py` | `RoutingDecision` · `IntentCategory` · `IntentType` |
+| `context.py` | `ContextBlock` · `ContextLayer` · `ContextBudget` · `ContextDecision` · `ContextReport` · `ContextStrategy` |
+| `diagnosis.py` | `DiagnosticBrief` · `ErrorCategory` |
+| `llm.py` | `LLMRequest` · `LLMResponse` · `ModelConfig` · `Message` · `ContentBlock` · `ToolCallRequest` · `TokenUsage` |
+| `tool.py` | `ToolSpec` · `ToolCall` · `ToolResult` · `ToolError` · `SideEffect` · `ASK_USER_TOOL_NAME` |
+| `cognitive.py` | `RecallRequest/Result` · `PinRequest/Result/State/Entry` · `UnpinRequest/Result` |
+| `state.py` | `AgentState` · `ExecutionStatus` |
+| `runtime.py` | `RuntimeConfig` 等运行期配置 |
+| `streaming.py` | `StreamEvent` · `StreamEventType` |
+| `channel.py` | `ExecutionChannel` 协议（Brain / Hands 通信分离） |
+
+**Canonical Hashing**：`utils/hashing.py.canonical_hash(obj)` 对排序后的 JSON 算 SHA-256，截 16 字符，用于 trace 摘要和幂等键。
+
+**Trace = Audit Log**：每次 LLM 调用、工具调用、context 决策、cognitive 调用都被记录。可用 `TraceReader` 离线回放（`replay_prompt`）—— 当 `RuntimeConfig.trace_include_prompt_snapshots=True` 或 `dev_mode=True` 时，会额外落盘 `PROMPT_SNAPSHOT`。
+
+---
+
+## 8. Provider 抽象
+
+`gateway/registry.py.ModelGatewayRegistry` 是单一接入点：
+
+- **`OpenAICompatibleProvider`** —— 通用适配器，把 OpenAI 格式 API 复用给 DeepSeek / Kimi / GLM / MiniMax / Ollama 等，只需改 `base_url`
+- **原生适配器** —— Anthropic、Gemini 各自原生 SDK，把响应规整到统一的 `LLMResponse`（带 `anthropic` / `gemini` 子字段保留 provider 特性）
+- **Fallback Chain** —— 多 provider 注册时按 dict 插入顺序自动建链；首选失败且 `error.retryable=True` 时自动切到下一个
+- **Prompt Caching**（透明优化）：
+  - Anthropic：自动给 system prompt + tool schemas 打 `cache_control` 标签
+  - OpenAI：自动追踪 `cached_tokens`
+  - 应用层零感知，零改动
+- **`batch_generate(requests, concurrency=...)`** —— 单 provider 与 Registry 都暴露；用 `asyncio.Semaphore` 限流
+
+`ProviderProfile` 描述 provider 的能力（是否支持 tools、json_schema、思考、流式等），不支持的请求会自动降级（例如 MiniMax 收到 tools 请求会降级为文本提示）。
+
+---
+
+## 9. 多 Agent 协作
+
+`runtime.collaborate(...)` 返回 `AgentPool`（`multi_agent/agent_pool.py`）：
+
+- **共享通信基建**：`Channel`（消息总线）+ `SharedContext`（共享存储）+ 共享 `BudgetTracker`
+- **每个 Agent 是独立 `ChatSession`**：自己的 system prompt、provider/model 选择、可选独立 cognitive_primitives 配置
+- **用户控制编排**：何时谁说话、读谁的消息、何时结束 —— 全部由用户代码决定
+
+> **Principle 8 (Agent Autonomy)**：框架绝不强加 planner/executor 之类的层级。如果出现这种模式，那是因为 Agent 的 prompt 自己定义了角色，而不是框架强迫的拓扑。
+
+详见 `docs/guide/multi-agent.md`（如有）以及 `examples/` 中的协作样例。
+
+---
+
+## 10. 遗留兼容（V1）
+
+V1 的执行模型 —— `Agent` + `AdaptivePolicy` (含 ReAct / Plan-Execute 历史变体) + `Reducer` —— 仍保留在 `runtime/agent.py`，可通过 `engine="adaptive"` 选择：
+
+```python
+result = await arcana.run("...", engine="adaptive")
+```
+
+**这不是推荐路径**。V1 的多策略 Policy / StepExecutor / Reducer 链与宪章第 1 禁令（**No Premature Structuring**）和第 4、6 条 Principles 存在张力，仅为了向后兼容而保留，不再接受新功能：
+
+- 新增功能（多模态、并行工具、保真度压缩、cognitive 原语、collaborate）只在 V2 路径上实现
+- V1 旧学习文档已归档至 `docs/legacy/`
+- 长期路线图：当 V1 用户全部迁移到 V2 后移除（移除策略见 `CONSTITUTION.md` Amendment 2 / removals policy）
+
+---
+
+## 11. 关键路径速查
+
+| 概念 | 路径 |
+|------|------|
+| V2 Agent 引擎 | `src/arcana/runtime/conversation.py` |
+| Runtime + Session + Chat + Chain + Batch | `src/arcana/runtime_core.py` |
+| Turn 契约 | `src/arcana/contracts/turn.py` |
+| Intent 路由 | `src/arcana/routing/classifier.py` · `routing/executor.py` |
+| Working Set + 保真度压缩 | `src/arcana/context/builder.py` |
+| Tool 执行 | `src/arcana/tool_gateway/gateway.py` · `tool_gateway/local_channel.py` |
+| ask_user | `src/arcana/runtime/ask_user.py` |
+| 认知原语 (recall/pin/unpin) | `src/arcana/runtime/cognitive.py` · `contracts/cognitive.py` |
+| 错误诊断 | `src/arcana/runtime/diagnosis/diagnoser.py` |
+| Provider Gateway | `src/arcana/gateway/registry.py` · `gateway/openai_compat.py` |
+| Trace | `src/arcana/trace/writer.py` · `trace/reader.py` |
+| 多 Agent | `src/arcana/multi_agent/agent_pool.py` · `multi_agent/channel.py` |
+| V1 (legacy) | `src/arcana/runtime/agent.py` · `runtime/policies/` |
+
+---
+
+## 12. 扩展阅读
+
+- [`constitution.md`](./constitution.md) — 九条 Principles + 四条禁令 + 责任划分（这是法律，不是建议）
+- [`guide/quickstart.md`](./guide/quickstart.md) · [`guide/api.md`](./guide/api.md) — 快速开始、配置、Provider、API 参考
+- [`specs/`](./specs/) — 各模块设计 spec（含 V2 conversation-loop 详设、cognitive primitives amendment 等）
+- [`legacy/`](./legacy/) — V1 学习材料（仅供历史参考）
+- 仓库根 `CLAUDE.md` — 开发者速查（不在 mkdocs 渲染范围内）
+
+---
+
+**文档版本**：3.0（V2 重写）
+**对应代码**：`runtime/conversation.py` · `runtime_core.py`
+**最近大幅变动**：v0.7.0 引入认知原语 (recall/pin/unpin)；v0.8.x 加固 Channel / MessageBus 边界；`team()` deprecated → `collaborate()`
