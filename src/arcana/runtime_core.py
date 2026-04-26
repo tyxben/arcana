@@ -290,6 +290,18 @@ class RuntimeConfig(BaseModel):
     # Principle 9 in CONSTITUTION.md.
     pin_budget_fraction: float = 0.5
 
+    # Provider tool-calling hints (v0.9.x, spec/v1.0.0-stability §3.5a).
+    # Default empty — no behavior change. When set AND tools are bound
+    # to a request, the resolved hint is rendered as an additional
+    # system block separate from the user's authored system prompt.
+    # Resolution: per-provider value (tool_calling_hints[name]) wins
+    # over the global default (tool_calling_hint). The framework ships
+    # NO defaults for any provider — content is always user-supplied
+    # (Principle 4: framework provides plumbing, user owns strategy).
+    # Recommended hint text per provider lives in docs/guide/providers.md.
+    tool_calling_hint: str | None = None
+    tool_calling_hints: dict[str, str] = Field(default_factory=dict)
+
 
 class Runtime:
     """
@@ -622,6 +634,8 @@ class Runtime:
             "trace_include_prompt_snapshots": self._config.trace_include_prompt_snapshots,
             "cognitive_primitives": list(self._config.cognitive_primitives),
             "pin_budget_fraction": self._config.pin_budget_fraction,
+            "tool_calling_hint": self._config.tool_calling_hint,
+            "tool_calling_hints": dict(self._config.tool_calling_hints),
         }
         if memory_context:
             agent_kwargs["memory_context"] = memory_context
@@ -1756,6 +1770,8 @@ class Session:
                 "trace_include_prompt_snapshots": self._runtime._config.trace_include_prompt_snapshots,
                 "cognitive_primitives": list(self._runtime._config.cognitive_primitives),
                 "pin_budget_fraction": self._runtime._config.pin_budget_fraction,
+                "tool_calling_hint": self._runtime._config.tool_calling_hint,
+                "tool_calling_hints": dict(self._runtime._config.tool_calling_hints),
             }
             # Resolve system prompt: run(system=) > RuntimeConfig > default
             resolved_system = self._system or self._runtime._config.system_prompt
@@ -2251,6 +2267,8 @@ class ChatSession:
             "trace_include_prompt_snapshots": self._runtime._config.trace_include_prompt_snapshots,
             "cognitive_primitives": list(self._resolve_cognitive_primitives()),
             "pin_budget_fraction": self._runtime._config.pin_budget_fraction,
+            "tool_calling_hint": self._runtime._config.tool_calling_hint,
+            "tool_calling_hints": dict(self._runtime._config.tool_calling_hints),
         }
 
         # Tool gateway: per-session tools override > runtime tools

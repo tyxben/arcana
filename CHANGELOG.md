@@ -99,6 +99,71 @@ post-merge audit (any new feature should round-trip its own docs).
 Added both as read-only properties wrapping the existing internal
 state. Additive, no user could have been affected.
 
+#### Added — Provider tool-calling hints (§3.5a + §3.5b)
+
+A user-controlled slot for "extra prompt scaffolding when this provider
+is invoked with tools bound". Implements the constitutional middle
+path between "framework auto-rewrites prompts per provider"
+(violation: Principle 4 — framework deciding how to talk to the LLM)
+and "users re-discover the same workarounds across every project"
+(the original feedback's pain).
+
+Decomposed into infrastructure (3.5a, code) and content (3.5b, docs):
+
+##### 3.5a — `RuntimeConfig.tool_calling_hint{,s}` slot
+
+- `RuntimeConfig.tool_calling_hint: str | None = None` — global default
+- `RuntimeConfig.tool_calling_hints: dict[str, str] = {}` — per-provider
+  override
+- Resolution at request time: per-provider value wins over global. If
+  neither resolves, no hint is injected.
+- The hint is rendered as an **additional** system message, inserted
+  after the user's authored system prompt(s) and before user/assistant
+  turns. The user's original `system_prompt` is never mutated.
+- Only rendered when `active_tools` is non-empty for the request — if
+  the LLM is invoked without tools, the hint is a no-op.
+- Fully captured in `PromptSnapshot` when trace snapshots are enabled
+  (Principle 5: auditable). No new event type added — existing snapshot
+  machinery covers it.
+- Plumbed from `RuntimeConfig` through `Runtime` / `ChatSession` to
+  `ConversationAgent` at all three construction sites
+  (run / chat / chain).
+- Default empty: zero behaviour change for existing users.
+
+##### 3.5b — `docs/guide/providers.md` "Tool-Calling Hints" section
+
+Per-provider observed quirks plus suggested hint text users can copy
+into their `tool_calling_hints`. Updated as docs (not code), so
+recommendation changes never become silent runtime behaviour changes.
+Explicitly notes that GLM-4-flash benefits from a hint (the original
+Roboot feedback case); OpenAI / Anthropic / DeepSeek / Gemini / Kimi
+generally do not need one.
+
+##### Constitutional rationale
+
+- Principle 4 (Strategy Leaps): framework provides plumbing (the slot
+  + the rendering rule); user owns content. No framework opinion on
+  prompt strategy ships in code.
+- Principle 5 (Auditability): the injection is visible in
+  `PromptSnapshot` — fully traceable.
+- Principle 6 (OS not Form Engine): a typed slot for an additional
+  system block is OS-shaped, not Form-shaped (no prescribed
+  reasoning loop, no compulsory hint).
+- Prohibition 1 (No Premature Structuring): default-empty means no
+  behaviour change for anyone who doesn't opt in. The slot was added
+  in response to a real, observed need (Roboot integration, 2026-04),
+  not a speculative one.
+- The framework explicitly ships **no per-provider defaults** —
+  default values would themselves be a position on prompt strategy
+  and would drift silently across versions.
+
+16 new tests in `tests/test_tool_calling_hint.py` cover: no-op cases
+(no tools / no hint / wrong provider / empty string), injection
+(global / per-provider / both / cross-provider fallback), insertion
+order (after leading system blocks / at start when no leading system /
+original prompt unchanged), the "no framework default" invariant
+across six providers, and the `RuntimeConfig` plumbing path.
+
 #### Added — `tests/test_stability_surface.py` (CI guard)
 
 The same import-everything audit that caught `DiagnosticBrief` /

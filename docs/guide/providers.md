@@ -535,6 +535,146 @@ Chat, streaming, tool use, local execution, model management, raw generate.
 
 ---
 
+## Tool-Calling Hints
+
+Some providers' tool-calling implementations behave more reliably with
+extra prompt scaffolding — extra instructions about *how* to format the
+tool call, when to call vs. answer in text, and so on. The pain is real
+across the ecosystem: GLM-4-flash needs more explicit prompts before it
+will pick up tool calls reliably; some local models intermittently emit
+text that looks like a tool call instead of a real `tool_calls` payload;
+etc.
+
+Arcana provides an **infrastructure slot** for these hints, but does not
+ship per-provider defaults. The framework decides *whether* a capability
+exists (already handled via `ProviderProfile` auto-degradation); it does
+not decide *how* to instruct the LLM. That call belongs to you.
+
+### How the slot works
+
+Set `tool_calling_hint` (global) or `tool_calling_hints` (per-provider)
+on `RuntimeConfig`:
+
+```python
+import arcana
+
+runtime = arcana.Runtime(
+    providers={"glm": "xxx", "openai": "sk-xxx"},
+    config=arcana.RuntimeConfig(
+        # Global default — applies to any provider unless overridden
+        tool_calling_hint=(
+            "When you need to call a tool, output ONLY the tool call "
+            "JSON. Do not wrap it in code fences or explain it first."
+        ),
+        # Per-provider override — wins over the global default
+        tool_calling_hints={
+            "glm": (
+                "你在调用工具时，必须直接输出 tool_calls 字段，"
+                "不要把工具调用写成文本，也不要用代码块包裹。"
+            ),
+        },
+    ),
+)
+```
+
+When the LLM is invoked **with tools bound**, the resolved hint is
+appended as a separate system message to the request — your authored
+`system_prompt` is never mutated. When no tools are bound, or no hint
+resolves, no message is added (zero overhead).
+
+Resolution order:
+
+1. `tool_calling_hints[provider_name]` (per-provider override)
+2. `tool_calling_hint` (global default)
+3. Otherwise: no hint injected.
+
+The injected message is fully captured in `PromptSnapshot` events when
+trace snapshots are enabled (`RuntimeConfig.dev_mode=True` or
+`trace_include_prompt_snapshots=True`), so you can verify what the LLM
+actually saw.
+
+### Recommended starting hints (community-curated)
+
+These are **suggestions**, not framework behavior. Copy what you need
+into your `tool_calling_hint` / `tool_calling_hints`. We update this
+list when the community reports working configurations; it's never
+shipped as default behavior in code.
+
+#### GLM (`glm-4-flash`, `glm-4`)
+
+**Observation:** Tool calls are unstable when the prompt does not
+explicitly direct the model to use the tool-calling format. The model
+will often answer in text when a tool would have been correct.
+
+**Suggested hint:**
+
+```python
+tool_calling_hints={
+    "glm": (
+        "When the user's request matches a registered tool, you MUST "
+        "use the tool by emitting a tool_calls payload. Do not describe "
+        "the tool in text; do not wrap the call in markdown code fences; "
+        "do not pre-explain what you are about to do — emit the call."
+    ),
+}
+```
+
+#### MiniMax (`abab6.5s-chat` and variants)
+
+**Observation:** Tool support exists but the provider auto-degrades on
+stricter tool schemas. Most users do not need a hint here — Arcana's
+capability auto-degradation handles the schema side. If you see the
+model narrate a tool call as text, the same hint as GLM works.
+
+#### Kimi (`moonshot-v1-*`)
+
+**Observation:** Tool calling is reliable; the model rarely needs a
+hint. Set one only if you observe specific failure modes in your
+workload.
+
+#### Ollama / local models
+
+**Observation:** Highly model-dependent. Tool-call reliability varies
+between fine-tuned versions of the same base. Open-weight models
+shipped with their own chat templates sometimes ignore tool schemas
+unless explicitly told to use them.
+
+**Suggested starting point:**
+
+```python
+tool_calling_hints={
+    "ollama": (
+        "If the user's request can be answered by a registered tool, "
+        "emit a structured tool_calls payload. Otherwise, answer "
+        "directly in text. Do not mix the two in one response."
+    ),
+}
+```
+
+#### OpenAI / Anthropic / DeepSeek / Gemini
+
+**Observation:** No hint generally needed — these providers' native
+tool-calling implementations are reliable. Set a hint only if your
+specific tools have unusual requirements (e.g. enforce particular
+argument formatting).
+
+### Why no framework defaults
+
+This is a constitutional decision (`CONSTITUTION.md` Principle 4 — the
+framework provides capabilities, not strategy). A default value
+shipped by the framework is *itself* a position on how the LLM should
+be instructed; that position would change silently across versions and
+would be one more thing for users to either accept or work around.
+Keeping the slot empty by default and surfacing recommendations in
+docs leaves the prompt content under your control.
+
+If you find yourself wishing for a default, what you actually want is
+to add the hint to your project's runtime construction code — that
+way the choice is visible in your codebase, traceable in `git blame`,
+and changeable by you on your timeline.
+
+---
+
 ## Fallback Chains
 
 The `ModelGatewayRegistry` supports fallback chains: when the primary provider

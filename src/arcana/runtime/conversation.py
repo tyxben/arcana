@@ -108,6 +108,8 @@ class ConversationAgent:
         trace_include_prompt_snapshots: bool = False,
         cognitive_primitives: list[str] | None = None,
         pin_budget_fraction: float = 0.5,
+        tool_calling_hint: str | None = None,
+        tool_calling_hints: dict[str, str] | None = None,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -173,6 +175,14 @@ class ConversationAgent:
         self._ask_user_token_cost = self._estimate_tool_tokens(
             [self._ask_user_tool_schema()]
         )
+
+        # Provider tool-calling hints (v0.9.x, spec/v1.0.0-stability §3.5a).
+        # Resolved per request: per-provider value wins over global default.
+        # Rendered as an additional system block ONLY when tools are bound
+        # to the request and the resolved hint is non-empty. Framework
+        # ships no defaults — content is always user-supplied.
+        self._tool_calling_hint = tool_calling_hint
+        self._tool_calling_hints = dict(tool_calling_hints) if tool_calling_hints else {}
 
         # Cognitive primitives (v0.7.0) — opt-in via RuntimeConfig.
         # The handler is always instantiated for API symmetry, but ``enabled``
@@ -369,12 +379,15 @@ class ConversationAgent:
             self._emit_context_decision_event(state)
 
             # 3. LLM call
+            config = self._resolve_model_config()
+            curated = self._maybe_inject_tool_calling_hint(
+                curated, active_tools, config,
+            )
             request = LLMRequest(
                 messages=curated,
                 tools=active_tools,
                 response_format=self._response_format_schema,
             )
-            config = self._resolve_model_config()
 
             # Trace full prompt snapshot if opted in (off by default)
             self._emit_prompt_snapshot_event(state, request, config)
@@ -1203,6 +1216,48 @@ class ConversationAgent:
     # Model config resolution
     # ------------------------------------------------------------------
 
+    def _maybe_inject_tool_calling_hint(
+        self,
+        messages: list[Message],
+        active_tools: list[dict[str, Any]] | None,
+        config: ModelConfig,
+    ) -> list[Message]:
+        """Inject the resolved tool-calling hint as an extra system block.
+
+        Spec: ``specs/v1.0.0-stability.md`` §3.5a. The framework provides a
+        slot; the user provides the content. The hint is rendered as a
+        **separate** system message — the user's authored system prompt is
+        not mutated.
+
+        No-op when:
+            - ``active_tools`` is empty (hint only applies when tools are
+              bound to the request)
+            - resolved hint is ``None`` or empty string
+
+        Resolution order:
+            1. Per-provider hint (``tool_calling_hints[provider_name]``)
+            2. Global default (``tool_calling_hint``)
+
+        Insertion point: after the last leading system message, before any
+        user/assistant turn. Keeps all system-role instructions grouped at
+        the top of the conversation.
+        """
+        if not active_tools:
+            return messages
+        provider_name = config.provider
+        hint = self._tool_calling_hints.get(provider_name) or self._tool_calling_hint
+        if not hint:
+            return messages
+
+        hint_msg = Message(role=MessageRole.SYSTEM, content=hint)
+        insert_idx = 0
+        for i, m in enumerate(messages):
+            if m.role == MessageRole.SYSTEM:
+                insert_idx = i + 1
+            else:
+                break
+        return messages[:insert_idx] + [hint_msg] + messages[insert_idx:]
+
     def _resolve_model_config(self) -> ModelConfig:
         """Return the model config to use for LLM calls.
 
@@ -1377,12 +1432,15 @@ class ConversationAgent:
                 turn=saved_state.current_step + _turn,
             )
 
+            config = self._resolve_model_config()
+            curated = self._maybe_inject_tool_calling_hint(
+                curated, active_tools, config,
+            )
             request = LLMRequest(
                 messages=curated,
                 tools=active_tools,
                 response_format=self._response_format_schema,
             )
-            config = self._resolve_model_config()
 
             # Resume loop: emit prompt snapshot (context decision already traced
             # by the main loop prior to suspension, if applicable)
