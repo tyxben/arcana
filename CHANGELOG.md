@@ -4,6 +4,42 @@ All notable changes to Arcana will be documented in this file.
 
 ## [Unreleased]
 
+### Pre-v1.0.0 stability work
+
+Tracked under `specs/v1.0.0-stability.md`. Each item below is non-
+breaking and ships to users in a v0.9.x patch release as it lands.
+
+#### Added — `ChatSession.seed_history()` (§3.1)
+
+`ChatSession.seed_history(messages)` injects prior conversation
+messages into a session at cold start — restoring a chatbot from
+external storage without forcing user code through the private
+`session._messages` attribute. Replaces the constitutional smell that
+the existing `ChatSession.history` is read-only (dict copy) and there
+was no public mutator: users were *required* to break encapsulation
+to do something every chatbot needs.
+
+- Accepts `Message` instances (canonical) or
+  `{"role": str, "content": str}` dicts (convenience). Validates roles
+  against `MessageRole`; rejects empty content and unknown types.
+- System-role entries in the seed are **skipped** — the session's
+  system prompt is owned by the constructor (`system_prompt=...`).
+- Does not increment `turn_count` (those count turns *this* session
+  executed; seed is pre-existing history).
+- Calling twice extends — idempotency is the user's discipline.
+- Allowed before *or* after `send()` — but the user owns the timing
+  call; mid-stream seeding may collide with active compression state.
+- Emits the new **`EventType.HISTORY_SEEDED`** trace event with
+  `seed_count`, `role_counts`, `skipped_system`, `content_digest`
+  (16-char canonical hash), and `message_count_after`. Auditability
+  (Principle 5) is restored — the seed is not invisible.
+
+#### Added — `EventType.HISTORY_SEEDED`
+
+New `arcana.contracts.trace.EventType` member for session-lifecycle
+audit. Backward compatible: existing event consumers ignore unknown
+event types.
+
 ### v0.9.0 — "The Tool Boundary Release"
 
 Two changes that together turn Prohibition 4 (No Mechanical Retry) and

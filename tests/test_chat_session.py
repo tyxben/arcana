@@ -488,3 +488,142 @@ class TestChatSessionExports:
         assert hasattr(arcana, "ChatResponse")
         assert arcana.ChatSession is ChatSession
         assert arcana.ChatResponse is ChatResponse
+
+
+class TestChatSessionSeedHistory:
+    """Cold-start history injection via the public ``seed_history`` API."""
+
+    def test_seed_via_message_objects(self):
+        from arcana.contracts.llm import Message, MessageRole
+
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt, system_prompt="sys")
+        assert session.message_count == 1  # system only
+
+        session.seed_history([
+            Message(role=MessageRole.USER, content="prior question"),
+            Message(role=MessageRole.ASSISTANT, content="prior answer"),
+        ])
+
+        assert session.message_count == 3
+        assert session._messages[0].role == MessageRole.SYSTEM
+        assert session._messages[1].role == MessageRole.USER
+        assert session._messages[1].content == "prior question"
+        assert session._messages[2].role == MessageRole.ASSISTANT
+        assert session._messages[2].content == "prior answer"
+
+    def test_seed_via_dict(self):
+        from arcana.contracts.llm import MessageRole
+
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        session.seed_history([
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ])
+
+        assert session.message_count == 3
+        assert session._messages[1].role == MessageRole.USER
+        assert session._messages[2].role == MessageRole.ASSISTANT
+
+    def test_system_entries_in_seed_are_skipped(self):
+        """system entries in the seed don't replace the constructor's prompt."""
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt, system_prompt="constructor sys")
+        session.seed_history([
+            {"role": "system", "content": "should be skipped"},
+            {"role": "user", "content": "hi"},
+        ])
+
+        assert session.message_count == 2  # system (constructor) + user only
+        assert session._messages[0].content == "constructor sys"
+        assert session._messages[1].content == "hi"
+
+    def test_calling_twice_extends(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        session.seed_history([{"role": "user", "content": "first"}])
+        session.seed_history([{"role": "assistant", "content": "second"}])
+        assert session.message_count == 3
+        assert session._messages[1].content == "first"
+        assert session._messages[2].content == "second"
+
+    def test_empty_list_is_noop(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        before = session.message_count
+        session.seed_history([])
+        assert session.message_count == before
+
+    def test_invalid_role_raises(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        with pytest.raises(ValueError, match="unknown role"):
+            session.seed_history([{"role": "wizard", "content": "hi"}])
+
+    def test_missing_role_raises(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        with pytest.raises(ValueError, match="missing 'role'"):
+            session.seed_history([{"content": "hi"}])  # type: ignore[list-item]
+
+    def test_empty_content_raises(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        with pytest.raises(ValueError, match="empty 'content'"):
+            session.seed_history([{"role": "user", "content": ""}])
+
+    def test_unsupported_entry_type_raises(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        with pytest.raises(ValueError, match="must be Message or dict"):
+            session.seed_history(["just a string"])  # type: ignore[list-item]
+
+    def test_does_not_increment_turn_count(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        session.seed_history([
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ])
+        assert session._turn_count == 0  # turns count execution, not history
+
+    def test_emits_history_seeded_trace_event(self):
+        from arcana.contracts.trace import EventType
+
+        rt = _make_runtime()
+        rt._trace_writer = MagicMock()
+        session = ChatSession(runtime=rt)
+
+        session.seed_history([
+            {"role": "user", "content": "q"},
+            {"role": "system", "content": "skipped"},
+            {"role": "assistant", "content": "a"},
+        ])
+
+        rt._trace_writer.write.assert_called_once()
+        event = rt._trace_writer.write.call_args.args[0]
+        assert event.event_type == EventType.HISTORY_SEEDED
+        assert event.metadata["seed_count"] == 2
+        assert event.metadata["role_counts"] == {"user": 1, "assistant": 1}
+        assert event.metadata["skipped_system"] == 1
+        assert event.metadata["message_count_after"] == 3
+        assert isinstance(event.metadata["content_digest"], str)
+        assert len(event.metadata["content_digest"]) == 16  # canonical_hash truncates to 16
+
+    def test_no_trace_event_when_writer_absent(self):
+        """If runtime has no trace writer, seed succeeds silently."""
+        rt = _make_runtime()
+        rt._trace_writer = None
+        session = ChatSession(runtime=rt)
+        # No exception raised.
+        session.seed_history([{"role": "user", "content": "hi"}])
+        assert session.message_count == 2
+
+    def test_no_trace_event_for_empty_seed_after_filtering(self):
+        """Seed of only system entries (all skipped) emits no trace event."""
+        rt = _make_runtime()
+        rt._trace_writer = MagicMock()
+        session = ChatSession(runtime=rt)
+        session.seed_history([{"role": "system", "content": "skipped"}])
+        rt._trace_writer.write.assert_not_called()

@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 if TYPE_CHECKING:
+    from arcana.contracts.llm import Message
     from arcana.graph.nodes.llm_node import LLMNode
     from arcana.graph.nodes.tool_node import ToolNode
     from arcana.graph.state_graph import StateGraph
@@ -2329,3 +2330,120 @@ class ChatSession:
     def session_id(self) -> str:
         """Unique identifier for this chat session."""
         return self._session_id
+
+    def seed_history(
+        self,
+        messages: list[Message] | list[dict[str, Any]],
+    ) -> None:
+        """Inject prior conversation messages into this session's history.
+
+        Restores a chat session from external storage — e.g. cold-start a
+        chatbot with a user's previous conversation. Seeded messages are
+        appended after the session's system prompt and before any future
+        ``send()`` content. Calling twice extends.
+
+        Accepts ``Message`` instances (canonical) or dict entries of the
+        form ``{"role": <str>, "content": <str>}`` for convenience. Roles
+        ``user``, ``assistant``, ``tool`` are accepted and seeded;
+        ``system`` entries in the seed are skipped — the session's system
+        prompt is owned by the constructor (``system_prompt=...``).
+
+        Args:
+            messages: Prior conversation history. Each entry must be a
+                ``Message`` or a dict with non-empty ``role`` and
+                ``content``.
+
+        Raises:
+            ValueError: If an entry has an unknown role, an unsupported
+                type, or empty content.
+
+        Notes:
+            - Idempotent only by user discipline — calling twice extends.
+            - Does not increment ``turn_count`` (those count turns this
+              session executed, not pre-existing history).
+            - Mid-stream seeding (after ``send()`` has been called) is
+              allowed but may collide with active compression state.
+              The user owns that timing call.
+            - Emits an ``EventType.HISTORY_SEEDED`` trace event with
+              seed message count, role counts, and a content digest.
+        """
+        from arcana.contracts.llm import Message, MessageRole
+
+        if not messages:
+            return
+
+        appended: list[Message] = []
+        role_counts: dict[str, int] = {}
+        skipped_system = 0
+
+        for entry in messages:
+            if isinstance(entry, Message):
+                msg = entry
+            elif isinstance(entry, dict):
+                role_value = entry.get("role")
+                content = entry.get("content")
+                if not role_value:
+                    raise ValueError(
+                        f"seed_history: dict entry missing 'role'; got {entry!r}"
+                    )
+                if content is None or content == "":
+                    raise ValueError(
+                        f"seed_history: dict entry has empty 'content'; got {entry!r}"
+                    )
+                try:
+                    role = MessageRole(role_value)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"seed_history: unknown role {role_value!r}; "
+                        f"valid: user / assistant / system / tool"
+                    ) from exc
+                msg = Message(role=role, content=content)
+            else:
+                raise ValueError(
+                    f"seed_history: entries must be Message or dict; "
+                    f"got {type(entry).__name__}"
+                )
+
+            if msg.role == MessageRole.SYSTEM:
+                skipped_system += 1
+                continue
+
+            role_str = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
+            role_counts[role_str] = role_counts.get(role_str, 0) + 1
+            appended.append(msg)
+
+        if not appended:
+            return
+
+        self._messages.extend(appended)
+
+        if self._runtime._trace_writer is not None:
+            from arcana.contracts.trace import EventType, TraceEvent
+            from arcana.utils.hashing import canonical_hash
+
+            digest_payload = [
+                {
+                    "role": (
+                        m.role.value if hasattr(m.role, "value") else str(m.role)
+                    ),
+                    "content": (
+                        m.content
+                        if isinstance(m.content, str)
+                        else "<content_blocks>"
+                    ),
+                }
+                for m in appended
+            ]
+            self._runtime._trace_writer.write(
+                TraceEvent(
+                    run_id=self._session_id,
+                    event_type=EventType.HISTORY_SEEDED,
+                    metadata={
+                        "seed_count": len(appended),
+                        "role_counts": role_counts,
+                        "skipped_system": skipped_system,
+                        "content_digest": canonical_hash(digest_payload),
+                        "message_count_after": len(self._messages),
+                    },
+                )
+            )

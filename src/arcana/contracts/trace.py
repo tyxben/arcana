@@ -52,6 +52,10 @@ class EventType(str, Enum):
     # Cognitive primitives (v0.7.0) — recall / pin / unpin invocations
     COGNITIVE_PRIMITIVE = "cognitive_primitive"
 
+    # Session lifecycle — history seeded by user code (cold-start
+    # restore from external storage). Emitted by ChatSession.seed_history.
+    HISTORY_SEEDED = "history_seeded"
+
     # Orchestrator events
     TASK_SUBMIT = "task_submit"
     TASK_START = "task_start"
