@@ -58,6 +58,20 @@ Tick what applies and explain anything you're unsure about — it's fine to say
 - Manual verification steps if this is a UI/CLI change
 -->
 
+## Public Surface Impact
+
+<!--
+- Does this PR change a name listed as stable in
+  `docs/guide/stability.md` / `specs/v1.0.0-stability.md` §1?
+- If yes: signature change? rename? removal? behaviour change visible
+  to user code?
+- If breaking: the CHANGELOG entry MUST include a `Migration` section
+  with before/after code snippets. See v0.9.0 entry for the format.
+- If non-breaking (additive only): note "additive — minor bump
+  candidate" so the next release roll-up captures it.
+- If untouched: write "N/A — no public surface changed."
+-->
+
 ## Notes for Reviewers
 
 <!-- Optional. Tradeoffs you considered. Things you're unsure about. -->

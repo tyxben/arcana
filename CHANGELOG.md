@@ -89,6 +89,16 @@ through six releases while `pyproject.toml` was correctly bumped each
 time. `import arcana; print(arcana.__version__)` now returns the
 current version.
 
+#### Added — PR template "Public Surface Impact" section (§3.4)
+
+Every PR now answers: does it touch a name on the stability list, and
+if so is the change additive or breaking? Breaking changes require a
+`Migration` section in the CHANGELOG entry per the v0.9.0 precedent.
+Non-breaking additive changes are tagged "minor bump candidate" so
+the release roll-up captures them. Encodes the practice that started
+with v0.9.0's `ToolErrorCategory` migration recipe; no longer relies
+on the contributor remembering.
+
 ### v0.9.0 — "The Tool Boundary Release"
 
 Two changes that together turn Prohibition 4 (No Mechanical Retry) and
