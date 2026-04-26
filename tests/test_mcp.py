@@ -11,7 +11,7 @@ from arcana.contracts.mcp import (
     MCPToolSpec,
     MCPTransportType,
 )
-from arcana.contracts.tool import ErrorType, SideEffect, ToolCall, ToolSpec
+from arcana.contracts.tool import SideEffect, ToolCall, ToolErrorCategory, ToolSpec
 from arcana.mcp.protocol import (
     _infer_side_effect,
     arcana_spec_to_mcp_tool,
@@ -118,12 +118,14 @@ class TestProtocol:
     def test_error_mapping_retryable(self):
         err = MCPError(code=-32603, message="Internal error")
         tool_err = mcp_error_to_tool_error(err)
-        assert tool_err.error_type == ErrorType.RETRYABLE
+        assert tool_err.category == ToolErrorCategory.TRANSPORT
+        assert tool_err.is_retryable
 
     def test_error_mapping_non_retryable(self):
         err = MCPError(code=-32600, message="Invalid request")
         tool_err = mcp_error_to_tool_error(err)
-        assert tool_err.error_type == ErrorType.NON_RETRYABLE
+        assert tool_err.category == ToolErrorCategory.VALIDATION
+        assert not tool_err.is_retryable
 
 
 class TestMCPToolProvider:

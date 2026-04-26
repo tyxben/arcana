@@ -9,10 +9,10 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from arcana.contracts.tool import (
-    ErrorType,
     SideEffect,
     ToolCall,
     ToolError,
+    ToolErrorCategory,
     ToolResult,
     ToolSpec,
 )
@@ -147,7 +147,7 @@ class ToolGateway:
                 name=tool_call.name,
                 success=False,
                 error=ToolError(
-                    error_type=ErrorType.NON_RETRYABLE,
+                    category=ToolErrorCategory.VALIDATION,
                     message=(
                         f"Tool '{tool_call.name}' not found in registry. "
                         f"Available tools: {available}. "
@@ -168,7 +168,7 @@ class ToolGateway:
                 name=tool_call.name,
                 success=False,
                 error=ToolError(
-                    error_type=ErrorType.NON_RETRYABLE,
+                    category=ToolErrorCategory.PERMISSION,
                     message=f"Missing capabilities: {', '.join(missing)}",
                     code="UNAUTHORIZED",
                 ),
@@ -250,7 +250,7 @@ class ToolGateway:
                         name=tc.name,
                         success=False,
                         error=ToolError(
-                            error_type=ErrorType.NON_RETRYABLE,
+                            category=ToolErrorCategory.UNEXPECTED,
                             message=f"Unexpected error executing '{tc.name}': {raw}",
                             code="GATHER_EXCEPTION",
                         ),
@@ -340,7 +340,7 @@ class ToolGateway:
                 name=tool_call.name,
                 success=False,
                 error=ToolError(
-                    error_type=ErrorType.REQUIRES_HUMAN,
+                    category=ToolErrorCategory.CONFIRMATION_REQUIRED,
                     message=f"Tool '{tool_call.name}' requires human confirmation",
                     code="CONFIRMATION_REQUIRED",
                 ),
@@ -353,7 +353,7 @@ class ToolGateway:
                 name=tool_call.name,
                 success=False,
                 error=ToolError(
-                    error_type=ErrorType.REQUIRES_HUMAN,
+                    category=ToolErrorCategory.CONFIRMATION_REQUIRED,
                     message=f"Execution of '{tool_call.name}' was rejected",
                     code="CONFIRMATION_REJECTED",
                 ),
@@ -399,7 +399,7 @@ class ToolGateway:
 
             except TimeoutError:
                 last_error = ToolError(
-                    error_type=ErrorType.RETRYABLE,
+                    category=ToolErrorCategory.TIMEOUT,
                     message=f"Tool '{call.name}' timed out after {spec.timeout_ms}ms",
                     code="TIMEOUT",
                 )
@@ -409,9 +409,14 @@ class ToolGateway:
                     continue
 
             except ToolExecutionError as e:
-                error_type = ErrorType.RETRYABLE if e.retryable else ErrorType.NON_RETRYABLE
+                # Tool authors flag transient failures via ``e.retryable``.
+                # Map to TRANSPORT (transient w.r.t. the same call) vs LOGIC
+                # (the tool itself decided this attempt won't succeed again).
+                category = (
+                    ToolErrorCategory.TRANSPORT if e.retryable else ToolErrorCategory.LOGIC
+                )
                 last_error = ToolError(
-                    error_type=error_type,
+                    category=category,
                     message=str(e),
                     code=e.error_code,
                 )
@@ -422,7 +427,7 @@ class ToolGateway:
 
             except Exception as e:
                 last_error = ToolError(
-                    error_type=ErrorType.NON_RETRYABLE,
+                    category=ToolErrorCategory.UNEXPECTED,
                     message=str(e),
                     code="UNEXPECTED",
                 )

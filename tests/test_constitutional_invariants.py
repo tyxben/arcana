@@ -18,6 +18,10 @@ Invariants covered:
   awaiting indefinitely.
 - **Structured output coexists with tools** (Principle 6) — setting
   ``response_format_schema`` does not disable the tool surface.
+- **No mechanical retry** (Fourth Prohibition) — only TRANSPORT, TIMEOUT,
+  and RATE_LIMIT errors are eligible for the gateway's retry loop;
+  VALIDATION, PERMISSION, LOGIC, CONFIRMATION_REQUIRED, and UNEXPECTED
+  surface immediately so the LLM can react with a different strategy.
 
 Future invariants (not yet pinned, tracked as work):
 
@@ -36,6 +40,8 @@ from arcana.contracts.tool import (
     ASK_USER_TOOL_NAME,
     SideEffect,
     ToolCall,
+    ToolError,
+    ToolErrorCategory,
     ToolResult,
     ToolSpec,
 )
@@ -256,3 +262,98 @@ class TestStructuredOutputCoexistsWithTools:
         # is requested. ask_user is the always-on built-in; its presence
         # proves the tool list survived.
         assert ASK_USER_TOOL_NAME in names
+
+
+# ---------------------------------------------------------------------------
+# Fourth Prohibition — No Mechanical Retry
+# ---------------------------------------------------------------------------
+
+
+class _AlwaysFailsTool(ToolProvider):
+    """Tool that emits a configurable ToolError category on every call."""
+
+    def __init__(self, category: ToolErrorCategory) -> None:
+        self._category = category
+        self.attempts = 0
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name="always_fails",
+            description=f"Always fails with {self._category.value}",
+            input_schema={"type": "object", "properties": {}},
+            side_effect=SideEffect.READ,
+            # Generous retry budget so the gateway never short-circuits via
+            # max_retries — any retries observed must be policy-driven.
+            max_retries=5,
+            retry_delay_ms=1,
+        )
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        self.attempts += 1
+        return ToolResult(
+            tool_call_id=call.id,
+            name=call.name,
+            success=False,
+            error=ToolError(
+                category=self._category,
+                message=f"failed with {self._category.value}",
+            ),
+        )
+
+
+class TestNoMechanicalRetry:
+    """Only structurally transient categories enter the retry loop."""
+
+    @pytest.mark.parametrize(
+        "category",
+        [
+            ToolErrorCategory.VALIDATION,
+            ToolErrorCategory.PERMISSION,
+            ToolErrorCategory.LOGIC,
+            ToolErrorCategory.UNEXPECTED,
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_non_retryable_categories_do_not_retry(
+        self, category: ToolErrorCategory
+    ) -> None:
+        tool = _AlwaysFailsTool(category=category)
+        gw = _gateway_with(tool)
+
+        result = await gw.call(ToolCall(id="c1", name="always_fails", arguments={}))
+
+        assert not result.success
+        assert tool.attempts == 1, (
+            f"Category {category.value} retried {tool.attempts} times — "
+            f"only TRANSPORT/TIMEOUT/RATE_LIMIT are retry-eligible."
+        )
+
+    @pytest.mark.asyncio
+    async def test_transport_errors_do_retry(self) -> None:
+        """The retry loop must still fire for genuine transient failures."""
+        tool = _AlwaysFailsTool(category=ToolErrorCategory.TRANSPORT)
+        gw = _gateway_with(tool)
+
+        result = await gw.call(ToolCall(id="c1", name="always_fails", arguments={}))
+
+        assert not result.success
+        # 1 initial + 5 retries = 6 attempts when all fail
+        assert tool.attempts == 6, (
+            f"TRANSPORT errors should retry up to max_retries; "
+            f"saw {tool.attempts} attempt(s)"
+        )
+
+    def test_default_max_retries_is_conservative(self) -> None:
+        """Default max_retries should be small enough to avoid masking real failures."""
+        spec = ToolSpec(
+            name="t",
+            description="t",
+            input_schema={"type": "object", "properties": {}},
+        )
+        # Conservative default — one retry covers transient flap, more than
+        # two starts to mask real problems.
+        assert spec.max_retries <= 2, (
+            f"Default max_retries={spec.max_retries} is too aggressive; "
+            f"see CONSTITUTION fourth prohibition (No Mechanical Retry)."
+        )

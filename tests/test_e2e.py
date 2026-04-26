@@ -26,10 +26,10 @@ from arcana.contracts.runtime import RuntimeConfig
 from arcana.contracts.state import AgentState, ExecutionStatus
 from arcana.contracts.strategy import StrategyDecision, StrategyType
 from arcana.contracts.tool import (
-    ErrorType,
     SideEffect,
     ToolCall,
     ToolError,
+    ToolErrorCategory,
     ToolResult,
     ToolSpec,
 )
@@ -557,7 +557,7 @@ class TestDiagnosticRecovery:
         """Tool not found should be diagnosed as FACT_ERROR when a close match exists."""
         available = ["web_search", "file_read", "code_exec"]
         error = ToolError(
-            error_type=ErrorType.NON_RETRYABLE,
+            category=ToolErrorCategory.VALIDATION,
             message="Tool 'web_serach' not found",
             code="TOOL_NOT_FOUND",
         )
@@ -570,7 +570,7 @@ class TestDiagnosticRecovery:
         """Tool not found with no close match should be TOOL_MISMATCH."""
         available = ["web_search", "file_read"]
         error = ToolError(
-            error_type=ErrorType.NON_RETRYABLE,
+            category=ToolErrorCategory.VALIDATION,
             message="Tool 'zzz_nonexistent' not found",
             code="TOOL_NOT_FOUND",
         )
@@ -582,7 +582,7 @@ class TestDiagnosticRecovery:
         """A similar tool name should produce a suggestion via fuzzy matching."""
         available = ["web_search", "file_read", "code_exec"]
         error = ToolError(
-            error_type=ErrorType.NON_RETRYABLE,
+            category=ToolErrorCategory.VALIDATION,
             message="Tool 'web_sarch' not found",
             code="TOOL_NOT_FOUND",
         )
@@ -593,7 +593,7 @@ class TestDiagnosticRecovery:
     async def test_diagnose_timeout(self) -> None:
         """A timeout error should be diagnosed as RESOURCE_UNAVAILABLE."""
         error = ToolError(
-            error_type=ErrorType.RETRYABLE,
+            category=ToolErrorCategory.TIMEOUT,
             message="Tool 'web_search' timed out after 30000ms",
             code="TIMEOUT",
         )
@@ -604,7 +604,7 @@ class TestDiagnosticRecovery:
     async def test_diagnose_unauthorized(self) -> None:
         """An unauthorized error should be diagnosed as PERMISSION_DENIED."""
         error = ToolError(
-            error_type=ErrorType.NON_RETRYABLE,
+            category=ToolErrorCategory.PERMISSION,
             message="Unauthorized access to tool",
             code="UNAUTHORIZED",
             details={"required_capability": "file_write"},
@@ -616,7 +616,7 @@ class TestDiagnosticRecovery:
         """The recovery prompt should contain specific suggestions and strategy guidance."""
         available = ["web_search", "file_read"]
         error = ToolError(
-            error_type=ErrorType.NON_RETRYABLE,
+            category=ToolErrorCategory.VALIDATION,
             message="Tool 'web_serach' not found",
             code="TOOL_NOT_FOUND",
         )
@@ -634,7 +634,7 @@ class TestDiagnosticRecovery:
     async def test_recovery_prompt_without_context(self) -> None:
         """Recovery prompt without step_context should still be valid."""
         error = ToolError(
-            error_type=ErrorType.NON_RETRYABLE,
+            category=ToolErrorCategory.VALIDATION,
             message="Tool 'web_serach' not found",
             code="TOOL_NOT_FOUND",
         )

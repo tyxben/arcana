@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from arcana.contracts.tool import ErrorType, ToolError, ToolSpec
+from arcana.contracts.tool import ToolError, ToolErrorCategory, ToolSpec
 
 # JSON Schema type to Python type mapping
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
@@ -28,7 +28,7 @@ def validate_arguments(spec: ToolSpec, arguments: dict[str, Any]) -> ToolError |
     - Arguments is a dict
 
     Returns:
-        None if valid, ToolError with NON_RETRYABLE if invalid.
+        None if valid, ToolError with VALIDATION category if invalid.
     """
     schema = spec.input_schema
     if not schema:
@@ -47,7 +47,7 @@ def validate_arguments(spec: ToolSpec, arguments: dict[str, Any]) -> ToolError |
 
     if errors:
         return ToolError(
-            error_type=ErrorType.NON_RETRYABLE,
+            category=ToolErrorCategory.VALIDATION,
             message=f"Validation failed for tool '{spec.name}': {'; '.join(errors)}",
             code="VALIDATION_ERROR",
             details={"errors": errors},

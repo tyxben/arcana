@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from arcana.contracts.tool import ErrorType, ToolCall, ToolError, ToolResult, ToolSpec
+from arcana.contracts.tool import ToolCall, ToolError, ToolErrorCategory, ToolResult, ToolSpec
 
 
 class MCPToolProvider:
@@ -52,7 +52,11 @@ class MCPToolProvider:
                 name=call.name,
                 success=False,
                 error=ToolError(
-                    error_type=ErrorType.RETRYABLE,
+                    # Treat client-side MCP exceptions as transport-level —
+                    # connection drops, server restart, etc. Logical MCP
+                    # errors with a JSON-RPC error code go through
+                    # ``mcp_error_to_tool_error`` and get categorized there.
+                    category=ToolErrorCategory.TRANSPORT,
                     message=str(e),
                     code="MCP_ERROR",
                 ),

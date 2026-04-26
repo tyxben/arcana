@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from arcana.contracts.mcp import MCPError, MCPMessage, MCPToolSpec
-from arcana.contracts.tool import ErrorType, SideEffect, ToolError, ToolSpec
+from arcana.contracts.tool import SideEffect, ToolError, ToolErrorCategory, ToolSpec
 
 
 def serialize_message(msg: MCPMessage) -> bytes:
@@ -56,20 +56,21 @@ def arcana_spec_to_mcp_tool(spec: ToolSpec) -> MCPToolSpec:
 
 def mcp_error_to_tool_error(error: MCPError) -> ToolError:
     """Map MCP error to Arcana ToolError. Pure."""
-    # MCP error codes follow JSON-RPC conventions
-    if error.code in (-32600, -32601, -32602):
-        error_type = ErrorType.NON_RETRYABLE
-    elif error.code in (-32603, -32000):
-        error_type = ErrorType.RETRYABLE
+    # MCP follows JSON-RPC conventions:
+    #   -32700 parse error, -32600 invalid request, -32601 method not found,
+    #   -32602 invalid params → caller error, won't change on retry → VALIDATION
+    #   -32603 internal error, plus the impl-defined server-error band
+    #   (-32099..-32000) → server-side transient → TRANSPORT
+    #   everything else → upstream tool's clean failure → LOGIC
+    if error.code in (-32700, -32600, -32601, -32602):
+        category = ToolErrorCategory.VALIDATION
+    elif error.code == -32603 or -32099 <= error.code <= -32000:
+        category = ToolErrorCategory.TRANSPORT
     else:
-        error_type = (
-            ErrorType.RETRYABLE
-            if error.code >= -32099
-            else ErrorType.NON_RETRYABLE
-        )
+        category = ToolErrorCategory.LOGIC
 
     return ToolError(
-        error_type=error_type,
+        category=category,
         message=error.message,
         code=str(error.code),
         details={"mcp_data": error.data} if error.data else {},

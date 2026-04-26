@@ -13,7 +13,7 @@ class ErrorCategory(str, Enum):
 
     This is the semantic-layer classification: what went wrong and why.
     It drives the recovery prompt shown to the LLM, complementing the
-    transport-layer ``ErrorType`` which drives the automatic retry loop.
+    transport-layer ``ToolErrorCategory`` which drives the automatic retry loop.
     """
 
     FACT_ERROR = "fact_error"

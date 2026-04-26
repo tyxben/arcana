@@ -31,10 +31,10 @@ from pydantic import BaseModel
 
 from arcana.contracts.llm import ContentBlock
 from arcana.contracts.tool import (
-    ErrorType,
     SideEffect,
     ToolCall,
     ToolError,
+    ToolErrorCategory,
     ToolResult,
     ToolSpec,
 )
@@ -411,7 +411,7 @@ class _FunctionToolProvider:
                 tool_call_id=call.id,
                 name=call.name,
                 success=False,
-                error=ToolError(error_type=ErrorType.NON_RETRYABLE, message=str(e)),
+                error=ToolError(category=ToolErrorCategory.UNEXPECTED, message=str(e)),
             )
 
     async def health_check(self) -> bool:

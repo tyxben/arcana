@@ -5,10 +5,10 @@ import asyncio
 import pytest
 
 from arcana.contracts.tool import (
-    ErrorType,
     SideEffect,
     ToolCall,
     ToolError,
+    ToolErrorCategory,
     ToolResult,
     ToolSpec,
 )
@@ -107,7 +107,7 @@ class FailingTool(ToolProvider):
                 name=call.name,
                 success=False,
                 error=ToolError(
-                    error_type=ErrorType.RETRYABLE,
+                    category=ToolErrorCategory.TRANSPORT,
                     message="Temporary failure",
                 ),
             )
@@ -138,7 +138,7 @@ class NonRetryableFailTool(ToolProvider):
             name=call.name,
             success=False,
             error=ToolError(
-                error_type=ErrorType.NON_RETRYABLE,
+                category=ToolErrorCategory.LOGIC,
                 message="Permanent failure",
                 code="FATAL",
             ),

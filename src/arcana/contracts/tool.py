@@ -18,12 +18,35 @@ class SideEffect(str, Enum):
     NONE = "none"
 
 
-class ErrorType(str, Enum):
-    """Classification of tool errors."""
+class ToolErrorCategory(str, Enum):
+    """Classification of tool errors driving retry policy.
 
-    RETRYABLE = "retryable"
-    NON_RETRYABLE = "non_retryable"
-    REQUIRES_HUMAN = "requires_human"
+    Categories in ``_RETRY_ELIGIBLE`` (TRANSPORT, TIMEOUT, RATE_LIMIT) trigger
+    the ToolGateway's exponential backoff loop. All others are surfaced
+    immediately so the LLM can react with a different strategy. This is
+    the engineering form of CONSTITUTION's fourth prohibition,
+    *No Mechanical Retry*: the runtime retries only failures that are
+    structurally transient.
+    """
+
+    # Retry-eligible — the failure is transient w.r.t. the same call.
+    TRANSPORT = "transport"          # network errors, connection refused, DNS, etc.
+    TIMEOUT = "timeout"              # gateway/upstream did not respond in time
+    RATE_LIMIT = "rate_limit"        # 429 / quota exhaustion
+
+    # Not retry-eligible — repeating the same call cannot succeed.
+    VALIDATION = "validation"        # input schema / argument validation failed
+    PERMISSION = "permission"        # auth or missing capability
+    LOGIC = "logic"                  # tool's own business logic returned a clean failure
+    CONFIRMATION_REQUIRED = "confirmation_required"  # write tool gated on human approval
+    UNEXPECTED = "unexpected"        # uncaught exception — never retried by default
+
+
+_RETRY_ELIGIBLE_CATEGORIES: frozenset[ToolErrorCategory] = frozenset({
+    ToolErrorCategory.TRANSPORT,
+    ToolErrorCategory.TIMEOUT,
+    ToolErrorCategory.RATE_LIMIT,
+})
 
 
 class ToolSpec(BaseModel):
@@ -39,8 +62,9 @@ class ToolSpec(BaseModel):
     requires_confirmation: bool = False
     capabilities: list[str] = Field(default_factory=list)
 
-    # Retry configuration
-    max_retries: int = 3
+    # Retry configuration. Default kept conservative: one retry buys forgiveness
+    # for transient flap without masking a real failure (No Mechanical Retry).
+    max_retries: int = 2
     retry_delay_ms: int = 1000
     timeout_ms: int = 30000
 
@@ -75,16 +99,20 @@ class ToolCall(BaseModel):
 
 
 class ToolError(BaseModel):
-    """Error from tool execution."""
+    """Error from tool execution.
 
-    error_type: ErrorType
+    The ``category`` field is the single source of truth for retry policy;
+    ``is_retryable`` is derived. Tool authors classify; the runtime decides.
+    """
+
+    category: ToolErrorCategory
     message: str
     code: str | None = None
     details: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def is_retryable(self) -> bool:
-        return self.error_type == ErrorType.RETRYABLE
+        return self.category in _RETRY_ELIGIBLE_CATEGORIES
 
 
 class ToolResult(BaseModel):
