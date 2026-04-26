@@ -4,9 +4,23 @@ LLM-native conversation loop that replaces the Policy -> Step -> Reducer chain
 with a single thin abstraction: LLM Turn -> Runtime Events -> State.
 
 See specs/v2-architecture/conversation-loop.md for the full design.
+
+Public surface of this module:
+
+* ``ConversationAgent`` -- the runtime engine. Listed in ``__all__``.
+
+Symbols imported here for internal use (notably ``Message`` and
+``MessageRole``) are **not** part of this module's public API. They are
+re-exported from ``arcana.contracts.llm`` (canonical) and ``arcana``
+(top-level convenience). Importing them via
+``from arcana.runtime.conversation import Message`` works in CPython
+today but is not stability-promised; future internal refactors may
+remove the line. See ``specs/v1.0.0-stability.md`` §3.2.
 """
 
 from __future__ import annotations
+
+__all__ = ["ConversationAgent"]
 
 import asyncio
 import json

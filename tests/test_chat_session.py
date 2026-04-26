@@ -489,6 +489,37 @@ class TestChatSessionExports:
         assert arcana.ChatSession is ChatSession
         assert arcana.ChatResponse is ChatResponse
 
+    def test_message_canonical_top_level(self):
+        """Message and MessageRole are re-exported at the arcana top level.
+
+        This is the preferred user import path. The canonical definition
+        lives in arcana.contracts.llm; arcana.runtime.conversation does
+        NOT publicly export them (see specs/v1.0.0-stability.md §3.2).
+        """
+        import arcana
+        from arcana.contracts.llm import Message as CanonicalMessage
+        from arcana.contracts.llm import MessageRole as CanonicalMessageRole
+
+        assert hasattr(arcana, "Message")
+        assert hasattr(arcana, "MessageRole")
+        assert arcana.Message is CanonicalMessage
+        assert arcana.MessageRole is CanonicalMessageRole
+
+    def test_conversation_module_all_excludes_message(self):
+        """runtime.conversation.__all__ does not advertise Message/MessageRole.
+
+        The internal `from arcana.contracts.llm import Message` line keeps
+        the symbol reachable for explicit imports (which we cannot prevent),
+        but `from arcana.runtime.conversation import *` should only get
+        ConversationAgent.
+        """
+        import arcana.runtime.conversation as conv
+
+        assert hasattr(conv, "__all__")
+        assert "Message" not in conv.__all__
+        assert "MessageRole" not in conv.__all__
+        assert "ConversationAgent" in conv.__all__
+
 
 class TestChatSessionSeedHistory:
     """Cold-start history injection via the public ``seed_history`` API."""

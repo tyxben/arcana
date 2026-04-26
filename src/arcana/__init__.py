@@ -4,6 +4,8 @@ __version__ = "0.3.1"
 
 from arcana.contracts.context import ContextReport as ContextReport
 from arcana.contracts.context import ContextStrategy as ContextStrategy
+from arcana.contracts.llm import Message as Message
+from arcana.contracts.llm import MessageRole as MessageRole
 from arcana.contracts.mcp import MCPServerConfig as MCPServerConfig
 from arcana.contracts.streaming import StreamEvent as StreamEvent
 from arcana.contracts.streaming import StreamEventType as StreamEventType

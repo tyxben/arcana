@@ -40,6 +40,35 @@ New `arcana.contracts.trace.EventType` member for session-lifecycle
 audit. Backward compatible: existing event consumers ignore unknown
 event types.
 
+#### Added — `arcana.Message` / `arcana.MessageRole` top-level (§3.2)
+
+`Message` and `MessageRole` are now re-exported at the top of the
+`arcana` package, alongside `Runtime`, `Budget`, `ChatSession`, etc.
+The canonical definitions stay in `arcana.contracts.llm`. The
+top-level form is the **preferred** user import:
+
+```python
+# Preferred:
+import arcana
+msg = arcana.Message(role=arcana.MessageRole.USER, content="hi")
+
+# Also supported (canonical):
+from arcana.contracts.llm import Message, MessageRole
+
+# Discouraged (works in CPython today, no stability promise):
+from arcana.runtime.conversation import Message  # internal import
+```
+
+#### Cleanup — `arcana.runtime.conversation.__all__` (§3.2)
+
+`arcana.runtime.conversation` now declares `__all__ = ["ConversationAgent"]`.
+The module's docstring explicitly notes that `Message` / `MessageRole`
+are imported there for internal use only and are not part of its
+public surface. Explicit imports (`from arcana.runtime.conversation
+import Message`) still work for backward compatibility but are no
+longer advertised; `from arcana.runtime.conversation import *` will
+now only yield `ConversationAgent`.
+
 ### v0.9.0 — "The Tool Boundary Release"
 
 Two changes that together turn Prohibition 4 (No Mechanical Retry) and
