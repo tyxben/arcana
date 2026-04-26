@@ -63,9 +63,12 @@ Request -> Intent Router (routing/)
                  LLM Turn -> TurnFacts -> TurnAssessment -> State
                  Runtime OS: Budget | Trace | Tools | Diagnostics | ask_user
 
-Multi-turn: runtime.chat() -> ChatSession -> send() / stream()
-Team:       runtime.team(mode="shared"|"session") -> shared conversation or independent sessions
-Pipeline:   runtime.chain([ChainStep, ...]) -> sequential run() with auto context
+Multi-turn:    runtime.chat() -> ChatSession -> send() / stream()
+Multi-agent:   runtime.collaborate() -> AgentPool (user controls who speaks
+               and when; runtime provides shared infra). runtime.team() is
+               deprecated.
+Pipeline:      runtime.chain([ChainStep, ...]) -> sequential run() with auto context
+Batch:         runtime.run_batch([tasks], concurrency=...) -> list[BatchResult]
 
 V1 path (still compatible):
             -> Agent + AdaptivePolicy (runtime/agent.py)
@@ -97,7 +100,7 @@ V1 path (still compatible):
 - `context.py`: `ContextBlock`, `ContextBudget`, `ContextDecision` -- working set context
 - `diagnosis.py`: `DiagnosticBrief`, `ErrorCategory` -- structured error recovery
 - `llm.py`: `LLMRequest`, `LLMResponse`, `ModelConfig`, `ContentBlock` -- unified LLM interface
-- `tool.py`: `ToolSpec`, `ToolCall`, `ToolResult`, `ASK_USER_TOOL_NAME` -- tool execution contracts
+- `tool.py`: `ToolSpec`, `ToolCall`, `ToolResult`, `ToolError`, `ToolErrorCategory`, `SideEffect`, `ASK_USER_TOOL_NAME` -- tool execution contracts. `ToolErrorCategory` drives retry policy (only TRANSPORT/TIMEOUT/RATE_LIMIT retry); `SideEffect` drives batch dispatch (write tools serialize)
 - `channel.py`: `ExecutionChannel` -- protocol for Brain/Hands communication separation
 - `state.py`: `AgentState` -- execution state with budget tracking
 - `runtime.py`: Runtime configuration and turn state
@@ -230,11 +233,40 @@ Runtime methods also include:
 
 ## Constitution
 
-`CONSTITUTION.md` -- v2, 8 principles (was 7). Defines the four prohibitions, the division of responsibility (LLM vs runtime vs user), and the contributor compact. Key additions in v2: Principle 8 (agent autonomy in collaboration), expanded Chapter IV (user role, user optionality rules).
+`CONSTITUTION.md` -- v3.2, **nine principles** plus the **four prohibitions**
+(No Premature Structuring · No Controllability Theater · No Context Hoarding ·
+No Mechanical Retry). Defines the division of responsibility between LLM,
+runtime, and user, and the contributor compact. The PR-level constitutional
+checklist lives at `.github/pull_request_template.md` and a full set of
+runtime-enforced invariants lives at `tests/test_constitutional_invariants.py`
+(13 tests covering side-effect dispatch, ask_user non-blocking, cognitive
+opt-in, structured-output / tool coexistence, and the No-Mechanical-Retry
+contract).
 
 ## Project Status
 
-Current: v0.4.0 -- 1227 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback, parsed always BaseModel|None), multimodal input, fidelity-graded context compression (L0-L3 spectrum), ask_user, multi-turn chat (ChatSession delegates to ConversationAgent), pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping (chain-level + step-level), batch API (run_batch + provider batch_generate), Anthropic structured output, system prompt on run(), Runtime event hooks (on/off), arcana init CLI scaffold, ChatSession max_history, provider connection lifecycle, cancellation safety, ProviderProfile with auto-degradation, custom provider registration, StreamAccumulator, LazyToolRegistry token caching.
+Current: v0.8.2 -- 1467 tests passing. Major features:
+
+- V2 default engine: parallel tools (read concurrent, write sequential by
+  side-effect), prompt caching, thinking-informed assessment, structured
+  output that coexists with tools, multimodal input, fidelity-graded
+  context compression (L0-L3), ask_user with graceful fallback, opt-in
+  cognitive primitives (`recall` / `pin` / `unpin` shipped;
+  `branch` / `anchor` / `hint` are roadmap)
+- Multi-turn chat (`ChatSession` delegates to `ConversationAgent`)
+- `runtime.collaborate()` for user-controlled multi-agent orchestration
+  (`runtime.team()` is deprecated)
+- Pipelines with parallel branches (`runtime.chain()`)
+- Batch API (`runtime.run_batch()` + provider `batch_generate()`)
+- `ToolErrorCategory` (TRANSPORT / TIMEOUT / RATE_LIMIT / VALIDATION /
+  PERMISSION / LOGIC / CONFIRMATION_REQUIRED / UNEXPECTED) drives retry
+  policy — only the first three categories are eligible for the gateway's
+  retry loop
+- Per-run provider/model selection, budget scoping (chain + step level),
+  Runtime event hooks, `arcana init` CLI scaffold, `ChatSession.max_history`,
+  provider connection lifecycle, cancellation safety, `ProviderProfile`
+  with auto-degradation, custom provider registration, `StreamAccumulator`,
+  `LazyToolRegistry` token caching
 
 ## Learning Resources
 
