@@ -2,17 +2,26 @@
 
 ## The Arcana Constitution
 
-Every contribution must align with the [CONSTITUTION.md](CONSTITUTION.md). Before submitting a PR, check:
+Every contribution must align with [`CONSTITUTION.md`](CONSTITUTION.md): nine
+principles, four prohibitions, and a clear division of responsibility between
+the LLM, the runtime, and the user. Read it before your first PR.
 
-1. Does this help the LLM or restrict it?
-2. Does it add a translation layer the LLM doesn't need?
-3. Does it keep the context window clean?
-4. Does it allow strategy leaps?
-5. Does it provide actionable feedback on errors?
-6. Is the runtime serving the LLM or controlling it?
-7. Does it evaluate results or process?
+The constitutional compliance checklist lives in
+[`.github/pull_request_template.md`](.github/pull_request_template.md) — the
+template is opened automatically when you create a PR. Fill it out honestly;
+it is the source of truth, not this file.
 
-If a change fails any of these checks, it needs redesign.
+For quick orientation, every change should answer "yes" to the same set of
+questions:
+
+- Does it help the LLM, or restrict it?
+- Does it keep the context window honest (no hoarding, no surface bloat)?
+- Does it leave strategy decisions to the LLM, with the runtime providing
+  services rather than dictating steps?
+- Does it provide actionable feedback on errors instead of mechanical retry?
+- Does it judge outcomes, not process?
+
+If a change fails any of these, it needs redesign — not a workaround.
 
 ## Development Setup
 
@@ -75,11 +84,14 @@ V1 (Agent + Policy) and V2 (ConversationAgent) coexist. Don't break V1 to improv
 ## Pull Request Process
 
 1. Fork and create a feature branch
-2. Write tests first
+2. Write tests first — including a constitutional invariant test in
+   `tests/test_constitutional_invariants.py` if you're touching a load-bearing
+   contract (tool dispatch, retry policy, ask_user, cognitive primitives,
+   structured output, etc.)
 3. Implement
-4. Run the 7-question self-check above
-5. `uv run pytest && uv run ruff check .`
-6. Submit PR with clear description
+4. `uv run pytest && uv run ruff check . && uv run mypy src/`
+5. Submit PR — fill in the constitutional checklist in the auto-opened
+   template
 
 ## Code Style
 

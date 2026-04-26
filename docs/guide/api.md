@@ -1,10 +1,23 @@
 # API Reference
 
-This document covers the complete public API of the `arcana` package -- everything
+This document covers the complete public API of the `arcana` package — everything
 exported from `import arcana`. Internal modules, private helpers, and contract
 sub-types are intentionally omitted.
 
-Version: 0.2.0
+---
+
+## Choosing an API — three tiers
+
+Arcana exposes a wide surface. Most users only need the **primary** tier. The
+others exist for explicit workflows or for backward compatibility.
+
+| Tier | Use when | Methods |
+|------|----------|---------|
+| **Primary** | One-shot tasks, conversational sessions, multi-agent collaboration where you control the orchestration. | `arcana.run()` · `Runtime.run()` · `Runtime.chat()` · `Runtime.collaborate()` |
+| **Structured workflows** | The work has a fixed shape — a pipeline of dependent steps, a state machine with branches, or many independent tasks at once. | `Runtime.chain()` · `Runtime.graph()` · `Runtime.run_batch()` |
+| **Legacy / compatibility** | You're maintaining code that predates the V2 engine, or you need the old multi-agent shape. **Not the recommended path for new code.** | `Runtime.team()` (use `collaborate()` instead) · `engine="adaptive"` (use the default `"conversation"`) |
+
+Detailed signatures for each method appear in their sections below.
 
 ---
 
@@ -292,7 +305,37 @@ async with runtime.session() as s:
     print(s.budget.to_snapshot())
 ```
 
+#### `Runtime.collaborate()`
+
+Open an `AgentPool` for multi-agent collaboration. Returns an async context
+manager. Inside the pool, each agent is an independent `ChatSession`; user
+code controls who speaks, what they read, and when the collaboration ends.
+The runtime provides shared infrastructure (channel, shared context, shared
+budget) but never imposes a planner/executor topology.
+
+```python
+async with runtime.collaborate() as pool:
+    architect = pool.spawn("architect", prompt="...")
+    reviewer = pool.spawn("reviewer", prompt="...")
+
+    plan = await architect.send("design X")
+    feedback = await reviewer.send(f"review: {plan.text}")
+```
+
+See [`docs/guide/multi-agent.md`](./multi-agent.md) for the full
+collaboration guide, including shared context, message-bus patterns, and
+per-agent cognitive-primitive opt-in.
+
+This is the **primary** multi-agent API. The older `Runtime.team()` is
+deprecated.
+
 #### `Runtime.team()`
+
+> **Deprecated.** Prefer [`Runtime.collaborate()`](#runtimecollaborate), which
+> hands control of multi-agent orchestration to user code (who speaks, what
+> they read, when to stop) rather than running a fixed shared-conversation
+> loop. `team()` is retained for backward compatibility and emits a
+> `DeprecationWarning`. New code should not use it.
 
 Run a team of agents on a shared goal. Each agent gets its own system prompt and
 takes turns in a shared conversation. The runtime manages resource isolation,
