@@ -95,8 +95,8 @@ bumps; new optional fields with defaults are minor bumps.
 | `arcana.contracts.tool` | `ToolSpec`, `ToolCall`, `ToolResult`, `ToolError`, `ToolErrorCategory`, `SideEffect`, `ASK_USER_TOOL_NAME` |
 | `arcana.contracts.llm` | `Message`, `MessageRole`, `LLMRequest`, `LLMResponse`, `ContentBlock`, `ModelConfig` |
 | `arcana.contracts.turn` | `TurnFacts`, `TurnAssessment` |
-| `arcana.contracts.context` | `ContextBlock`, `ContextBudget`, `ContextDecision`, `MessageDecision`, `ContextReport`, `ContextStrategy` |
-| `arcana.contracts.diagnosis` | `DiagnosticBrief`, `ErrorCategory` |
+| `arcana.contracts.context` | `ContextBlock`, `ContextDecision`, `MessageDecision`, `ContextReport`, `ContextStrategy`, `ContextLayer`, `TokenBudget`, `WorkingSet`, `StepContext` |
+| `arcana.contracts.diagnosis` | `ErrorDiagnosis`, `ErrorCategory`, `ErrorLayer`, `RecoveryStrategy` |
 | `arcana.contracts.streaming` | `StreamEvent`, `StreamEventType` |
 | `arcana.contracts.runtime` | `RuntimeConfig` |
 | `arcana.contracts.cognitive` | `RecallRequest`, `RecallResult`, `PinRequest`, `PinResult`, `UnpinRequest`, `UnpinResult`, `PinEntry`, `PinState` |

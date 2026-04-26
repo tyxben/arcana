@@ -97,8 +97,8 @@ V1 path (still compatible):
 **contracts/** - All data models:
 - `turn.py`: `TurnFacts`, `TurnAssessment` -- the V2 separation principle
 - `routing.py`: `RoutingDecision`, `IntentCategory` -- intent classification
-- `context.py`: `ContextBlock`, `ContextBudget`, `ContextDecision` -- working set context
-- `diagnosis.py`: `DiagnosticBrief`, `ErrorCategory` -- structured error recovery
+- `context.py`: `ContextBlock`, `TokenBudget`, `ContextDecision` -- working set context
+- `diagnosis.py`: `ErrorDiagnosis`, `ErrorCategory` -- structured error recovery
 - `llm.py`: `LLMRequest`, `LLMResponse`, `ModelConfig`, `ContentBlock` -- unified LLM interface
 - `tool.py`: `ToolSpec`, `ToolCall`, `ToolResult`, `ToolError`, `ToolErrorCategory`, `SideEffect`, `ASK_USER_TOOL_NAME` -- tool execution contracts. `ToolErrorCategory` drives retry policy (only TRANSPORT/TIMEOUT/RATE_LIMIT retry); `SideEffect` drives batch dispatch (write tools serialize)
 - `channel.py`: `ExecutionChannel` -- protocol for Brain/Hands communication separation
