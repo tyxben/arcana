@@ -2331,6 +2331,26 @@ class ChatSession:
         """Unique identifier for this chat session."""
         return self._session_id
 
+    @property
+    def turn_count(self) -> int:
+        """Number of completed send() turns in this session.
+
+        Incremented at the start of each ``send()``; not affected by
+        ``seed_history()`` (the seed is pre-existing history, not a
+        turn this session executed).
+        """
+        return self._turn_count
+
+    @property
+    def max_history(self) -> int | None:
+        """Configured non-system message retention limit, or ``None`` if unlimited.
+
+        Mirrors the constructor's ``max_history`` argument. ``None`` (default)
+        retains unlimited history; an integer caps non-system messages and
+        triggers trimming inside ``send()``.
+        """
+        return self._max_history
+
     def seed_history(
         self,
         messages: list[Message] | list[dict[str, Any]],

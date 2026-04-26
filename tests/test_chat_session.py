@@ -521,6 +521,25 @@ class TestChatSessionExports:
         assert "ConversationAgent" in conv.__all__
 
 
+class TestChatSessionPublicProperties:
+    """Public read-only state on ChatSession (stability surface)."""
+
+    def test_turn_count_starts_at_zero(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        assert session.turn_count == 0
+
+    def test_max_history_defaults_to_none(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt)
+        assert session.max_history is None
+
+    def test_max_history_reflects_constructor(self):
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt, max_history=5)
+        assert session.max_history == 5
+
+
 class TestChatSessionSeedHistory:
     """Cold-start history injection via the public ``seed_history`` API."""
 
@@ -617,7 +636,7 @@ class TestChatSessionSeedHistory:
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "hello"},
         ])
-        assert session._turn_count == 0  # turns count execution, not history
+        assert session.turn_count == 0  # turns count execution, not history
 
     def test_emits_history_seeded_trace_event(self):
         from arcana.contracts.trace import EventType

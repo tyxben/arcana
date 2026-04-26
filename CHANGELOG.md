@@ -89,6 +89,16 @@ through six releases while `pyproject.toml` was correctly bumped each
 time. `import arcana; print(arcana.__version__)` now returns the
 current version.
 
+#### Fixed — `ChatSession.turn_count` / `max_history` were docs-only
+
+`docs/guide/stability.md` and the `ChatSession.seed_history` docstring
+both referenced `session.turn_count` and `session.max_history` as
+public surface, but neither was a real attribute — only the private
+`_turn_count` / `_max_history` existed. Discovered during a §3.3
+post-merge audit (any new feature should round-trip its own docs).
+Added both as read-only properties wrapping the existing internal
+state. Additive, no user could have been affected.
+
 #### Added — PR template "Public Surface Impact" section (§3.4)
 
 Every PR now answers: does it touch a name on the stability list, and
