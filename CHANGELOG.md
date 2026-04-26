@@ -69,6 +69,26 @@ import Message`) still work for backward compatibility but are no
 longer advertised; `from arcana.runtime.conversation import *` will
 now only yield `ConversationAgent`.
 
+#### Added — `docs/guide/stability.md` (§3.3)
+
+User-facing distillation of `specs/v1.0.0-stability.md` §1–2. Tells
+users which Arcana imports are stability-promised and which are not,
+includes the asymmetric cases (e.g. `arcana.contracts.*` is stable
+under a sub-package; `arcana.runtime.conversation.Message` is *not*
+stable even though it works today), summarises the post-v1.0.0
+versioning rules, and explains the deprecation policy.
+
+External feedback (Roboot, 2026-04) flagged that "what is stable" was
+only knowable by reading source. This guide closes that loop. Linked
+in `mkdocs.yml` nav under Guide → API Stability.
+
+#### Fixed — `arcana.__version__` drift
+
+`arcana.__version__` was last updated at v0.3.1 and silently drifted
+through six releases while `pyproject.toml` was correctly bumped each
+time. `import arcana; print(arcana.__version__)` now returns the
+current version.
+
 ### v0.9.0 — "The Tool Boundary Release"
 
 Two changes that together turn Prohibition 4 (No Mechanical Retry) and

@@ -37,6 +37,7 @@ nav:
     - Cognitive Primitives: guide/cognitive-primitives.md
     - Multi-Agent Collaboration: guide/multi-agent.md
     - Debugging with Trace: guide/trace.md
+    - API Stability: guide/stability.md
   - Examples: examples/index.md
   - API Reference:
     - Overview: api/index.md
