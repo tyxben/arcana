@@ -36,3 +36,7 @@ site/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local agent tooling (Claude Code worktrees/settings, plugin caches)
+.claude/
+.cache/
