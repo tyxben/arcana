@@ -99,6 +99,27 @@ post-merge audit (any new feature should round-trip its own docs).
 Added both as read-only properties wrapping the existing internal
 state. Additive, no user could have been affected.
 
+#### Added — `tests/test_stability_surface.py` (CI guard)
+
+The same import-everything audit that caught `DiagnosticBrief` /
+`ContextBudget` and `ChatSession.turn_count` is now a pytest module
+with 14 parametrized cases. Every name listed in
+`docs/guide/stability.md` round-trips through `hasattr` /
+`importlib.import_module`. Includes:
+
+- Top-level `arcana.*` (Runtime / Budget / Message / etc.)
+- `arcana.__version__` is set and looks current
+- `Runtime` methods (run / chat / chain / collaborate / ...)
+- `ChatSession` public surface — **two-directional**: documented
+  names must exist AND every public attribute must be documented
+  (catches accidental public exposure of internals)
+- Each `arcana.contracts.*` module's claimed name set
+- §3.2 invariant: `arcana.runtime.conversation.__all__` excludes
+  `Message` / `MessageRole`
+
+If anyone removes a stable name or adds public surface without
+updating the docs, the test fails before the PR can land.
+
 #### Added — PR template "Public Surface Impact" section (§3.4)
 
 Every PR now answers: does it touch a name on the stability list, and
