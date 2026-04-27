@@ -4,12 +4,13 @@ All notable changes to Arcana will be documented in this file.
 
 ## [Unreleased]
 
-### Pre-v1.0.0 stability work
+_No changes yet._
 
-Tracked under `specs/v1.0.0-stability.md`. Each item below is non-
-breaking and ships to users in a v0.9.x patch release as it lands.
+## [0.10.0] - 2026-04-27 — "Pre-v1.0.0 Stability"
 
-#### Added — `ChatSession.seed_history()` (§3.1)
+All items in this release are non-breaking and trace back to `specs/v1.0.0-stability.md`. They round out the public surface and migration scaffolding ahead of v1.0.0. No deprecations.
+
+### Added — `ChatSession.seed_history()` (§3.1)
 
 `ChatSession.seed_history(messages)` injects prior conversation
 messages into a session at cold start — restoring a chatbot from
@@ -34,13 +35,13 @@ to do something every chatbot needs.
   (16-char canonical hash), and `message_count_after`. Auditability
   (Principle 5) is restored — the seed is not invisible.
 
-#### Added — `EventType.HISTORY_SEEDED`
+### Added — `EventType.HISTORY_SEEDED`
 
 New `arcana.contracts.trace.EventType` member for session-lifecycle
 audit. Backward compatible: existing event consumers ignore unknown
 event types.
 
-#### Added — `arcana.Message` / `arcana.MessageRole` top-level (§3.2)
+### Added — `arcana.Message` / `arcana.MessageRole` top-level (§3.2)
 
 `Message` and `MessageRole` are now re-exported at the top of the
 `arcana` package, alongside `Runtime`, `Budget`, `ChatSession`, etc.
@@ -59,7 +60,7 @@ from arcana.contracts.llm import Message, MessageRole
 from arcana.runtime.conversation import Message  # internal import
 ```
 
-#### Cleanup — `arcana.runtime.conversation.__all__` (§3.2)
+### Cleanup — `arcana.runtime.conversation.__all__` (§3.2)
 
 `arcana.runtime.conversation` now declares `__all__ = ["ConversationAgent"]`.
 The module's docstring explicitly notes that `Message` / `MessageRole`
@@ -69,7 +70,7 @@ import Message`) still work for backward compatibility but are no
 longer advertised; `from arcana.runtime.conversation import *` will
 now only yield `ConversationAgent`.
 
-#### Added — `docs/guide/stability.md` (§3.3)
+### Added — `docs/guide/stability.md` (§3.3)
 
 User-facing distillation of `specs/v1.0.0-stability.md` §1–2. Tells
 users which Arcana imports are stability-promised and which are not,
@@ -82,14 +83,14 @@ External feedback (Roboot, 2026-04) flagged that "what is stable" was
 only knowable by reading source. This guide closes that loop. Linked
 in `mkdocs.yml` nav under Guide → API Stability.
 
-#### Fixed — `arcana.__version__` drift
+### Fixed — `arcana.__version__` drift
 
 `arcana.__version__` was last updated at v0.3.1 and silently drifted
 through six releases while `pyproject.toml` was correctly bumped each
 time. `import arcana; print(arcana.__version__)` now returns the
 current version.
 
-#### Fixed — `ChatSession.turn_count` / `max_history` were docs-only
+### Fixed — `ChatSession.turn_count` / `max_history` were docs-only
 
 `docs/guide/stability.md` and the `ChatSession.seed_history` docstring
 both referenced `session.turn_count` and `session.max_history` as
@@ -99,7 +100,7 @@ post-merge audit (any new feature should round-trip its own docs).
 Added both as read-only properties wrapping the existing internal
 state. Additive, no user could have been affected.
 
-#### Added — Provider tool-calling hints (§3.5a + §3.5b)
+### Added — Provider tool-calling hints (§3.5a + §3.5b)
 
 A user-controlled slot for "extra prompt scaffolding when this provider
 is invoked with tools bound". Implements the constitutional middle
@@ -110,7 +111,7 @@ and "users re-discover the same workarounds across every project"
 
 Decomposed into infrastructure (3.5a, code) and content (3.5b, docs):
 
-##### 3.5a — `RuntimeConfig.tool_calling_hint{,s}` slot
+#### 3.5a — `RuntimeConfig.tool_calling_hint{,s}` slot
 
 - `RuntimeConfig.tool_calling_hint: str | None = None` — global default
 - `RuntimeConfig.tool_calling_hints: dict[str, str] = {}` — per-provider
@@ -130,7 +131,7 @@ Decomposed into infrastructure (3.5a, code) and content (3.5b, docs):
   (run / chat / chain).
 - Default empty: zero behaviour change for existing users.
 
-##### 3.5b — `docs/guide/providers.md` "Tool-Calling Hints" section
+#### 3.5b — `docs/guide/providers.md` "Tool-Calling Hints" section
 
 Per-provider observed quirks plus suggested hint text users can copy
 into their `tool_calling_hints`. Updated as docs (not code), so
@@ -139,7 +140,7 @@ Explicitly notes that GLM-4-flash benefits from a hint (the original
 Roboot feedback case); OpenAI / Anthropic / DeepSeek / Gemini / Kimi
 generally do not need one.
 
-##### Constitutional rationale
+#### Constitutional rationale
 
 - Principle 4 (Strategy Leaps): framework provides plumbing (the slot
   + the rendering rule); user owns content. No framework opinion on
@@ -164,7 +165,7 @@ order (after leading system blocks / at start when no leading system /
 original prompt unchanged), the "no framework default" invariant
 across six providers, and the `RuntimeConfig` plumbing path.
 
-#### Added — `tests/test_stability_surface.py` (CI guard)
+### Added — `tests/test_stability_surface.py` (CI guard)
 
 The same import-everything audit that caught `DiagnosticBrief` /
 `ContextBudget` and `ChatSession.turn_count` is now a pytest module
@@ -185,7 +186,7 @@ with 14 parametrized cases. Every name listed in
 If anyone removes a stable name or adds public surface without
 updating the docs, the test fails before the PR can land.
 
-#### Added — PR template "Public Surface Impact" section (§3.4)
+### Added — PR template "Public Surface Impact" section (§3.4)
 
 Every PR now answers: does it touch a name on the stability list, and
 if so is the change additive or breaking? Breaking changes require a
@@ -194,7 +195,6 @@ Non-breaking additive changes are tagged "minor bump candidate" so
 the release roll-up captures them. Encodes the practice that started
 with v0.9.0's `ToolErrorCategory` migration recipe; no longer relies
 on the contributor remembering.
-
 ## [0.9.0] - 2026-04-26 — "The Tool Boundary Release"
 
 Two changes that together turn Prohibition 4 (No Mechanical Retry) and
