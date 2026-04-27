@@ -195,7 +195,7 @@ the release roll-up captures them. Encodes the practice that started
 with v0.9.0's `ToolErrorCategory` migration recipe; no longer relies
 on the contributor remembering.
 
-### v0.9.0 — "The Tool Boundary Release"
+## [0.9.0] - 2026-04-26 — "The Tool Boundary Release"
 
 Two changes that together turn Prohibition 4 (No Mechanical Retry) and
 Principle 6 (Runtime is an OS, not a Form Engine) from advisory into
@@ -207,7 +207,7 @@ Both are breaking on user code that imported the old `ErrorType` enum or
 read `ToolError.error_type`. Migration recipe is at the bottom of this
 section.
 
-#### Changed — Tool error contract (BREAKING)
+### Changed — Tool error contract (BREAKING)
 - **`arcana.contracts.tool.ErrorType` → `ToolErrorCategory`** — renamed
   and re-purposed. The old binary `RETRYABLE` / `NON_RETRYABLE` /
   `REQUIRES_HUMAN` axis conflated retry policy with error semantics;
@@ -224,7 +224,7 @@ section.
   forgiveness for flap; more starts to mask real problems. Pass
   `max_retries=3` explicitly if you depended on the old default.
 
-#### Changed — Tool execution dispatch
+### Changed — Tool execution dispatch
 - **`ToolGateway.call_many_concurrent` now batches by `SideEffect`** —
   read-side tools (`SideEffect.READ` / `SideEffect.PURE`) run
   concurrently as before. Write-side tools (`SideEffect.WRITE` /
@@ -232,7 +232,7 @@ section.
   semantics at the gateway boundary instead of asking tool authors not
   to race each other.
 
-#### Added — Constitutional invariant tests
+### Added — Constitutional invariant tests
 - **`tests/test_constitutional_invariants.py`** — 13 tests covering the
   side-effect dispatch contract, `ask_user` non-blocking, cognitive-
   primitive opt-in, structured-output / tool coexistence, and the
@@ -240,12 +240,12 @@ section.
   the Prohibition list; if any of them fail, the runtime is no longer
   constitutional.
 
-#### Added — Strict typing gate
+### Added — Strict typing gate
 - **`mypy --strict src/` is now a CI gate** — full strict mode passes.
   Run `uv run mypy src/` locally; CI blocks PRs that introduce `Any`
   leakage or untyped surfaces.
 
-#### Docs
+### Docs
 - `docs/architecture.md` rewritten for V2 `ConversationAgent`. The V1-
   centric narrative is archived under `docs/legacy/`.
 - `CONSTITUTION.md` v3.2 — corrects principle count (8 → 9 after v3.0
@@ -254,7 +254,7 @@ section.
 - `docs/guide/api-tiers.md` — overview of the run / chat / chain /
   collaborate / batch tier.
 
-#### Migration
+### Migration
 - `from arcana.contracts.tool import ErrorType` →
   `from arcana.contracts.tool import ToolErrorCategory`
 - `tool_error.error_type` → `tool_error.category`
@@ -262,13 +262,13 @@ section.
   most likely `ToolErrorCategory.TRANSPORT` or `ToolErrorCategory.TIMEOUT`.
 - If you relied on `ToolSpec.max_retries=3` default, pass it explicitly.
 
-### v0.8.2 — Bounded caches for long-running runtimes
+## [0.8.2] - 2026-04-25 — "Bounded caches for long-running runtimes"
 
 Two memory leaks for long-running runtimes. v0.8.1 caught the first
 class of leak in `Channel`; v0.8.2 closes the same shape in `MessageBus`
 and a separate leak in `ToolGateway`'s idempotency cache.
 
-#### Bounded `MessageBus` history + queue drain
+### Bounded `MessageBus` history + queue drain
 
 `TeamOrchestrator` owns a single `MessageBus` instance that is reused
 across every `run()` call. The orchestrator never calls `subscribe()`,
@@ -298,7 +298,7 @@ intentionally not bounded here — they are driven by the consumer's
 `receive()` calls and an agent registered but never drained is a
 consumer bug, not a retention bug.
 
-#### Bounded `ToolGateway` idempotency cache
+### Bounded `ToolGateway` idempotency cache
 
 `ToolGateway._idempotency_cache` grew unboundedly for the lifetime of
 the owning `Runtime` and was never cleared on teardown. Any long-running
@@ -323,7 +323,7 @@ The `1024` default is the behaviour change: a caller with more than
 retention. Pass `idempotency_cache_limit=None` to restore the old
 behaviour — but note that was always a leak in long-running processes.
 
-### v0.8.1 — "Trace You Can Actually Debug With"
+## [0.8.1] - 2026-04-22 — "Trace You Can Actually Debug With"
 
 Principle 5 (auditability) has always been Arcana's load-bearing promise.
 v0.8.1 turns the trace from a dump of events into a first-class debugging
@@ -333,7 +333,7 @@ single dev-mode switch that makes every turn fully replayable offline.
 Also includes a previously-staged memory-leak fix for long-running pools
 (bounded channel history).
 
-#### Added — Trace debugging
+### Added — Trace debugging
 
 - **`arcana trace explain <run_id> --turn N`** — single-turn full story.
   One screen that joins *what went in* (curated messages, prompt
@@ -356,7 +356,7 @@ Also includes a previously-staged memory-leak fix for long-running pools
   forcing ops-facing users to opt into PII-bearing snapshots. Explicit
   per-flag overrides still take precedence when already True.
 
-#### Added — Trace schema (backward compatible)
+### Added — Trace schema (backward compatible)
 - **`TraceEvent.parent_step_id: str | None = None`** — causal link. For
   a single LLM turn, `CONTEXT_DECISION` / `PROMPT_SNAPSHOT` /
   `COGNITIVE_PRIMITIVE` / `TOOL_CALL` events all share the turn's
@@ -372,13 +372,12 @@ Also includes a previously-staged memory-leak fix for long-running pools
   tool calls, cognitive primitives, errors) via the parent link. The
   primitive behind `trace explain`; usable directly from Python.
 
-### v0.8.1 — Bounded channel history
+### Added — Bounded channel history (memory leak fix)
 
 Long-running `AgentPool`s retained every `Channel` message forever, which
 turned the pool into a slow memory leak for daemon-style usage. v0.8.1
 adds an opt-in bound.
 
-#### Added
 - **`Channel(history_limit=N)`** in `arcana.multi_agent.channel`. ``None``
   (default) keeps unbounded history — pre-v0.8.1 behaviour. ``int >= 0``
   retains at most ``N`` past messages; ``0`` disables history retention
@@ -389,7 +388,7 @@ adds an opt-in bound.
   **`runtime.collaborate(channel_history_limit=N)`** — plumb the new knob
   through so users can set it at the entry point they actually use.
 
-#### Scope — what is *not* bounded
+**Scope — what is *not* bounded:**
 - Per-agent delivery queues (``asyncio.Queue`` per registered agent) are
   driven by the consumer's ``receive()`` calls. An agent that is
   registered but never receives will still grow its queue; that is a
@@ -415,7 +414,7 @@ adds an opt-in bound.
   "shared")`'s rounds counter and fixed turn order are the exact topology
   the amendment rules out, so a shim would keep the violation alive.
 
-### v0.8.0 — "The Collaborative Cognition Release"
+## [0.8.0] - 2026-04-19 — "The Collaborative Cognition Release"
 
 Multi-agent pools where each member is an independent cognitive instance.
 Extends v0.7.0 primitives to pool settings without adding orchestration —
@@ -423,7 +422,7 @@ Principle 8 still holds, there is no graph DSL, no turn scheduler, no role
 hierarchy. See the user guide at `docs/guide/multi-agent.md` and the spec
 at `specs/v0.8.0-collaborative-cognition.md`.
 
-#### Added — Multi-agent infrastructure
+### Added — Multi-agent infrastructure
 - **`runtime.collaborate(budget?, cognitive_primitives?)`** — returns an
   `AgentPool`. Sync factory; the pool itself is an async context manager
   (`async with runtime.collaborate() as pool`). No `await` on the factory.
@@ -440,7 +439,7 @@ at `specs/v0.8.0-collaborative-cognition.md`.
   sessions, drains the channel, and clears shared state. No orchestration
   actions (no auto-summaries, no strategy decisions).
 
-#### Added — Per-agent cognitive primitives
+### Added — Per-agent cognitive primitives
 - **Per-agent `cognitive_primitives` override** on both
   `runtime.collaborate(...)` (pool default) and `pool.add(...)`
   (per-agent override). Resolution: per-agent explicit → pool default →
@@ -455,7 +454,7 @@ at `specs/v0.8.0-collaborative-cognition.md`.
   that collides with an active cognitive primitive is rejected instead
   of silently shadowed (Principle 5).
 
-#### Added — Pool-aware trace + CLI
+### Added — Pool-aware trace + CLI
 - **`metadata["source_agent"]`** — every `TraceEvent` emitted during a
   pool run carries the originating agent's name in the existing
   `metadata` dict. The `TraceEvent` schema itself is unchanged, so
@@ -471,7 +470,7 @@ at `specs/v0.8.0-collaborative-cognition.md`.
   `[source_agent]` tag when present; makes interleaved pool traces
   readable at a glance.
 
-#### Added — Contracts
+### Added — Contracts
 - New `arcana.contracts.multi_agent.ChannelMessage` — immutable
   (`model_config = ConfigDict(frozen=True)`) so the single instance
   `Channel.send` fans out to all recipients cannot be mutated in place
@@ -479,12 +478,12 @@ at `specs/v0.8.0-collaborative-cognition.md`.
   to derive a modified message.
 - `MessageType.CHAT` — added for default `ChannelMessage` classification.
 
-#### Changed — Deprecations
+### Changed — Deprecations
 - **`runtime.team()` is deprecated** (emits `DeprecationWarning`). Use
   `runtime.collaborate()` instead. See the migration recipe at the bottom
   of `docs/guide/multi-agent.md`. Scheduled for removal in v1.0.0.
 
-#### Fixed — Pre-release bug fixes (from uncommitted v0.7.x pool work)
+### Fixed — Pre-release bug fixes (from uncommitted v0.7.x pool work)
 - **Bug: `Runtime.collaborate()` was `async def`** — the documented
   `async with runtime.collaborate() as pool` pattern failed with
   `TypeError: 'coroutine' object does not support the asynchronous
@@ -496,7 +495,7 @@ at `specs/v0.8.0-collaborative-cognition.md`.
   bled across the others. `ChannelMessage` is now frozen; the shared
   instance is safe to fan out. Regression tests cover both bugs.
 
-#### Constitutional guard (explicitly NOT done)
+### Constitutional guard (explicitly NOT done)
 - No graph DSL, no `StateGraph`-equivalent for multi-agent flows.
 - No turn scheduler. Who talks when is user code (`async for` / `if` /
   `await`).
@@ -506,14 +505,14 @@ at `specs/v0.8.0-collaborative-cognition.md`.
   populate agent B's state; explicit `pool.shared.set(...)` remains the
   only intentional hand-off.
 
-### v0.7.0 — "The Cognitive Primitives Release"
+## [0.7.0] - 2026-04-18 — "The Cognitive Primitives Release"
 
 Runtime services for the LLM's own reasoning state. The LLM can now invoke
 two intercepted tools — `recall` and `pin` (with companion `unpin`) — to
 work around the lossiness of working-set compression. See the user guide at
 `docs/guide/cognitive-primitives.md` and Principle 9 in `CONSTITUTION.md`.
 
-#### Added — Cognitive primitives
+### Added — Cognitive primitives
 - **`recall(turn, include?)`** — retrieve an earlier turn's messages at
   full fidelity, bypassing any working-set compression. Supports
   `include="all"` (default) / `"assistant_only"` / `"tool_calls"` filters.
@@ -542,12 +541,12 @@ work around the lossiness of working-set compression. See the user guide at
 - **`EventType.COGNITIVE_PRIMITIVE`** — every primitive invocation emits
   a trace event with `{primitive, args, result}` metadata.
 
-#### Added — Contracts
+### Added — Contracts
 - New module `arcana.contracts.cognitive` — `RecallRequest/Result`,
   `PinRequest/Result`, `UnpinRequest/Result`, `PinEntry`, `PinState`.
 - `ContextBlock.pinned: bool = False` — per-block flag.
 
-#### Added — Runtime
+### Added — Runtime
 - `arcana.runtime.cognitive.CognitiveHandler` — session-local handler
   that owns `PinState` and services interception, wired into
   `ConversationAgent._execute_tools` via the same mechanism as `ask_user`.
@@ -555,7 +554,7 @@ work around the lossiness of working-set compression. See the user guide at
   pin state so active pins are rendered as independent messages in every
   working set build.
 
-#### Added — CLI
+### Added — CLI
 - `arcana trace show <run_id> --cognitive` — filter to
   `COGNITIVE_PRIMITIVE` events with human-readable formatting per primitive.
 - `arcana trace show <run_id> --context` — pinned entries are now flagged
@@ -563,12 +562,12 @@ work around the lossiness of working-set compression. See the user guide at
 - `arcana trace replay <run_id> --turn N` — appends an *Active pins at
   turn N* section reconstructed from the run's cognitive events.
 
-#### Added — Documentation
+### Added — Documentation
 - New user guide: `docs/guide/cognitive-primitives.md`.
 - `CONSTITUTION.md` v3.0 — Principle 9 (Cognitive Primitives as Services)
   and two Chapter IV entries.
 
-#### Constitutional guard (explicitly NOT done)
+### Constitutional guard (explicitly NOT done)
 - Framework does not call a primitive on the LLM's behalf; every
   invocation is an explicit LLM tool call with a `tool_call_id` and trace
   record.
@@ -578,20 +577,20 @@ work around the lossiness of working-set compression. See the user guide at
 - Default-off: empty `cognitive_primitives` list means zero behavioural
   change over v0.6.0.
 
-#### Stats
+### Stats
 - 1368 tests passing (+31 new): `test_cognitive_recall.py` (11) +
   `test_cognitive_pin.py` (19) + `test_context_decision_evidence.py` (+1
   pinned-block case).
 
-### v0.6.0 — "The Explainability Release"
+## [0.6.0] - 2026-04-17 — "The Explainability Release"
 
-#### Added — Context Explainability
+### Added — Context Explainability
 - **`MessageDecision` contract**: Structured per-message evidence for every context composition. Records index / role / outcome (kept / compressed / dropped / summarized) / fidelity level (L0–L3) / relevance score / token counts before/after / reason. One entry per input message.
 - **`ContextDecision.decisions`**: Authoritative list of `MessageDecision` replacing the free-text-only explanation. Covers all 5 strategy paths (passthrough, tail_preserve head/tail/middle, aggressive_truncate, LLM summarize, no-summary-budget).
 - **Stale tool result pruning visibility**: `_prune_stale_tool_results` now returns `pruning_info` mapping pruned indices to original token counts. Phase 0 pruning is visible in `decisions` with `reason="stale_tool_result"` (or merged with the downstream strategy reason).
 - **`CONTEXT_DECISION` trace event**: metadata now carries the full `ContextDecision.model_dump()` and `ContextReport.model_dump()` — consumers can losslessly reconstruct either.
 
-#### Added — Prompt Snapshots & Replay
+### Added — Prompt Snapshots & Replay
 - **`PromptSnapshot` contract**: Captures the exact `LLMRequest` (messages, tools, model, response_format, budget snapshot) sent to the provider for a single turn.
 - **`EventType.PROMPT_SNAPSHOT`**: Emitted before each `gateway.generate()` / `gateway.stream()` when opted in.
 - **`RuntimeConfig.trace_include_prompt_snapshots: bool = False`**: Opt-in flag. Default off to avoid PII/secret leakage and trace bloat.
@@ -599,23 +598,25 @@ work around the lossiness of working-set compression. See the user guide at
 - **`TraceReader.replay_prompt(run_id, turn)`**: Reconstruct `PromptReplay` for a single turn (prompt snapshot + context decision + context report + budget snapshot).
 - **`arcana trace replay <run_id> --turn N`**: CLI subcommand for human-readable or JSON replay output. Supports `--prompt-only` / `--decision-only` / `--json` modes.
 
-#### Constitutional guard (explicitly NOT done)
+### Constitutional guard (explicitly NOT done)
 - Framework does not inject `MessageDecision` or relevance scores into the LLM prompt itself (would violate Prohibition 1 / P4)
 - No automatic recovery, retry, or tool expansion based on decisions (decisions are retrospective evidence, not an input channel)
 - Existing strategy selection / compression thresholds / fidelity logic unchanged (pure transparency layer)
 - Prompt snapshots default off (anti context/trace hoarding, anti PII leakage)
 
-#### Stats
+### Stats
 - 1337 tests passing (+13 new): `test_context_decision_evidence.py` (5) + `test_trace_replay.py` (8)
 
-### v0.5.0 — "The Resilience Release"
+## [0.5.0] - 2026-04-12 — "The Resilience Release"
 
-#### Added — Runtime OS Reliability
+> Note: v0.5.0 was authored in CHANGELOG and shipped as part of the v0.6.0 release cycle but never received its own git tag. The 2026-04-12 date is the commit date of `feat: v0.5.0 resilience improvements` (e208799). Entries below describe what landed under the v0.5.0 banner.
+
+### Added — Runtime OS Reliability
 - **Phase 0 tool result pruning**: zero-cost compression stage before strategy-level compression. Old tool results (outside `tool_result_staleness_turns * 3` recent messages) replaced with summary placeholders. Error/failure results never pruned.
 - **Iteration budget sharing**: `BudgetTracker.max_iterations` / `iterations_used`; `Budget.max_iterations` propagates to shared tracker; team agents share a global iteration cap.
 - **MCP dynamic tool discovery**: `MCPConnection` listens for `notifications/tools/list_changed`; `MCPToolProvider` refreshes the registry on change.
 
-#### Constitutional review decisions (from specs/v050-upgrade.md)
+### Constitutional review decisions (from specs/v050-upgrade.md)
 - **Rejected**: Parallel tool conflict detection — tool authors should self-protect (over-engineering, framework overreach)
 - **Rejected**: Diagnosis → recovery loop — framework crossing into LLM strategy territory (violates Principle 6 boundary)
 - **Rejected**: ChatSession persistence — application-layer concern, not Runtime OS
