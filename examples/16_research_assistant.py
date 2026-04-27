@@ -1,20 +1,20 @@
-"""Example 16: Research Assistant with Multi-Agent Team
+"""Example 16: Research Assistant with Multi-Agent Pool
 
-A practical demo showing tool use + team collaboration + structured output.
-Three phases work together to research a topic:
+A practical demo showing tool use + multi-agent collaboration + structured
+output. Three phases work together to research a topic:
 
 Phase 1 - Research: A single agent uses search_web and save_note tools
           to gather raw findings (demonstrates runtime.run() + tools)
-Phase 2 - Team Analysis: Three agents collaborate in a team discussion
-          to analyze, critique, and synthesize the findings
-          (demonstrates runtime.team() multi-agent collaboration)
+Phase 2 - Pool Analysis: Three agents (researcher, analyst, writer)
+          take turns analyzing the findings via runtime.collaborate()
+          — user code drives the sequence
 Phase 3 - Structure: The final output is parsed into a typed report
           (demonstrates arcana.run() with response_format)
 
 Features demonstrated:
 - @arcana.tool for simulated web search and note-taking
 - runtime.run() for tool-using agent execution
-- runtime.team() for multi-agent collaboration
+- runtime.collaborate() for multi-agent pools with shared budget
 - arcana.run() with response_format for structured output
 - Budget tracking across all phases
 
@@ -208,66 +208,77 @@ async def main() -> None:
     print(f"\n  Raw findings preview: {str(raw_findings)[:200]}...")
 
     # ------------------------------------------------------------------
-    # Phase 2: Team analysis -- three agents discuss the findings
+    # Phase 2: Pool analysis -- three agents take turns on the findings
     # ------------------------------------------------------------------
     print()
     print("-" * 60)
-    print("Phase 2: Team analysis (multi-agent collaboration)")
+    print("Phase 2: Pool analysis (multi-agent collaboration)")
     print("-" * 60)
 
-    # Build context from Phase 1 for the team
     notes_text = "\n".join(f"- {t}: {c}" for t, c in _notes.items())
-    team_context = (
+    pool_context = (
         f"Research findings on '{topic}':\n\n"
         f"{raw_findings}\n\n"
         f"Saved notes:\n{notes_text}"
     )
 
-    team_result = await runtime.team(
-        goal=(
-            f"Analyze these research findings and produce a comprehensive summary.\n\n"
-            f"{team_context}"
-        ),
-        agents=[
-            arcana.AgentConfig(
-                name="researcher",
-                prompt=(
-                    "You are a thorough researcher. Review the findings provided. "
-                    "Highlight the most important data points and flag anything that "
-                    "seems incomplete or needs deeper investigation. Share your "
-                    "assessment with the team."
-                ),
+    async with runtime.collaborate() as pool:
+        researcher = pool.add(
+            "researcher",
+            system=(
+                "You are a thorough researcher. Review the findings provided. "
+                "Highlight the most important data points and flag anything that "
+                "seems incomplete or needs deeper investigation."
             ),
-            arcana.AgentConfig(
-                name="analyst",
-                prompt=(
-                    "You are a critical analyst. Review the researcher's assessment. "
-                    "Identify the top 3-5 key trends, note any contradictions or gaps "
-                    "in the findings, and provide a structured analysis. Organize your "
-                    "thoughts clearly for the writer."
-                ),
+            provider="deepseek",
+        )
+        analyst = pool.add(
+            "analyst",
+            system=(
+                "You are a critical analyst. Review the researcher's assessment. "
+                "Identify the top 3-5 key trends, note any contradictions or gaps "
+                "in the findings, and provide a structured analysis."
             ),
-            arcana.AgentConfig(
-                name="writer",
-                prompt=(
-                    "You are a concise technical writer. Synthesize the researcher's "
-                    "findings and the analyst's structured analysis into a clear, "
-                    "well-organized summary. Include: key findings, major trends, and "
-                    "a brief conclusion. End with [DONE] when your summary is complete."
-                ),
+            provider="deepseek",
+        )
+        writer = pool.add(
+            "writer",
+            system=(
+                "You are a concise technical writer. Synthesize the researcher's "
+                "findings and the analyst's structured analysis into a clear, "
+                "well-organized summary. Include: key findings, major trends, and "
+                "a brief conclusion."
             ),
-        ],
-        max_rounds=3,
-    )
+            provider="deepseek",
+        )
 
-    print(f"  Success: {team_result.success}")
-    print(f"  Rounds:  {team_result.rounds}")
-    print(f"  Cost:    ${team_result.total_cost_usd:.4f}")
+        researcher_out = await researcher.send(
+            f"Analyze these research findings.\n\n{pool_context}"
+        )
+        analyst_out = await analyst.send(
+            f"The researcher reviewed these findings:\n\n"
+            f"{pool_context}\n\n"
+            f"Researcher's assessment:\n{researcher_out.content}"
+        )
+        writer_out = await writer.send(
+            f"Synthesize a final summary from the researcher's findings and "
+            f"the analyst's structured review.\n\n"
+            f"Researcher:\n{researcher_out.content}\n\n"
+            f"Analyst:\n{analyst_out.content}"
+        )
 
-    print("\n  Conversation log:")
-    for entry in team_result.conversation_log:
-        preview = entry["content"][:150].replace("\n", " ")
-        print(f"    [Round {entry['round']}] {entry['agent']}: {preview}...")
+        team_text = writer_out.content
+        team_cost = sum(s.total_cost_usd for s in pool.agents.values())
+
+    print(f"  Cost: ${team_cost:.4f}")
+    print("\n  Turns:")
+    for name, content in (
+        ("researcher", researcher_out.content),
+        ("analyst", analyst_out.content),
+        ("writer", writer_out.content),
+    ):
+        preview = content[:150].replace("\n", " ")
+        print(f"    [{name}] {preview}...")
 
     # ------------------------------------------------------------------
     # Phase 3: Structure the output with response_format
@@ -277,7 +288,7 @@ async def main() -> None:
     print("Phase 3: Structuring report (structured output)")
     print("-" * 60)
 
-    final_text = team_result.output or str(raw_findings)
+    final_text = team_text or str(raw_findings)
 
     structured = await arcana.run(
         f"Structure the following research into a report with exactly these fields:\n"
@@ -315,7 +326,7 @@ async def main() -> None:
     # ------------------------------------------------------------------
     total_cost = (
         research_result.cost_usd
-        + team_result.total_cost_usd
+        + team_cost
         + structured.cost_usd
     )
     print()
@@ -323,7 +334,7 @@ async def main() -> None:
     print("  Cost Summary")
     print("=" * 60)
     print(f"  Phase 1 (research):   ${research_result.cost_usd:.4f}")
-    print(f"  Phase 2 (team):       ${team_result.total_cost_usd:.4f}")
+    print(f"  Phase 2 (pool):       ${team_cost:.4f}")
     print(f"  Phase 3 (structure):  ${structured.cost_usd:.4f}")
     print(f"  Total:                ${total_cost:.4f}")
 

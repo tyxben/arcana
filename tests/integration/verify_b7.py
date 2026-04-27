@@ -459,9 +459,9 @@ async def context_compression() -> CheckResult:
     )
 
 
-async def team_collaboration() -> CheckResult:
-    """runtime.team() with 2 agents collaborating on a haiku."""
-    from arcana.runtime_core import AgentConfig, Budget, Runtime, RuntimeConfig
+async def pool_collaboration() -> CheckResult:
+    """runtime.collaborate() with 2 agents collaborating on a haiku."""
+    from arcana.runtime_core import Budget, Runtime, RuntimeConfig
 
     rt = Runtime(
         providers={"deepseek": _key("DEEPSEEK_API_KEY")},
@@ -469,38 +469,40 @@ async def team_collaboration() -> CheckResult:
         config=RuntimeConfig(default_provider="deepseek"),
     )
 
-    agents = [
-        AgentConfig(
-            name="poet",
-            prompt="You are a poet who writes haiku. Write concisely.",
-        ),
-        AgentConfig(
-            name="critic",
-            prompt=(
+    async with rt.collaborate() as pool:
+        poet = pool.add(
+            "poet",
+            system="You are a poet who writes haiku. Write concisely.",
+            provider="deepseek",
+        )
+        critic = pool.add(
+            "critic",
+            system=(
                 "You are a poetry critic. Give brief feedback on the haiku, "
                 "then say [DONE] if the haiku is acceptable."
             ),
-        ),
-    ]
+            provider="deepseek",
+        )
 
-    team_result = await rt.team(
-        goal="Write a haiku about coding.",
-        agents=agents,
-        max_rounds=3,
-    )
+        haiku = await poet.send("Write a haiku about coding.")
+        feedback = await critic.send(
+            f"Critique this haiku (end with [DONE] if acceptable):\n\n{haiku.content}"
+        )
 
-    assert team_result.rounds > 0, f"rounds={team_result.rounds}"
-    assert len(team_result.conversation_log) > 0, "conversation_log is empty"
-    assert "poet" in team_result.agent_outputs, "poet not in agent_outputs"
-    assert "critic" in team_result.agent_outputs, "critic not in agent_outputs"
+        total_cost = sum(s.total_cost_usd for s in pool.agents.values())
+
+    assert haiku.content, "poet returned empty content"
+    assert feedback.content, "critic returned empty content"
+    assert "poet" in pool.agents, "poet not in pool.agents"
+    assert "critic" in pool.agents, "critic not in pool.agents"
     return CheckResult(
-        name="team_collaboration",
+        name="pool_collaboration",
         status=Status.PASS,
-        cost=team_result.total_cost_usd,
+        cost=total_cost,
         detail=(
-            f"rounds={team_result.rounds}, "
-            f"entries={len(team_result.conversation_log)}, "
-            f"success={team_result.success}"
+            f"poet_chars={len(haiku.content)}, "
+            f"critic_chars={len(feedback.content)}, "
+            f"approved={'[DONE]' in feedback.content}"
         ),
     )
 
@@ -521,7 +523,7 @@ ALL_CHECKS = [
     ("thinking_assessment_anthropic", thinking_assessment_anthropic, []),  # handles skip internally
     ("budget_enforcement", budget_enforcement, ["DEEPSEEK_API_KEY"]),
     ("context_compression", context_compression, ["DEEPSEEK_API_KEY"]),
-    ("team_collaboration", team_collaboration, ["DEEPSEEK_API_KEY"]),
+    ("pool_collaboration", pool_collaboration, ["DEEPSEEK_API_KEY"]),
 ]
 
 
