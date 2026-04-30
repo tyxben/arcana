@@ -160,15 +160,6 @@ runtime = arcana.Runtime(
 | `engine` | `str` | `"conversation"` | Only `"conversation"` is supported for streaming |
 | `max_turns` | `int \| None` | `None` | Override default max turns |
 
-### runtime.team()
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `goal` | `str` | *(required)* | The shared objective |
-| `agents` | `list[AgentConfig]` | *(required)* | List of agent configurations |
-| `max_rounds` | `int` | `3` | Maximum conversation rounds (each agent speaks once per round) |
-| `budget` | `Budget \| None` | `None` | Budget for the entire team run |
-
 ### runtime.session()
 
 Returns an async context manager yielding a `Session`.
@@ -235,7 +226,10 @@ There is also a lower-level `Budget` in `arcana.contracts.llm` used for individu
 
 ## AgentConfig
 
-Configuration for a single agent in a `runtime.team()` call.
+A serializable struct describing a single agent (name, system prompt,
+optional model/provider overrides). Useful when storing agent definitions in
+external configs or passing them between processes; expand into the keyword
+arguments of `pool.add(...)` when collaborating.
 
 ```python
 agents = [
@@ -250,12 +244,24 @@ agents = [
         prompt="You are a critical reviewer. Check claims for accuracy.",
     ),
 ]
-result = await runtime.team("Analyze quantum computing trends", agents=agents)
+
+async with runtime.collaborate() as pool:
+    sessions = {
+        cfg.name: pool.add(
+            cfg.name,
+            system=cfg.prompt,
+            model=cfg.model,
+            provider=cfg.provider,
+        )
+        for cfg in agents
+    }
+    findings = await sessions["researcher"].send("Research quantum computing trends")
+    review = await sessions["critic"].send(f"Review:\n{findings.content}")
 ```
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `name` | `str` | *(required)* | Agent name (visible in team conversation) |
+| `name` | `str` | *(required)* | Agent name (used as the pool key) |
 | `prompt` | `str` | *(required)* | System prompt defining this agent's role and personality |
 | `model` | `str \| None` | `None` | Override model for this agent |
 | `provider` | `str \| None` | `None` | Override provider for this agent |

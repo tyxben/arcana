@@ -6,6 +6,61 @@ All notable changes to Arcana will be documented in this file.
 
 _No changes yet._
 
+## [1.0.0] - 2026-05-01 — "Stable Public Surface"
+
+The first release with a binding stability promise. From this point on, the names enumerated in [`specs/v1.0.0-stability.md`](specs/v1.0.0-stability.md) §1 follow strict semver; breaks require a major bump and a deprecation cycle (see Constitution Chapter VI and [`docs/guide/stability.md`](docs/guide/stability.md)).
+
+The cut commit also removes the multi-agent surface that the constitution rejected. There is no behavior change for code already on `runtime.collaborate()`.
+
+### BREAKING CHANGES
+
+#### Removed: `Runtime.team()`, `TeamResult`, and the `mode="shared"` / `mode="session"` machinery
+
+`Runtime.team()` was deprecated in v0.8.0 (2026-04-19) with a `DeprecationWarning` and is **physically removed** in v1.0.0 — no shim, no alias from `team` to `collaborate`. The migration recipe lives at [`docs/guide/multi-agent.md` → Migration from `runtime.team()`](docs/guide/multi-agent.md#migration-from-runtimeteam).
+
+**What is gone**:
+
+- `Runtime.team(goal, agents, *, max_rounds, budget, mode)` method
+- `TeamResult` Pydantic model + the `arcana.TeamResult` re-export
+- The `mode="shared"` and `mode="session"` parameters and their internal round-counter / fixed turn-order scheduler
+- The `[DONE]` sentinel-driven completion contract
+
+**Why physical removal, not a shim**: `team(mode="shared")` baked a framework-prescribed collaboration topology — internal round counter, fixed turn sequence, framework-owned context baton — into the runtime. Under Principle 4 (Strategy Leaps), Principle 6 (OS not Form Engine), and Principle 8 (amended in `specs/constitution-amendment-2-collaboration-means.md`), that shape is not something the framework may prescribe. A shim would either keep the violation reachable behind a thin wrapper or silently change behavior. See `specs/v1.0.0-removals.md` for the full argument.
+
+**Migration**:
+
+```python
+# Old (removed in v1.0.0)
+result = await runtime.team(
+    "Write a blog post about X",
+    agents=[
+        AgentConfig(name="researcher", prompt="..."),
+        AgentConfig(name="writer", prompt="..."),
+    ],
+    mode="shared",
+)
+
+# New
+async with runtime.collaborate() as pool:
+    researcher = pool.add("researcher", system="...")
+    writer = pool.add("writer", system="...")
+
+    findings = await researcher.send("Research X")
+    post = await writer.send(f"Write a post using:\n{findings.content}")
+```
+
+`AgentConfig` is **kept** on the public surface as a serializable agent description struct (name, prompt, optional model/provider override). It is no longer team-bound — expand it into `pool.add(...)` keyword arguments when collaborating.
+
+### Added — Stability commitments
+
+- Constitution v3.3 Chapter VI (Stability Commitments) — the v1.0.0+ semver and deprecation rules are now binding constitutional commitments alongside the Four Prohibitions and Nine Principles.
+- `CONTRIBUTING.md` Stability & Versioning section — the rules a PR author needs (deprecation cycle, removals tracker, CHANGELOG migration entry) at the contributor entry point.
+
+### Notes for maintainers
+
+- `tests/test_stability_surface.py` (14 cases) is the CI guard for the public surface. It still passes after this release. Any future change to a stable name must update this test in lockstep.
+- Pending removals for the next major bump are tracked in `specs/vX.0.0-removals.md` (no entries yet).
+
 ## [0.10.0] - 2026-04-27 — "Pre-v1.0.0 Stability"
 
 All items in this release are non-breaking and trace back to `specs/v1.0.0-stability.md`. They round out the public surface and migration scaffolding ahead of v1.0.0. No deprecations.

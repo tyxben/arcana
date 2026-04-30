@@ -15,7 +15,7 @@ others exist for explicit workflows or for backward compatibility.
 |------|----------|---------|
 | **Primary** | One-shot tasks, conversational sessions, multi-agent collaboration where you control the orchestration. | `arcana.run()` · `Runtime.run()` · `Runtime.chat()` · `Runtime.collaborate()` |
 | **Structured workflows** | The work has a fixed shape — a pipeline of dependent steps, a state machine with branches, or many independent tasks at once. | `Runtime.chain()` · `Runtime.graph()` · `Runtime.run_batch()` |
-| **Legacy / compatibility** | You're maintaining code that predates the V2 engine, or you need the old multi-agent shape. **Not the recommended path for new code.** | `Runtime.team()` (use `collaborate()` instead) · `engine="adaptive"` (use the default `"conversation"`) |
+| **Legacy / compatibility** | You're maintaining code that predates the V2 engine. **Not the recommended path for new code.** | `engine="adaptive"` (use the default `"conversation"`) |
 
 Detailed signatures for each method appear in their sections below.
 
@@ -33,7 +33,6 @@ Detailed signatures for each method appear in their sections below.
 - [Result Types](#result-types)
   - [RunResult (sdk)](#runresult-sdk)
   - [RunResult (runtime)](#runresult-runtime)
-  - [TeamResult](#teamresult)
   - [BatchResult](#batchresult)
 - [Configuration](#configuration)
   - [AgentConfig](#agentconfig)
@@ -326,40 +325,9 @@ See [`docs/guide/multi-agent.md`](./multi-agent.md) for the full
 collaboration guide, including shared context, message-bus patterns, and
 per-agent cognitive-primitive opt-in.
 
-This is the **primary** multi-agent API. The older `Runtime.team()` is
-deprecated.
-
-#### `Runtime.team()`
-
-> **Deprecated.** Prefer [`Runtime.collaborate()`](#runtimecollaborate), which
-> hands control of multi-agent orchestration to user code (who speaks, what
-> they read, when to stop) rather than running a fixed shared-conversation
-> loop. `team()` is retained for backward compatibility and emits a
-> `DeprecationWarning`. New code should not use it.
-
-Run a team of agents on a shared goal. Each agent gets its own system prompt and
-takes turns in a shared conversation. The runtime manages resource isolation,
-communication, budget, and trace.
-
-```python
-async def team(
-    self,
-    goal: str,
-    agents: list[AgentConfig],
-    *,
-    max_rounds: int = 3,
-    budget: Budget | None = None,
-) -> TeamResult
-```
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `goal` | `str` | required | The shared objective. |
-| `agents` | `list[AgentConfig]` | required | Agent configurations (name, prompt, optional model/provider overrides). |
-| `max_rounds` | `int` | `3` | Maximum conversation rounds (each agent speaks once per round). |
-| `budget` | `Budget \| None` | `None` | Budget for the entire team run. |
-
-**Returns:** [`TeamResult`](#teamresult)
+This is the multi-agent API for v1.0.0+. The older `Runtime.team()` was
+removed in v1.0.0; see the
+[migration recipe](./multi-agent.md#migration-from-runtimeteam).
 
 #### `Runtime.chain()`
 
@@ -653,61 +621,6 @@ Fields are identical to [RunResult (sdk)](#runresult-sdk).
 
 ---
 
-### `TeamResult`
-
-Returned by `Runtime.team()`. Contains the team conversation output and metadata.
-
-```python
-class TeamResult(BaseModel):
-    output: Any = None
-    success: bool = False
-    rounds: int = 0
-    total_tokens: int = 0
-    total_cost_usd: float = 0.0
-    agent_outputs: dict[str, str] = {}
-    conversation_log: list[dict[str, Any]] = []
-```
-
-**Fields**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `output` | `Any` | `None` | Final output from the last speaking agent. |
-| `success` | `bool` | `False` | `True` if any agent emitted `[DONE]`, `False` if max rounds reached. |
-| `rounds` | `int` | `0` | Number of conversation rounds completed. |
-| `total_tokens` | `int` | `0` | Total tokens consumed across all agents. |
-| `total_cost_usd` | `float` | `0.0` | Estimated total cost in USD. |
-| `agent_outputs` | `dict[str, str]` | `{}` | Map of agent name to their last output. |
-| `conversation_log` | `list[dict]` | `[]` | Full conversation history. Each entry has `round`, `agent`, `content`, `tokens`. |
-
-**Example**
-
-```python
-import arcana
-
-runtime = arcana.Runtime(providers={"deepseek": "sk-xxx"})
-
-result = await runtime.team(
-    goal="Design a REST API for a todo app",
-    agents=[
-        arcana.AgentConfig(
-            name="architect",
-            prompt="You are a senior API architect. Focus on clean REST design.",
-        ),
-        arcana.AgentConfig(
-            name="reviewer",
-            prompt="You are a code reviewer. Find issues and suggest improvements.",
-        ),
-    ],
-    max_rounds=3,
-)
-
-for entry in result.conversation_log:
-    print(f"[Round {entry['round']}] {entry['agent']}: {entry['content'][:100]}")
-```
-
----
-
 ### `BatchResult`
 
 Returned by `Runtime.run_batch()`. Aggregates results from all tasks in the batch.
@@ -737,7 +650,11 @@ class BatchResult(BaseModel):
 
 ### `AgentConfig`
 
-Configuration for a single agent in a team. Passed in a list to `Runtime.team()`.
+A serializable configuration struct for a single agent (name, system prompt,
+optional model/provider overrides). Useful for storing agent definitions in
+configs or passing them between processes; expand into
+`pool.add(name=cfg.name, system=cfg.prompt, model=cfg.model, provider=cfg.provider)`
+when collaborating via [`Runtime.collaborate()`](#runtimecollaborate).
 
 ```python
 class AgentConfig(BaseModel):

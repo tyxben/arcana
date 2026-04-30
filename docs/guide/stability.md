@@ -64,9 +64,9 @@ runtime.session(...)
 await runtime.close()
 ```
 
-`runtime.team()` is **deprecated** and will be removed in v1.0.0; use
-`runtime.collaborate()` instead. See `specs/v1.0.0-removals.md` for the
-full migration recipe.
+`runtime.team()` was removed in v1.0.0; use `runtime.collaborate()`
+instead. The migration recipe lives in
+[Multi-Agent Collaboration → Migration from `runtime.team()`](multi-agent.md#migration-from-runtimeteam).
 
 ### ChatSession surface
 

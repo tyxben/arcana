@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -300,34 +299,6 @@ class TestBudgetSharing:
 
         # Each gets its own tracker (created from runtime default)
         assert a._budget_tracker is not b._budget_tracker
-
-
-# ── runtime.team() deprecation ──────���───────────────────────────────────
-
-
-class TestTeamDeprecation:
-    @pytest.mark.asyncio
-    async def test_team_emits_deprecation_warning(self):
-        """runtime.team() emits a DeprecationWarning."""
-        rt = _make_runtime_with_mock()
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            try:
-                await rt.team(
-                    "test goal",
-                    [],
-                    max_rounds=1,
-                )
-            except Exception:
-                pass  # team() may fail with empty agents, that's fine
-
-            # Check that a DeprecationWarning was issued
-            deprecation_warnings = [
-                x for x in w if issubclass(x.category, DeprecationWarning)
-            ]
-            assert len(deprecation_warnings) >= 1
-            assert "collaborate" in str(deprecation_warnings[0].message)
 
 
 # ── Module export tests ──────────────────────────────────────────────────

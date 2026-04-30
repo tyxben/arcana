@@ -365,10 +365,10 @@ print(runtime.tools)       # ["calculator", "web_search"]
 
 ## Multi-Agent
 
-`runtime.team()` runs multiple agents on a shared goal. Each agent has its
-own system prompt and takes turns in a shared conversation. The runtime
-manages communication, budget, and trace -- it does not decide strategy or
-assign roles.
+`runtime.collaborate()` returns an `AgentPool` — named `ChatSession`s sharing
+one budget, one message channel, one key-value context. Each agent has its
+own system prompt and (optionally) its own tools, model, and provider. The
+runtime provides the infrastructure; **your code drives turn order**.
 
 ```python
 import asyncio
@@ -380,35 +380,29 @@ async def main():
         budget=arcana.Budget(max_cost_usd=1.0),
     )
 
-    result = await runtime.team(
-        goal="Design a REST API for a bookmark manager app.",
-        agents=[
-            arcana.AgentConfig(
-                name="architect",
-                prompt="You are a senior API architect. Design clean, RESTful endpoints.",
-            ),
-            arcana.AgentConfig(
-                name="reviewer",
-                prompt="You are a security-focused API reviewer. "
-                       "If the design is solid, approve with [DONE].",
-            ),
-        ],
-        max_rounds=3,
-    )
+    async with runtime.collaborate() as pool:
+        architect = pool.add(
+            "architect",
+            system="You are a senior API architect. Design clean, RESTful endpoints.",
+        )
+        reviewer = pool.add(
+            "reviewer",
+            system="You are a security-focused API reviewer. Flag risks concretely.",
+        )
 
-    print(f"Success: {result.success}")
-    print(f"Rounds: {result.rounds}, Cost: ${result.total_cost_usd:.4f}")
-
-    for entry in result.conversation_log:
-        print(f"--- Round {entry['round']} [{entry['agent']}] ---")
-        print(entry["content"][:300])
+        design = await architect.send(
+            "Design a REST API for a bookmark manager app."
+        )
+        review = await reviewer.send(
+            f"Review this design and flag any risks:\n{design.content}"
+        )
+        print(review.content)
 
 asyncio.run(main())
 ```
 
-Each agent can have its own `model` and `provider` override via
-`AgentConfig`. The conversation ends when any agent includes `[DONE]` in
-its output, or when `max_rounds` is reached.
+For richer patterns — critic loops, debate via `Channel`, role specialization
+with per-agent tools — see [Multi-Agent Collaboration](multi-agent.md).
 
 ---
 

@@ -297,11 +297,11 @@ the point, not a gap.
 
 ## Migration from `runtime.team()`
 
-`runtime.team()` is deprecated as of v0.8.0 and will be removed in v1.0.0.
-Replacement:
+`runtime.team()` was deprecated in v0.8.0 and **removed in v1.0.0**. Use
+`runtime.collaborate()` instead.
 
 ```python
-# Old (deprecated)
+# Old (removed in v1.0.0)
 result = await runtime.team(
     "Write a blog post about X",
     agents=[AgentConfig(name="researcher", prompt="..."),
