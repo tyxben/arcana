@@ -81,6 +81,30 @@ V1 (Agent + Policy) and V2 (ConversationAgent) coexist. Don't break V1 to improv
 - Integration tests with real LLMs go in `examples/`
 - Mock tests go in `tests/`
 
+## Stability & Versioning
+
+From v1.0.0 onward, the names listed in
+[`specs/v1.0.0-stability.md`](specs/v1.0.0-stability.md) §1 are the **stable
+public surface**. Any rename, removal, or signature-breaking change there is
+a major version bump — never a minor or patch. Internal modules listed in §2
+carry no stability promise.
+
+If your PR touches the stable surface:
+
+- A break must first ship a `DeprecationWarning` for at least one minor
+  release. The successor name and migration recipe must be live in the same
+  release that adds the deprecation.
+- Update [`specs/v1.0.0-removals.md`](specs/v1.0.0-removals.md) (or the
+  successor `vX.0.0-removals.md`) so the next-major removal list stays
+  current.
+- The CHANGELOG entry must include a `Migration` section.
+
+The user-facing summary lives at
+[`docs/guide/stability.md`](docs/guide/stability.md). The constitutional
+framing is [Chapter VI of `CONSTITUTION.md`](CONSTITUTION.md#chapter-vi-stability-commitments).
+If you are not sure whether a name is stable, check `docs/guide/stability.md`
+or ask in the PR.
+
 ## Pull Request Process
 
 1. Fork and create a feature branch

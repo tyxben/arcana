@@ -1,6 +1,6 @@
 # The Arcana Constitution
 
-**Version: 3.2** — see [Revision History](#revision-history)
+**Version: 3.3** — see [Revision History](#revision-history)
 
 This is not a style guide. This is the architectural law of Arcana. Every line of code, every PR, every design decision must answer to this document.
 
@@ -241,8 +241,21 @@ If the answer is "constraining it because we don't trust it" -- that is a violat
 
 ---
 
+## Chapter VI: Stability Commitments
+
+The Four Prohibitions are behavioral promises. The Nine Principles are design promises. Stability is the evolution promise: how the public surface of this project changes over time, and what users can rely on across releases.
+
+From v1.0.0 onward, the names enumerated in `specs/v1.0.0-stability.md` §1 follow strict semver — rename, removal, or signature-breaking change is a major version bump, never a minor or patch. Any planned removal of a stable name first ships with a `DeprecationWarning` for at least one minor release, with the successor name and migration recipe live in the same release that adds the deprecation.
+
+This is not a contributor convenience. It is a binding promise to user code that imports from the stable surface.
+
+The user-facing distillation lives in [`docs/guide/stability.md`](docs/guide/stability.md). The full surface enumeration, versioning policy (§5), deprecation policy (§6), and per-version readiness checklist live in [`specs/v1.0.0-stability.md`](specs/v1.0.0-stability.md), which is the source of truth.
+
+---
+
 ## Revision History
 
+- **v3.3** (2026-04-30) — Add Chapter VI (Stability Commitments). Codifies the v1.0.0+ semver contract and deprecation policy as a binding evolution promise alongside the behavioral and design promises. Cross-links to `docs/guide/stability.md` (user-facing) and `specs/v1.0.0-stability.md` (source of truth).
 - **v3.2** (2026-04-25) — Clarify the implementation status of the cognitive primitives introduced in Amendment 1. Of the primitives listed in Principle 9, only `recall`, `pin`, and `unpin` are implemented as runtime services today; `branch`, `anchor`, and `hint` remain on the roadmap. The framework's commitment is the architectural position — cognitive primitives belong as runtime services — not an implementation guarantee for primitives that do not yet exist. See `src/arcana/runtime/cognitive.py` for the source of truth on what is shipped.
 - **v3.1** (2026-04-21) — Amend Principle 8: "can see what others have said" → "is given the means to see what others have said"; expand agents' role to include addressing and reading decisions. Clarifies that the framework's multi-agent obligation is to provide communication infrastructure, not to guarantee message reception. See `specs/constitution-amendment-2-collaboration-means.md`.
 - **v3.0** (2026-04-18) — Add Principle 9 (Cognitive Primitives as Services) and two Chapter IV entries (Framework Responsibility + Inviolable Rule). The runtime explicitly provides reasoning-state primitives (recall, pin, branch, anchor, hint) that the LLM may invoke at its discretion. See `specs/constitution-amendment-1-cognitive-primitives.md`.
