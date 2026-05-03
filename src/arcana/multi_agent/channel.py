@@ -11,8 +11,8 @@ from arcana.contracts.multi_agent import ChannelMessage
 class Channel:
     """Name-addressed async message channel.
 
-    Unlike :class:`MessageBus` (role-addressed), ``Channel`` uses agent names
-    as addresses.  Supports point-to-point and broadcast messaging.
+    Agents address each other by free-form name (the same name used in
+    ``pool.add(name, …)``). Supports point-to-point and broadcast messaging.
 
     Args:
         history_limit: Maximum number of past messages to retain in

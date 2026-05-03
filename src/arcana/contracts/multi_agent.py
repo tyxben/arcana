@@ -1,4 +1,18 @@
-"""Multi-agent collaboration contracts."""
+"""Multi-agent collaboration contracts.
+
+Trimmed in the post-Amendment-3 cleanup (commit landing 2026-05-03):
+the original ``AgentMessage`` / ``CollaborationSession`` / ``HandoffResult``
+were tightly coupled to the role-addressed ``MessageBus`` + Planner/
+Executor/Critic ``TeamOrchestrator`` shape that Amendment 3 (v3.4)
+rejected. Those types and their consumers have been removed.
+
+What remains is the name-addressed surface: ``ChannelMessage`` (used by
+``arcana.multi_agent.channel.Channel``). ``MessageType`` is retained
+because ``ChannelMessage.message_type`` defaults to ``MessageType.CHAT``;
+the legacy enum members (``PLAN``/``RESULT``/``FEEDBACK``/``HANDOFF``/
+``ESCALATE``) are kept for downstream code that may still parse historic
+trace messages and will be re-evaluated as part of a future enum cleanup.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +22,6 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-
-from arcana.contracts.trace import AgentRole
 
 
 class MessageType(str, Enum):
@@ -21,19 +33,6 @@ class MessageType(str, Enum):
     HANDOFF = "handoff"
     ESCALATE = "escalate"
     CHAT = "chat"
-
-
-class AgentMessage(BaseModel):
-    """Message passed between agents in a collaboration session."""
-
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    sender_role: AgentRole
-    recipient_role: AgentRole
-    message_type: MessageType
-    content: dict[str, Any] = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    session_id: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChannelMessage(BaseModel):
@@ -55,31 +54,3 @@ class ChannelMessage(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     session_id: str = ""
-
-
-class CollaborationSession(BaseModel):
-    """Configuration for a multi-agent collaboration session."""
-
-    session_id: str = Field(default_factory=lambda: str(uuid4()))
-    goal: str
-    roles: list[AgentRole] = Field(
-        default_factory=lambda: [
-            AgentRole.PLANNER,
-            AgentRole.EXECUTOR,
-            AgentRole.CRITIC,
-        ]
-    )
-    max_rounds: int = 5
-    shared_memory_ns: str = ""
-    status: str = "active"
-
-
-class HandoffResult(BaseModel):
-    """Result of a multi-agent collaboration session."""
-
-    session_id: str
-    final_status: str  # "completed" / "failed" / "escalated"
-    rounds: int
-    messages: list[AgentMessage] = Field(default_factory=list)
-    total_tokens: int = 0
-    total_cost_usd: float = 0.0

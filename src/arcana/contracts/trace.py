@@ -25,7 +25,20 @@ class StopReason(str, Enum):
 
 
 class AgentRole(str, Enum):
-    """Role of an agent in the system."""
+    """Role of an agent in the system.
+
+    .. note::
+        Vestigial as of v1.0.x. The ``PLANNER`` / ``EXECUTOR`` / ``CRITIC``
+        members were introduced for the Planner→Executor→Critic
+        ``TeamOrchestrator`` flow that was removed post-Amendment 3
+        (CONSTITUTION.md v3.4). Today the enum survives only as the type
+        of :attr:`TraceEvent.role`, defaulted to ``SYSTEM``, for
+        backward compatibility — replacing that field with a free-form
+        ``agent_name: str`` is queued for v2.0 (it is a stable-surface
+        change). New code should not consume the ``PLANNER`` /
+        ``EXECUTOR`` / ``CRITIC`` members; they remain only so that
+        historical trace files keep parsing.
+    """
 
     SYSTEM = "system"
     PLANNER = "planner"

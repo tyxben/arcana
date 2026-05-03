@@ -326,9 +326,13 @@ surface, and per-agent cognition — none of which `runtime.team()` exposed.
 ## Migration from `TeamOrchestrator` and `MessageBus`
 
 `arcana.multi_agent.team.TeamOrchestrator`, `arcana.multi_agent.team.RoleConfig`,
-and `arcana.multi_agent.message_bus.MessageBus` are **deprecated as of
-2026-05-03** (Constitution Amendment 3, v3.4) and emit a `DeprecationWarning`
-on construction. They are slated for physical removal in a v1.x minor.
+and `arcana.multi_agent.message_bus.MessageBus` were **removed in the
+2026-05-03 cleanup** (Constitution Amendment 3, v3.4). The deprecation
+`DeprecationWarning` and the physical removal landed in the same release
+because `arcana.multi_agent.*` is internal-not-stable per
+`specs/v1.0.0-stability.md` §2 and the deprecated classes had not been
+published to PyPI in any release. If you imported them: switch to the
+recipe below.
 
 These classes encoded a framework-prescribed Planner→Executor→Critic
 topology via the `AgentRole` enum (`PLANNER` / `EXECUTOR` / `CRITIC`).
@@ -375,9 +379,12 @@ publish/subscribe shape, but addressing is by free-form agent name rather
 than by a fixed `AgentRole` enum. See the four patterns at the top of this
 guide for `Channel` examples.
 
-The `AgentRole` enum itself is **not** deprecated yet — it appears on
-`TraceEvent.role`, which is part of the stable `arcana.contracts.trace`
-surface. Its removal will follow once the deprecated classes above ship a
-removal in a future minor; that refactor is tracked in
+The `AgentRole` enum itself stays for now. It is the type of
+`TraceEvent.role` (a field on the stable `arcana.contracts.trace.TraceEvent`
+name), and replacing it would be a stable-surface break per
+`specs/v1.0.0-stability.md` §5. The enum is documented as vestigial in
+its docstring; the `PLANNER` / `EXECUTOR` / `CRITIC` members are kept so
+historical trace files keep parsing. Replacement of the field with
+`agent_name: str` is queued for v2.0 and tracked in
 [`specs/constitution-amendment-3-multi-agent-os.md`](../../specs/constitution-amendment-3-multi-agent-os.md)
 under "Implementation follow-up."

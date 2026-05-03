@@ -4,15 +4,19 @@ All notable changes to Arcana will be documented in this file.
 
 ## [Unreleased]
 
-### Deprecated
+### Removed (internal-not-stable surface)
 
-- **`arcana.multi_agent.team.TeamOrchestrator`**, **`arcana.multi_agent.team.RoleConfig`**, and **`arcana.multi_agent.message_bus.MessageBus`** now emit `DeprecationWarning` on construction. They are slated for physical removal in a v1.x minor following Constitution Amendment 3 (v3.4, 2026-05-03). All three encode a framework-prescribed Planner→Executor→Critic topology via the `arcana.contracts.trace.AgentRole` enum, which Amendment 3 names as a Principle 8 violation under the multi-agent OS framing.
+- **`arcana.multi_agent.team.TeamOrchestrator`**, **`arcana.multi_agent.team.RoleConfig`**, and **`arcana.multi_agent.message_bus.MessageBus`** are deleted. All three encoded a framework-prescribed Planner→Executor→Critic topology via the `arcana.contracts.trace.AgentRole` enum, which Constitution Amendment 3 (v3.4, 2026-05-03) names as a Principle 8 violation under the multi-agent OS framing.
 
-  **Migration**: use `runtime.collaborate()` and have your code drive the planner→executor→critic loop directly. Each agent gets a `pool.add(name=..., system=...)` call; turn order, handoffs, and stop conditions live in your loop, not in framework defaults. The migration recipe is in [`docs/guide/multi-agent.md`](docs/guide/multi-agent.md#migration-from-teamorchestrator-and-messagebus).
+  Also removed: the orphaned `arcana.contracts.multi_agent.AgentMessage`, `CollaborationSession`, and `HandoffResult` (only consumers were the deleted classes), and the `tests/test_multi_agent.py` suite (only covered the deleted classes).
 
-  `arcana.multi_agent.*` is in the *internal — not stable* tier per [`specs/v1.0.0-stability.md`](specs/v1.0.0-stability.md) §2; no semver promise was broken by adding these warnings, and physical removal in a future minor likewise does not require a major bump. The `DeprecationWarning` window is courtesy and follows Constitution Chapter VI's deprecation policy.
+  **Migration**: use `runtime.collaborate()` and have your code drive the planner→executor→critic loop directly. Each agent gets a `pool.add(name=..., system=...)` call; turn order, handoffs, and stop conditions live in your loop, not in framework defaults. The migration recipe is in [`docs/guide/multi-agent.md`](docs/guide/multi-agent.md#migration-from-teamorchestrator-and-messagebus). For role-addressed pub/sub, replace `MessageBus` with `arcana.multi_agent.channel.Channel` (name-addressed, same primitive shape).
 
-  The `AgentRole` enum itself stays for now — it is reachable through `TraceEvent.role` (a field on a stable name), and removing it requires a separate, more careful refactor that is tracked in the amendment spec under "Implementation follow-up."
+  **Why the deprecation cycle was zero-window**: `arcana.multi_agent.*` is in the *internal — not stable* tier per [`specs/v1.0.0-stability.md`](specs/v1.0.0-stability.md) §2 — no semver promise was broken. The deprecation `DeprecationWarning` (added earlier in the same release) and the physical removal land together; the deprecated classes were never published to PyPI in any v1.x release, so no user could have observed the warning without also seeing the removal in the same minute. Constitution Chapter VI's "minimum one minor with `DeprecationWarning`" rule applies to *stable* surface; here it would have been ceremony, not protection.
+
+- **`MessageType.PLAN`/`RESULT`/`FEEDBACK`/`HANDOFF`/`ESCALATE`** enum members stay for now — they were tightly coupled to the deleted classes but are part of `arcana.contracts.multi_agent`, which still hosts the live `ChannelMessage`. A future cleanup may reduce the enum, but doing it in this release would touch a contract type the live `Channel` depends on. Not constitutionally interesting; left as housekeeping.
+
+- **`arcana.contracts.trace.AgentRole`** stays. It is reachable through `TraceEvent.role` (a field on the stable `TraceEvent` name; type changes there are stable-surface breaks per `specs/v1.0.0-stability.md` §5). The enum is now documented as vestigial — `PLANNER`/`EXECUTOR`/`CRITIC` are kept only so historical trace files keep parsing — and replacement of the field with a free-form `agent_name: str` is queued for v2.0.
 
 ## [1.0.0] - 2026-05-01 — "Stable Public Surface"
 
