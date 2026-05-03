@@ -1,8 +1,23 @@
-"""MessageBus — in-process async message passing between agents."""
+"""MessageBus — in-process role-addressed async message passing.
+
+.. deprecated::
+    Slated for removal in a v1.x minor following Constitution Amendment 3
+    (v3.4, 2026-05-03). ``MessageBus`` is role-addressed via the
+    ``AgentRole`` enum, which is the same prescribed-topology shape that
+    Amendment 3 rejects. Use the name-addressed ``Channel`` (in
+    ``arcana.multi_agent.channel``) instead — it provides the same
+    publish/subscribe primitive but addressing is by free-form agent
+    name, not by a framework-fixed role enum.
+
+    ``arcana.multi_agent.*`` is internal-not-stable per
+    ``specs/v1.0.0-stability.md`` §2; one minor with ``DeprecationWarning``
+    is sufficient courtesy.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import warnings
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING
 
@@ -11,12 +26,23 @@ if TYPE_CHECKING:
     from arcana.contracts.trace import AgentRole
 
 
+_DEPRECATION_MSG = (
+    "MessageBus is deprecated and slated for removal in a v1.x minor. It is "
+    "role-addressed via the AgentRole enum, which encodes a "
+    "framework-prescribed topology rejected by Constitution Amendment 3. "
+    "Use arcana.multi_agent.channel.Channel — same primitive, name-addressed "
+    "instead of role-addressed."
+)
+
+
 class MessageBus:
     """
     In-process async message bus for agent-to-agent communication.
 
     Messages are routed by recipient role. Each role has an async queue.
     All messages are also stored in a session-keyed history for auditing.
+
+    .. deprecated:: see module docstring.
 
     Args:
         history_limit: Maximum number of past messages to retain per session
@@ -31,6 +57,7 @@ class MessageBus:
     """
 
     def __init__(self, *, history_limit: int | None = None) -> None:
+        warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
         if history_limit is not None and history_limit < 0:
             raise ValueError(
                 f"history_limit must be None or >= 0, got {history_limit}"

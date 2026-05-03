@@ -1,4 +1,11 @@
-"""Tests for the multi-agent module — MessageBus + TeamOrchestrator."""
+"""Tests for the multi-agent module — MessageBus + TeamOrchestrator.
+
+Both classes are deprecated as of 2026-05-03 (post-Amendment 3) and slated
+for removal in a v1.x minor. These tests exist to preserve current
+behaviour during the deprecation window and will be removed alongside the
+classes they cover. The module-level ``filterwarnings`` mark silences the
+intentional ``DeprecationWarning`` so the rest of the suite stays clean.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +33,14 @@ from arcana.multi_agent.team import (
 )
 from arcana.runtime.policies.react import ReActPolicy
 from arcana.runtime.reducers.default import DefaultReducer
+
+# Silence the intentional DeprecationWarning emitted by MessageBus / RoleConfig
+# / TeamOrchestrator construction during the deprecation window. Without this,
+# every test in this module would surface a warning the project itself ships.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:.*deprecated.*:DeprecationWarning",
+)
+
 
 # ── Mock Helpers ─────────────────────────────────────────────────────
 

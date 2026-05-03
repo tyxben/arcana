@@ -4,7 +4,15 @@ All notable changes to Arcana will be documented in this file.
 
 ## [Unreleased]
 
-_No changes yet._
+### Deprecated
+
+- **`arcana.multi_agent.team.TeamOrchestrator`**, **`arcana.multi_agent.team.RoleConfig`**, and **`arcana.multi_agent.message_bus.MessageBus`** now emit `DeprecationWarning` on construction. They are slated for physical removal in a v1.x minor following Constitution Amendment 3 (v3.4, 2026-05-03). All three encode a framework-prescribed Planner→Executor→Critic topology via the `arcana.contracts.trace.AgentRole` enum, which Amendment 3 names as a Principle 8 violation under the multi-agent OS framing.
+
+  **Migration**: use `runtime.collaborate()` and have your code drive the planner→executor→critic loop directly. Each agent gets a `pool.add(name=..., system=...)` call; turn order, handoffs, and stop conditions live in your loop, not in framework defaults. The migration recipe is in [`docs/guide/multi-agent.md`](docs/guide/multi-agent.md#migration-from-teamorchestrator-and-messagebus).
+
+  `arcana.multi_agent.*` is in the *internal — not stable* tier per [`specs/v1.0.0-stability.md`](specs/v1.0.0-stability.md) §2; no semver promise was broken by adding these warnings, and physical removal in a future minor likewise does not require a major bump. The `DeprecationWarning` window is courtesy and follows Constitution Chapter VI's deprecation policy.
+
+  The `AgentRole` enum itself stays for now — it is reachable through `TraceEvent.role` (a field on a stable name), and removing it requires a separate, more careful refactor that is tracked in the amendment spec under "Implementation follow-up."
 
 ## [1.0.0] - 2026-05-01 — "Stable Public Surface"
 

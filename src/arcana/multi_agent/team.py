@@ -1,8 +1,26 @@
-"""TeamOrchestrator — coordinates Planner→Executor→Critic collaboration."""
+"""TeamOrchestrator — coordinates Planner→Executor→Critic collaboration.
+
+.. deprecated::
+    Slated for removal in a v1.x minor following Constitution Amendment 3
+    (v3.4, 2026-05-03). ``TeamOrchestrator`` bakes a framework-prescribed
+    Planner→Executor→Critic topology into the runtime via the ``AgentRole``
+    enum, which violates Principle 8 (Agent Autonomy in Collaboration) and
+    the Chapter IV "framework never decides strategy" rule under the
+    multi-agent OS framing. Use ``runtime.collaborate()`` —
+    `pool.add(name=..., system=...)` per agent, with the user's code
+    driving the planner→executor→critic loop — instead. See the migration
+    recipe in ``docs/guide/multi-agent.md``.
+
+    ``arcana.multi_agent.*`` is internal-not-stable per
+    ``specs/v1.0.0-stability.md`` §2, so removal does not require a major
+    version bump; one minor with ``DeprecationWarning`` is sufficient
+    courtesy. ``RoleConfig`` and ``MessageBus`` go on the same cycle.
+"""
 
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from arcana.contracts.multi_agent import (
@@ -38,8 +56,21 @@ WM_KEY_VERDICT = "verdict"
 APPROVED_VERDICTS: frozenset[str] = frozenset({"pass", "true", "yes", "approved"})
 
 
+_DEPRECATION_MSG = (
+    "{cls} is deprecated and slated for removal in a v1.x minor. It bakes a "
+    "framework-prescribed Planner/Executor/Critic topology into the runtime, "
+    "which violates Constitution Principle 8 + Amendment 3. Use "
+    "runtime.collaborate() with pool.add(name=..., system=...) per agent and "
+    "drive the planner→executor→critic loop from your code. See "
+    "docs/guide/multi-agent.md for the migration recipe."
+)
+
+
 class RoleConfig:
-    """Configuration for a single agent role."""
+    """Configuration for a single agent role.
+
+    .. deprecated:: see module docstring.
+    """
 
     def __init__(
         self,
@@ -49,6 +80,11 @@ class RoleConfig:
         reducer: BaseReducer,
         max_steps: int = 50,
     ) -> None:
+        warnings.warn(
+            _DEPRECATION_MSG.format(cls="RoleConfig"),
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.role = role
         self.policy = policy
         self.reducer = reducer
@@ -78,6 +114,11 @@ class TeamOrchestrator:
         hooks: list[RuntimeHook] | None = None,
         history_limit: int | None = None,
     ) -> None:
+        warnings.warn(
+            _DEPRECATION_MSG.format(cls="TeamOrchestrator"),
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._role_configs = role_configs
         self._gateway = gateway
         self._max_rounds = max_rounds

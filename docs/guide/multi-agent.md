@@ -320,3 +320,64 @@ async with runtime.collaborate() as pool:
 
 The new shape gives you explicit control over turn order, per-agent tool
 surface, and per-agent cognition — none of which `runtime.team()` exposed.
+
+---
+
+## Migration from `TeamOrchestrator` and `MessageBus`
+
+`arcana.multi_agent.team.TeamOrchestrator`, `arcana.multi_agent.team.RoleConfig`,
+and `arcana.multi_agent.message_bus.MessageBus` are **deprecated as of
+2026-05-03** (Constitution Amendment 3, v3.4) and emit a `DeprecationWarning`
+on construction. They are slated for physical removal in a v1.x minor.
+
+These classes encoded a framework-prescribed Planner→Executor→Critic
+topology via the `AgentRole` enum (`PLANNER` / `EXECUTOR` / `CRITIC`).
+Amendment 3 (and Principle 8 before it) makes that shape the user's
+decision, not the framework's. The replacement is plain `runtime.collaborate()`
+with whatever loop you want to write.
+
+```python
+# Old (deprecated)
+from arcana.multi_agent.team import TeamOrchestrator, RoleConfig
+from arcana.contracts.trace import AgentRole
+
+orchestrator = TeamOrchestrator(
+    role_configs={
+        AgentRole.PLANNER:  RoleConfig(role=AgentRole.PLANNER,  policy=..., reducer=...),
+        AgentRole.EXECUTOR: RoleConfig(role=AgentRole.EXECUTOR, policy=..., reducer=...),
+        AgentRole.CRITIC:   RoleConfig(role=AgentRole.CRITIC,   policy=..., reducer=...),
+    },
+    gateway=gateway,
+    max_rounds=5,
+)
+result = await orchestrator.run(goal)
+
+# New — your code drives the loop
+async with runtime.collaborate() as pool:
+    planner  = pool.add("planner",  system="You break tasks into plans.")
+    executor = pool.add("executor", system="You execute one step at a time.",
+                        tools=[...])
+    critic   = pool.add("critic",   system="You verify execution. Reply 'pass' or feedback.")
+
+    feedback = ""
+    for _ in range(MAX_ROUNDS):
+        plan_msg   = await planner.send(f"Goal: {goal}\nFeedback so far: {feedback}")
+        result_msg = await executor.send(f"Execute: {plan_msg.content}")
+        verdict    = await critic.send(f"Verify:\n{result_msg.content}")
+        if verdict.content.lower().strip().startswith("pass"):
+            break
+        feedback = verdict.content
+```
+
+For role-addressed message-passing (`MessageBus`), the replacement is the
+name-addressed `Channel` already in `arcana.multi_agent.channel` — same
+publish/subscribe shape, but addressing is by free-form agent name rather
+than by a fixed `AgentRole` enum. See the four patterns at the top of this
+guide for `Channel` examples.
+
+The `AgentRole` enum itself is **not** deprecated yet — it appears on
+`TraceEvent.role`, which is part of the stable `arcana.contracts.trace`
+surface. Its removal will follow once the deprecated classes above ship a
+removal in a future minor; that refactor is tracked in
+[`specs/constitution-amendment-3-multi-agent-os.md`](../../specs/constitution-amendment-3-multi-agent-os.md)
+under "Implementation follow-up."
