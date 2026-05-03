@@ -1,6 +1,6 @@
 # The Arcana Constitution
 
-**Version: 3.3** — see [Revision History](#revision-history)
+**Version: 3.4** — see [Revision History](#revision-history)
 
 This is not a style guide. This is the architectural law of Arcana. Every line of code, every PR, every design decision must answer to this document.
 
@@ -142,7 +142,7 @@ When multiple agents collaborate, the framework provides coordination infrastruc
 
 No agent is subordinate to another by framework decree. If a planner-executor pattern emerges, it is because the agents' prompts define those roles, not because the framework enforces a topology.
 
-The framework's role: ensure every agent gets its turn, stays within budget, and is given the means to see what others have said -- name-addressed channels, shared context stores, or equivalent communication mechanisms the agents may invoke. The agents' role: decide what to say, who to say it to, what to read from whom, when to agree, when to disagree, and when to declare the task complete.
+The framework's role: ensure every agent gets its turn, stays within budget, and is given the means to see what others have said -- **addressable communication primitives** (name-addressed channels, shared context stores, or equivalent) **whose transport may be in-process, cross-process, or remote**. The framework owns transport mechanics (delivery, identity, serialization, wire-level retry); the LLM owns what to send, who to address, and how to react when a send returns a structured failure. Transport-class failures surface to the LLM as structured feedback (in the same shape as `ToolErrorCategory.TRANSPORT`), never as opaque exceptions or silent message loss. The agents' role: decide what to say, who to say it to, what to read from whom, when to agree, when to disagree, and when to declare the task complete.
 
 ### Principle 9: Cognitive Primitives as Services
 
@@ -203,6 +203,8 @@ The framework never decides strategy. The LLM never enforces budgets. The framew
 
 **The framework never decides when or how the LLM uses cognitive primitives.** Offering a service is not prescribing its use. The framework may provide `recall`, `pin`, `branch`, etc. as available tools, but never calls them on the LLM's behalf, never hints at their use in prompts, and never evaluates whether the LLM used them appropriately.
 
+**The framework never imposes a default supervision policy on multi-agent sessions.** Supervision -- what happens to siblings when one agent fails, when to retry, when to escalate -- is a coordination strategy decision that belongs to the user's orchestration code. The framework provides the mechanisms (task groups, cancel scopes, structured failure propagation) but ships no default policy. A pool that hits an unhandled failure with no user-defined policy fails *open*: the error propagates to the caller, siblings are not auto-cancelled, no agent is auto-restarted. Predictably nothing is a valid framework default; silently something is not.
+
 When you find yourself writing code where the framework makes a judgment call that belongs to the LLM, stop. Refactor. That is a constitutional violation.
 
 ---
@@ -255,6 +257,7 @@ The user-facing distillation lives in [`docs/guide/stability.md`](docs/guide/sta
 
 ## Revision History
 
+- **v3.4** (2026-05-03) — Amend Principle 8 to make communication primitives explicitly transport-agnostic (in-process, cross-process, or remote), with transport mechanics owned by the framework and transport-class failures surfaced to the LLM as structured feedback. Add a Chapter IV Inviolable Rule: the framework never imposes a default supervision policy on multi-agent sessions; pools fail open (errors propagate to caller, siblings not auto-cancelled, no auto-restart) absent user-defined policy. See `specs/constitution-amendment-3-multi-agent-os.md`.
 - **v3.3** (2026-04-30) — Add Chapter VI (Stability Commitments). Codifies the v1.0.0+ semver contract and deprecation policy as a binding evolution promise alongside the behavioral and design promises. Cross-links to `docs/guide/stability.md` (user-facing) and `specs/v1.0.0-stability.md` (source of truth).
 - **v3.2** (2026-04-25) — Clarify the implementation status of the cognitive primitives introduced in Amendment 1. Of the primitives listed in Principle 9, only `recall`, `pin`, and `unpin` are implemented as runtime services today; `branch`, `anchor`, and `hint` remain on the roadmap. The framework's commitment is the architectural position — cognitive primitives belong as runtime services — not an implementation guarantee for primitives that do not yet exist. See `src/arcana/runtime/cognitive.py` for the source of truth on what is shipped.
 - **v3.1** (2026-04-21) — Amend Principle 8: "can see what others have said" → "is given the means to see what others have said"; expand agents' role to include addressing and reading decisions. Clarifies that the framework's multi-agent obligation is to provide communication infrastructure, not to guarantee message reception. See `specs/constitution-amendment-2-collaboration-means.md`.
