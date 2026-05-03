@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Development Commands
 
 ```bash
-# Install all dependencies (including dev)
-uv sync --all-extras
+# Install all dependencies (extras + dev — dev is needed for pytest/ruff/mypy)
+uv sync --all-extras --dev
 
 # Run tests
 uv run pytest
@@ -65,8 +65,8 @@ Request -> Intent Router (routing/)
 
 Multi-turn:    runtime.chat() -> ChatSession -> send() / stream()
 Multi-agent:   runtime.collaborate() -> AgentPool (user controls who speaks
-               and when; runtime provides shared infra). runtime.team() is
-               deprecated.
+               and when; runtime provides shared infra). runtime.team() was
+               removed in v1.0.0.
 Pipeline:      runtime.chain([ChainStep, ...]) -> sequential run() with auto context
 Batch:         runtime.run_batch([tasks], concurrency=...) -> list[BatchResult]
 
@@ -233,19 +233,21 @@ Runtime methods also include:
 
 ## Constitution
 
-`CONSTITUTION.md` -- v3.2, **nine principles** plus the **four prohibitions**
+`CONSTITUTION.md` -- v3.3, **nine principles** plus the **four prohibitions**
 (No Premature Structuring · No Controllability Theater · No Context Hoarding ·
 No Mechanical Retry). Defines the division of responsibility between LLM,
-runtime, and user, and the contributor compact. The PR-level constitutional
-checklist lives at `.github/pull_request_template.md` and a full set of
-runtime-enforced invariants lives at `tests/test_constitutional_invariants.py`
-(13 tests covering side-effect dispatch, ask_user non-blocking, cognitive
-opt-in, structured-output / tool coexistence, and the No-Mechanical-Retry
-contract).
+runtime, and user, the contributor compact, and (Chapter VI added in v3.3)
+the binding stability promise that the v1.0.0+ public surface enumerated in
+`specs/v1.0.0-stability.md` §1 follows strict semver. The PR-level
+constitutional checklist lives at `.github/pull_request_template.md` and a
+full set of runtime-enforced invariants lives at
+`tests/test_constitutional_invariants.py` (13 tests covering side-effect
+dispatch, ask_user non-blocking, cognitive opt-in, structured-output / tool
+coexistence, and the No-Mechanical-Retry contract).
 
 ## Project Status
 
-Current: v0.8.2 -- 1467 tests passing. Major features:
+Current: v1.0.0 -- 1504 tests passing. v1.0.0 is the first release under the binding stability promise (Constitution Chapter VI); the names listed in `specs/v1.0.0-stability.md` §1 follow strict semver from this point on. Major features:
 
 - V2 default engine: parallel tools (read concurrent, write sequential by
   side-effect), prompt caching, thinking-informed assessment, structured
@@ -255,7 +257,8 @@ Current: v0.8.2 -- 1467 tests passing. Major features:
   `branch` / `anchor` / `hint` are roadmap)
 - Multi-turn chat (`ChatSession` delegates to `ConversationAgent`)
 - `runtime.collaborate()` for user-controlled multi-agent orchestration
-  (`runtime.team()` is deprecated)
+  (`runtime.team()` was physically removed in v1.0.0; migration recipe in
+  `docs/guide/multi-agent.md`)
 - Pipelines with parallel branches (`runtime.chain()`)
 - Batch API (`runtime.run_batch()` + provider `batch_generate()`)
 - `ToolErrorCategory` (TRANSPORT / TIMEOUT / RATE_LIMIT / VALIDATION /

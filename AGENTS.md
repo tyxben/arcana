@@ -1,12 +1,12 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to Codex when working with code in this repository. It is a Codex-facing mirror of `CLAUDE.md` — the two should stay in lockstep.
 
 ## Build & Development Commands
 
 ```bash
-# Install all dependencies (including dev)
-uv sync --all-extras
+# Install all dependencies (extras + dev — dev is needed for pytest/ruff/mypy)
+uv sync --all-extras --dev
 
 # Run tests
 uv run pytest
@@ -63,9 +63,12 @@ Request -> Intent Router (routing/)
                  LLM Turn -> TurnFacts -> TurnAssessment -> State
                  Runtime OS: Budget | Trace | Tools | Diagnostics | ask_user
 
-Multi-turn: runtime.chat() -> ChatSession -> send() / stream()
-Team:       runtime.team(mode="shared"|"session") -> shared conversation or independent sessions
-Pipeline:   runtime.chain([ChainStep, ...]) -> sequential run() with auto context
+Multi-turn:    runtime.chat() -> ChatSession -> send() / stream()
+Multi-agent:   runtime.collaborate() -> AgentPool (user controls who speaks
+               and when; runtime provides shared infra). runtime.team() was
+               removed in v1.0.0.
+Pipeline:      runtime.chain([ChainStep, ...]) -> sequential run() with auto context
+Batch:         runtime.run_batch([tasks], concurrency=...) -> list[BatchResult]
 
 V1 path (still compatible):
             -> Agent + AdaptivePolicy (runtime/agent.py)
@@ -97,7 +100,7 @@ V1 path (still compatible):
 - `context.py`: `ContextBlock`, `TokenBudget`, `ContextDecision` -- working set context
 - `diagnosis.py`: `ErrorDiagnosis`, `ErrorCategory` -- structured error recovery
 - `llm.py`: `LLMRequest`, `LLMResponse`, `ModelConfig`, `ContentBlock` -- unified LLM interface
-- `tool.py`: `ToolSpec`, `ToolCall`, `ToolResult`, `ASK_USER_TOOL_NAME` -- tool execution contracts
+- `tool.py`: `ToolSpec`, `ToolCall`, `ToolResult`, `ToolError`, `ToolErrorCategory`, `SideEffect`, `ASK_USER_TOOL_NAME` -- tool execution contracts. `ToolErrorCategory` drives retry policy (only TRANSPORT/TIMEOUT/RATE_LIMIT retry); `SideEffect` drives batch dispatch (write tools serialize)
 - `channel.py`: `ExecutionChannel` -- protocol for Brain/Hands communication separation
 - `state.py`: `AgentState` -- execution state with budget tracking
 - `runtime.py`: Runtime configuration and turn state
@@ -204,7 +207,7 @@ Environment variables are still supported as a fallback:
 These providers have been tested with real API keys:
 - DeepSeek (deepseek-chat) -- direct answer + tools + structured output
 - OpenAI (gpt-4o-mini) -- direct answer + tools + structured output
-- Anthropic (Codex-sonnet-4) -- direct answer + structured output
+- Anthropic (claude-sonnet-4) -- direct answer + structured output
 - Kimi/Moonshot (moonshot-v1-8k) -- direct answer + tools + structured output
 - GLM/Zhipu (glm-4-flash) -- direct answer + tools + structured output
 - MiniMax (abab6.5s-chat) -- direct answer + tools (auto-degraded) + structured output
@@ -230,11 +233,43 @@ Runtime methods also include:
 
 ## Constitution
 
-`CONSTITUTION.md` -- v2, 8 principles (was 7). Defines the four prohibitions, the division of responsibility (LLM vs runtime vs user), and the contributor compact. Key additions in v2: Principle 8 (agent autonomy in collaboration), expanded Chapter IV (user role, user optionality rules).
+`CONSTITUTION.md` -- v3.3, **nine principles** plus the **four prohibitions**
+(No Premature Structuring · No Controllability Theater · No Context Hoarding ·
+No Mechanical Retry). Defines the division of responsibility between LLM,
+runtime, and user, the contributor compact, and (Chapter VI added in v3.3)
+the binding stability promise that the v1.0.0+ public surface enumerated in
+`specs/v1.0.0-stability.md` §1 follows strict semver. The PR-level
+constitutional checklist lives at `.github/pull_request_template.md` and a
+full set of runtime-enforced invariants lives at
+`tests/test_constitutional_invariants.py` (13 tests covering side-effect
+dispatch, ask_user non-blocking, cognitive opt-in, structured-output / tool
+coexistence, and the No-Mechanical-Retry contract).
 
 ## Project Status
 
-Current: v0.4.0 -- 1227 tests passing. Features: parallel tools, prompt caching, thinking assessment, structured output (coexists with tools, on_parse_error callback, parsed always BaseModel|None), multimodal input, fidelity-graded context compression (L0-L3 spectrum), ask_user, multi-turn chat (ChatSession delegates to ConversationAgent), pipeline with parallel branches (chain), context passing, per-run provider/model selection, budget scoping (chain-level + step-level), batch API (run_batch + provider batch_generate), Anthropic structured output, system prompt on run(), Runtime event hooks (on/off), arcana init CLI scaffold, ChatSession max_history, provider connection lifecycle, cancellation safety, ProviderProfile with auto-degradation, custom provider registration, StreamAccumulator, LazyToolRegistry token caching.
+Current: v1.0.0 -- 1504 tests passing. v1.0.0 is the first release under the binding stability promise (Constitution Chapter VI); the names listed in `specs/v1.0.0-stability.md` §1 follow strict semver from this point on. Major features:
+
+- V2 default engine: parallel tools (read concurrent, write sequential by
+  side-effect), prompt caching, thinking-informed assessment, structured
+  output that coexists with tools, multimodal input, fidelity-graded
+  context compression (L0-L3), ask_user with graceful fallback, opt-in
+  cognitive primitives (`recall` / `pin` / `unpin` shipped;
+  `branch` / `anchor` / `hint` are roadmap)
+- Multi-turn chat (`ChatSession` delegates to `ConversationAgent`)
+- `runtime.collaborate()` for user-controlled multi-agent orchestration
+  (`runtime.team()` was physically removed in v1.0.0; migration recipe in
+  `docs/guide/multi-agent.md`)
+- Pipelines with parallel branches (`runtime.chain()`)
+- Batch API (`runtime.run_batch()` + provider `batch_generate()`)
+- `ToolErrorCategory` (TRANSPORT / TIMEOUT / RATE_LIMIT / VALIDATION /
+  PERMISSION / LOGIC / CONFIRMATION_REQUIRED / UNEXPECTED) drives retry
+  policy — only the first three categories are eligible for the gateway's
+  retry loop
+- Per-run provider/model selection, budget scoping (chain + step level),
+  Runtime event hooks, `arcana init` CLI scaffold, `ChatSession.max_history`,
+  provider connection lifecycle, cancellation safety, `ProviderProfile`
+  with auto-degradation, custom provider registration, `StreamAccumulator`,
+  `LazyToolRegistry` token caching
 
 ## Learning Resources
 
