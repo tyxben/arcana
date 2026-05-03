@@ -23,7 +23,7 @@ The cut commit also removes the multi-agent surface that the constitution reject
 - `Runtime.team(goal, agents, *, max_rounds, budget, mode)` method
 - `TeamResult` Pydantic model + the `arcana.TeamResult` re-export
 - The `mode="shared"` and `mode="session"` parameters and their internal round-counter / fixed turn-order scheduler
-- The `[DONE]` sentinel-driven completion contract
+- `team()`'s framework-level treatment of `[DONE]` as a hard stop signal — i.e. the `if "[done]" in agent_text.lower(): return TeamResult(...)` early-return inside `team()`. The `[DONE]` *convention* (an agent emitting `[DONE]` to mean "I am satisfied") is not removed; it remains a perfectly valid pattern in user-written critic loops, V1 agent output, and eval harnesses. What is gone is the *framework treating it as a control-flow contract* on the user's behalf
 
 **Why physical removal, not a shim**: `team(mode="shared")` baked a framework-prescribed collaboration topology — internal round counter, fixed turn sequence, framework-owned context baton — into the runtime. Under Principle 4 (Strategy Leaps), Principle 6 (OS not Form Engine), and Principle 8 (amended in `specs/constitution-amendment-2-collaboration-means.md`), that shape is not something the framework may prescribe. A shim would either keep the violation reachable behind a thin wrapper or silently change behavior. See `specs/v1.0.0-removals.md` for the full argument.
 
