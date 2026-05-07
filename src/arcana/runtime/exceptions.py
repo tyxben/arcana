@@ -2,52 +2,14 @@
 
 from __future__ import annotations
 
-from enum import Enum
-
-
-class ErrorType(str, Enum):
-    """Classification of error types."""
-
-    # Recoverable errors (can retry)
-    RETRYABLE = "retryable"  # Temporary issues (rate limits, timeouts)
-    VALIDATION = "validation"  # Schema/format validation failures
-    PARTIAL_FAILURE = "partial_failure"  # Some operations succeeded
-
-    # Non-recoverable errors (cannot retry)
-    PERMANENT = "permanent"  # Permanent failures (bad input, logic errors)
-    BUDGET_EXCEEDED = "budget_exceeded"  # Resource limits exceeded
-    AUTHORIZATION = "authorization"  # Permission denied
-
-    # Escalation required
-    REQUIRES_HUMAN = "requires_human"  # Needs human intervention
-    SAFETY_VIOLATION = "safety_violation"  # Safety policy violated
-
-
-class ErrorSeverity(str, Enum):
-    """Severity levels for errors."""
-
-    LOW = "low"  # Minor issues, system continues
-    MEDIUM = "medium"  # Degraded performance
-    HIGH = "high"  # Major functionality impaired
-    CRITICAL = "critical"  # System cannot continue
-
 
 class RuntimeError(Exception):
     """Base exception for runtime errors."""
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        recoverable: bool = False,
-        error_type: ErrorType = ErrorType.PERMANENT,
-        severity: ErrorSeverity = ErrorSeverity.MEDIUM,
-    ) -> None:
+    def __init__(self, message: str, *, recoverable: bool = False) -> None:
         super().__init__(message)
         self.message = message
         self.recoverable = recoverable
-        self.error_type = error_type
-        self.severity = severity
 
 
 class StateTransitionError(RuntimeError):
