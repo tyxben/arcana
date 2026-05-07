@@ -51,6 +51,9 @@ nav:
   - Constitution: constitution.md
   - Changelog: changelog.md
 
+exclude_docs: |
+  legacy/
+
 plugins:
   - search
   - social
