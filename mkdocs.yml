@@ -53,6 +53,7 @@ nav:
 
 exclude_docs: |
   legacy/
+  specs/
 
 plugins:
   - search
