@@ -321,4 +321,4 @@ result = await arcana.run("...", engine="adaptive")
 
 **文档版本**：3.0（V2 重写）
 **对应代码**：`runtime/conversation.py` · `runtime_core.py`
-**最近大幅变动**：v0.7.0 引入认知原语 (recall/pin/unpin)；v0.8.x 加固 Channel / MessageBus 边界；`team()` deprecated → `collaborate()`
+**最近大幅变动**：v0.7.0 引入认知原语 (recall/pin/unpin)；v0.8.x 加固 Channel / MessageBus 边界；`team()` deprecated → `collaborate()`；v1.0.0 物理移除 `runtime.team()`，2026-05-03 进一步移除 `TeamOrchestrator` / `RoleConfig` / `MessageBus`（Amendment 3 后续清理）
