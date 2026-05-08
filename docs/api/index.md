@@ -11,7 +11,6 @@ Arcana's public API is designed around a single entry point (`arcana.run()`) for
 | `Runtime.chat()` | Multi-turn conversations |
 | `Runtime.chain()` | Sequential pipelines |
 | `Runtime.collaborate()` | Multi-agent collaboration |
-| `Runtime.stream()` | SSE streaming |
 
 ## Modules
 
