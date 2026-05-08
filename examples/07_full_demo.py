@@ -202,13 +202,13 @@ async def demo_5_diagnostic_recovery():
     print("Demo 5: Diagnostic Error Recovery")
     print("=" * 60)
 
-    from arcana.contracts.tool import ErrorType, ToolError
+    from arcana.contracts.tool import ToolError, ToolErrorCategory
     from arcana.runtime.diagnosis.diagnoser import build_recovery_prompt, diagnose_tool_error
     from arcana.runtime.diagnosis.tracker import RecoveryTracker
 
     # Simulate a tool-not-found error
     error = ToolError(
-        error_type=ErrorType.NON_RETRYABLE,
+        category=ToolErrorCategory.LOGIC,
         message="Tool 'search_web' not found in registry",
         code="TOOL_NOT_FOUND",
     )

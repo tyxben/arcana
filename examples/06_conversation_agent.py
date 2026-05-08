@@ -89,14 +89,14 @@ async def test_v2_with_tools():
                     output=result,
                 )
             except Exception as e:
-                from arcana.contracts.tool import ErrorType
+                from arcana.contracts.tool import ToolErrorCategory
 
                 return ToolResult(
                     tool_call_id=call.id,
                     name=call.name,
                     success=False,
                     error=ToolError(
-                        error_type=ErrorType.NON_RETRYABLE, message=str(e)
+                        category=ToolErrorCategory.UNEXPECTED, message=str(e)
                     ),
                 )
 
