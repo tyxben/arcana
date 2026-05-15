@@ -27,6 +27,12 @@ Future invariants (not yet pinned, tracked as work):
 
 - Pinned content survives ``WorkingSetBuilder`` compression at L0 fidelity.
 - Final-answer detection does not depend on forced-output markers.
+- Framework-authored context notes preserve provenance and never impersonate
+  user intent, system policy, or assistant conclusions.
+- Semantic-weakening provider/capability downgrades surface as structured
+  feedback or trace evidence rather than changing the caller contract silently.
+- Passive cognitive surfacing only happens after the user enabled the
+  primitive and the LLM explicitly armed it.
 """
 
 from __future__ import annotations

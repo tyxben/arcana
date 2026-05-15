@@ -1,6 +1,6 @@
 # The Arcana Constitution
 
-**Version: 3.4** — see [Revision History](#revision-history)
+**Version: 3.5** — see [Revision History](#revision-history)
 
 This is not a style guide. This is the architectural law of Arcana. Every line of code, every PR, every design decision must answer to this document.
 
@@ -88,6 +88,8 @@ Only the Working layer is actively managed per step. Tool schemas, memory, conve
 
 Context is modality-agnostic. Text, images, structured data, and tool results all follow the same working set discipline: include what the current step needs, exclude what it does not.
 
+**Corollary -- Context Provenance Is Mandatory:** Every context block must preserve where it came from and why it is present. User-authored content, assistant output, tool results, memory, compressed summaries, pinned content, framework notes, and provider/runtime diagnostics carry different authority. The working set may compress or drop content, but it must not blur authorship, hide whether content was summarized, or let a framework-authored note impersonate user intent, system policy, or an assistant conclusion.
+
 ### Principle 3: Tools as Capabilities, Not Interfaces
 
 A tool is not an API wrapper. A tool is a capability the LLM can reason about.
@@ -120,6 +122,8 @@ The runtime provides services. It does not impose workflows.
 Runtime services: budget enforcement, trace recording, tool dispatch, capability registry, working set management, error diagnostics.
 
 These services are always available. None of them dictate the agent's strategy. The LLM calls on them as needed, like a program calls on an operating system.
+
+**Corollary -- No Silent Semantic Downgrade:** The runtime may adapt to provider capabilities, budget pressure, transport limits, and tool availability, but only silently when the meaning of the user's request and the caller's contract are preserved. If fallback, capability degradation, context compression, tool-surface reduction, or structured-output downgrade changes what can be expressed, validated, or guaranteed, the change must surface as structured feedback, trace evidence, or an explicit result field. Optimization can be transparent; semantic weakening cannot.
 
 ### Principle 7: Judge by Outcomes, Not by Process
 
@@ -160,6 +164,10 @@ These primitives are exposed as intercepted tools -- the same mechanism as `ask_
 
 A cognitive primitive in the tool list is a door the LLM may open; it is not a corridor the LLM must walk. Offering a service is not prescribing its use.
 
+Passive monitoring is permitted only after two opt-ins: the user enabled the primitive, and the LLM explicitly armed it by calling the primitive. For example, an `anchor` service may later surface a possible contradiction to the LLM because the LLM asked the runtime to watch that assumption. Such output must be labeled as framework-authored evidence, never as instruction, verdict, automatic correction, or hidden state mutation. The LLM decides whether the evidence matters.
+
+Implementation status is not implied by this principle. As of v3.5, `recall`, `pin`, and `unpin` are implemented runtime services. `branch`, `anchor`, and `hint` remain roadmap primitives until their contracts and tests ship.
+
 See `specs/constitution-amendment-1-cognitive-primitives.md` for the full argument and `specs/v0.7.0-cognitive-primitives.md` for the first implementation.
 
 ---
@@ -175,6 +183,7 @@ See `specs/constitution-amendment-1-cognitive-primitives.md` for the full argume
 - **Classifying errors**: structured diagnostics, recovery options
 - **Enabling interaction**: providing mechanisms for the LLM to communicate with the user mid-execution
 - **Providing cognitive primitives**: services for the LLM to operate on its own reasoning state (recall compressed history, pin critical content, branch reasoning, anchor assumptions, hint future context). These services are available for the LLM to invoke; the framework never compels their use.
+- **Preserving provenance**: keeping authorship, compression status, runtime notes, and semantic downgrades visible enough that the LLM, user, and trace consumer can tell what kind of evidence they are reading.
 
 ### The LLM Is Responsible For:
 
@@ -203,6 +212,10 @@ The framework never decides strategy. The LLM never enforces budgets. The framew
 
 **The framework never decides when or how the LLM uses cognitive primitives.** Offering a service is not prescribing its use. The framework may provide `recall`, `pin`, `branch`, etc. as available tools, but never calls them on the LLM's behalf, never hints at their use in prompts, and never evaluates whether the LLM used them appropriately.
 
+**Passive cognitive surfacing is evidence, not control.** After the LLM arms a cognitive primitive, the framework may surface passive status changes produced by that primitive (for example, a possible invalidation of an anchored assumption). It must label the surfaced content as framework-authored, explain the evidence that triggered it, and leave all interpretation and response to the LLM. It must not rewrite the LLM's conclusion, force a follow-up step, or treat silence as consent.
+
+**The framework never silently weakens a caller-visible contract.** Provider fallback, capability downgrade, prompt compression, lazy tool selection, and cache optimization are allowed runtime mechanics. If they preserve semantics, they may stay invisible except in trace. If they weaken validation, remove a capability the LLM reasonably needed, alter output guarantees, or change the authority of context, they must be surfaced as structured feedback or auditable trace evidence.
+
 **The framework never imposes a default supervision policy on multi-agent sessions.** Supervision -- what happens to siblings when one agent fails, when to retry, when to escalate -- is a coordination strategy decision that belongs to the user's orchestration code. The framework provides the mechanisms (task groups, cancel scopes, structured failure propagation) but ships no default policy. A pool that hits an unhandled failure with no user-defined policy fails *open*: the error propagates to the caller, siblings are not auto-cancelled, no agent is auto-restarted. Predictably nothing is a valid framework default; silently something is not.
 
 When you find yourself writing code where the framework makes a judgment call that belongs to the LLM, stop. Refactor. That is a constitutional violation.
@@ -224,6 +237,7 @@ Before submitting, answer these:
 7. **Outcome-oriented?** Does this improve result quality, or just process visibility?
 8. **Agent autonomy?** If this involves multiple agents, does it preserve each agent's freedom to decide its own approach?
 9. **User optionality?** If this involves user interaction, can execution continue without it?
+10. **Provenance and downgrade honesty?** If this adds context blocks, framework notes, provider fallback, or capability degradation, can the LLM and trace consumer tell what changed, who authored it, and what authority it carries?
 
 ### The Fundamental Question
 
@@ -257,6 +271,7 @@ The user-facing distillation lives in [`docs/guide/stability.md`](docs/guide/sta
 
 ## Revision History
 
+- **v3.5** (2026-05-12) — Clarify the boundary for advanced cognitive primitives and adaptive runtime behavior. Add mandatory context provenance under Principle 2, no silent semantic downgrade under Principle 6, and an Inviolable Rule allowing only opt-in passive cognitive surfacing as labeled evidence, not control. Move cognitive primitive implementation status into Principle 9 itself so roadmap names are not mistaken for shipped guarantees. See `specs/constitution-amendment-4-cognitive-passive-surfacing.md`.
 - **v3.4** (2026-05-03) — Amend Principle 8 to make communication primitives explicitly transport-agnostic (in-process, cross-process, or remote), with transport mechanics owned by the framework and transport-class failures surfaced to the LLM as structured feedback. Add a Chapter IV Inviolable Rule: the framework never imposes a default supervision policy on multi-agent sessions; pools fail open (errors propagate to caller, siblings not auto-cancelled, no auto-restart) absent user-defined policy. See `specs/constitution-amendment-3-multi-agent-os.md`.
 - **v3.3** (2026-04-30) — Add Chapter VI (Stability Commitments). Codifies the v1.0.0+ semver contract and deprecation policy as a binding evolution promise alongside the behavioral and design promises. Cross-links to `docs/guide/stability.md` (user-facing) and `specs/v1.0.0-stability.md` (source of truth).
 - **v3.2** (2026-04-25) — Clarify the implementation status of the cognitive primitives introduced in Amendment 1. Of the primitives listed in Principle 9, only `recall`, `pin`, and `unpin` are implemented as runtime services today; `branch`, `anchor`, and `hint` remain on the roadmap. The framework's commitment is the architectural position — cognitive primitives belong as runtime services — not an implementation guarantee for primitives that do not yet exist. See `src/arcana/runtime/cognitive.py` for the source of truth on what is shipped.

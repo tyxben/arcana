@@ -49,6 +49,18 @@ Tick what applies and explain anything you're unsure about — it's fine to say
   concurrently — see `tests/test_constitutional_invariants.py`.
 - [ ] **Cognitive primitives stay opt-in.** I did not auto-expose
   `recall` / `pin` / `unpin` to the LLM in any default code path.
+- [ ] **Framework notes preserve provenance.** If I added memory,
+  compressed summaries, context blocks, runtime diagnostics, or future
+  cognitive alerts, they are clearly labeled by source and cannot be
+  confused with user intent, system policy, or assistant conclusions.
+- [ ] **No silent semantic downgrade.** If provider fallback, capability
+  auto-degradation, lazy tool selection, prompt compression, or structured
+  output fallback can weaken the caller-visible contract, that weakening is
+  surfaced as structured feedback, result data, or auditable trace evidence.
+- [ ] **Passive cognitive surfacing is armed first.** If I added passive
+  monitoring for a cognitive primitive, it only fires after the primitive was
+  enabled and the LLM explicitly armed it; the surfaced content is evidence,
+  not a directive or verdict.
 
 ## Test Plan
 

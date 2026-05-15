@@ -1,11 +1,12 @@
 # Cognitive Primitives Roadmap — `branch` / `anchor` / `hint`
 
 **Status**: Draft (2026-05-08)
-**Owns**: the load-bearing design proposal for the three cognitive primitives that Constitution v3.4 §Principle 9 lists but has not yet shipped — `branch`, `anchor`, `hint`. Defines semantics, contracts, runtime integration, tracing, and constitutional analysis for each.
+**Owns**: the load-bearing design proposal for the three cognitive primitives that Constitution v3.5 §Principle 9 lists but has not yet shipped — `branch`, `anchor`, `hint`. Defines semantics, contracts, runtime integration, tracing, and constitutional analysis for each.
 **Supersedes / cross-references**:
 - `specs/v0.7.0-cognitive-primitives.md` — shipped MVP (`recall` / `pin` / `unpin`); this doc reuses its design invariants verbatim.
 - `specs/constitution-amendment-1-cognitive-primitives.md` — the founding argument for Principle 9.
-- `CONSTITUTION.md` v3.4 — Principle 9 + Chapter IV inviolable rule "the framework never decides when or how the LLM uses cognitive primitives."
+- `CONSTITUTION.md` v3.5 — Principle 9 + Chapter IV inviolable rules for cognitive primitives, including passive surfacing as labeled evidence after explicit arming.
+- `specs/constitution-amendment-4-cognitive-passive-surfacing.md` — the constitutional carve-out that permits `anchor_status`-style passive surfacing without letting the runtime control the LLM's strategy.
 
 This doc is a design proposal, not a release plan. Each primitive's mechanism is the load-bearing contribution; sequencing, surface freezes, and version targeting belong to a separate `vX.Y.Z` spec once a primitive is selected for implementation.
 
@@ -535,7 +536,7 @@ This ordering inverts the v0.7.0 spec's tier-2 list (which had branch / anchor /
 (Beyond per-primitive open questions in §1.6, §2.6, §3.6.)
 
 1. **One spec or three?** This doc treats branch/anchor/hint as a single roadmap. If implementation is sequenced (§4.3), each primitive likely deserves its own focused `vX.Y.Z` spec (precedent: `v0.7.0-cognitive-primitives.md`). Lean: this doc as the umbrella, three smaller specs as work items kick off.
-2. **Should the constitution amendment be re-opened?** Principle 9 already lists branch/anchor/hint by name. No amendment needed for the *names*. But the framework-emitted `anchor_status` event challenges the inviolable rule "the framework never decides when or how the LLM uses cognitive primitives" — and may justify a v3.5 amendment that explicitly carves out passive surfacing (vs auto-invocation). Bringing this up in review is the right move; preemptively rewriting the constitution is not.
+2. **Passive surfacing constitutional boundary**: resolved by Constitution v3.5 / Amendment 4. A framework-emitted `anchor_status` event is constitutional only after the user enabled `anchor` and the LLM explicitly armed the anchor, and only if the surfaced content is labeled framework-authored evidence rather than a directive or verdict.
 3. **Multi-agent (`AgentPool`) story per primitive**: per v0.8.0, cognitive state is per-agent. Branch/anchor/hint should follow the same isolation. Confirm explicitly that `pool.add(..., cognitive_primitives=["branch"])` enables branch only for that agent and its branch state is invisible to siblings.
 4. **CLI surface**: `arcana trace show <run_id> --cognitive` already exists for recall/pin/unpin. Extending it for branch (per-branch reconstruction), anchor (status timeline), and hint (per-build application list) is non-trivial. Worth scoping per-primitive, possibly batched in a v0.11.x trace CLI bump.
 5. **Compatibility with `engine="adaptive"` (V1)**: V1 path doesn't use `WorkingSetBuilder.abuild_conversation_context` and doesn't have the cognitive handler integrated. Document that all three primitives are V2-only; calls under V1 should fall through to "tool not found" with a structured note.
@@ -546,3 +547,4 @@ This ordering inverts the v0.7.0 spec's tier-2 list (which had branch / anchor /
 ## 8. Revision history
 
 - **2026-05-08** — Draft 1. Scope: branch / anchor / hint design proposals, decomposed goal-vs-mechanism per v1.0.0-stability §3.5 style. Implementation-order recommendation: hint → branch → anchor.
+- **2026-05-12** — Updated cross-references after Constitution v3.5 / Amendment 4 accepted the passive cognitive surfacing carve-out for `anchor_status`-style events.
