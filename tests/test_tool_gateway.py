@@ -1,9 +1,16 @@
 """Unit tests for Tool Gateway."""
 
 import asyncio
+import json
 
 import pytest
 
+from arcana.contracts.permission import (
+    PermissionAction,
+    PermissionMatch,
+    PermissionPolicy,
+    PermissionRule,
+)
 from arcana.contracts.tool import (
     SideEffect,
     ToolCall,
@@ -170,6 +177,32 @@ class SlowTool(ToolProvider):
         )
 
 
+class TrackingTool(ToolProvider):
+    """Tool that records whether execution happened."""
+
+    def __init__(self) -> None:
+        self.executed = False
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name="tracked_read",
+            description="Tracked read",
+            input_schema={"type": "object", "properties": {}},
+            side_effect=SideEffect.READ,
+            capabilities=[],
+        )
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        self.executed = True
+        return ToolResult(
+            tool_call_id=call.id,
+            name=call.name,
+            success=True,
+            output="tracked",
+        )
+
+
 # ── Fixtures ─────────────────────────────────────────────────────
 
 
@@ -285,6 +318,116 @@ class TestAuthorization:
         # Check that trace event was written
         trace_files = list(tmp_path.glob("*.jsonl"))
         assert len(trace_files) > 0
+
+    async def test_permission_policy_deny_rejects_without_execution(self, trace_ctx):
+        tool = TrackingTool()
+        reg = ToolRegistry()
+        reg.register(tool)
+        policy = PermissionPolicy(
+            rules=[
+                PermissionRule(
+                    id="deny-tracked",
+                    action=PermissionAction.DENY,
+                    reason="Tracked reads are disabled.",
+                    match=PermissionMatch(tool_names=["tracked_*"]),
+                )
+            ]
+        )
+        gw = ToolGateway(registry=reg, permission_policy=policy)
+
+        result = await gw.call(
+            _make_call("tracked_read", arguments={}),
+            trace_ctx=trace_ctx,
+        )
+
+        assert not result.success
+        assert result.error is not None
+        assert result.error.category == ToolErrorCategory.PERMISSION
+        assert result.error.code == "PERMISSION_DENIED"
+        assert result.error.message == "Tracked reads are disabled."
+        assert not tool.executed
+
+    async def test_permission_policy_ask_requires_confirmation_for_read_tool(self, trace_ctx):
+        tool = TrackingTool()
+        reg = ToolRegistry()
+        reg.register(tool)
+        policy = PermissionPolicy(
+            rules=[
+                PermissionRule(
+                    action=PermissionAction.ASK,
+                    reason="Tracked reads need approval.",
+                    match=PermissionMatch(tool_names=["tracked_read"]),
+                )
+            ]
+        )
+        gw = ToolGateway(registry=reg, permission_policy=policy)
+
+        result = await gw.call(
+            _make_call("tracked_read", arguments={}),
+            trace_ctx=trace_ctx,
+        )
+
+        assert not result.success
+        assert result.error is not None
+        assert result.error.category == ToolErrorCategory.CONFIRMATION_REQUIRED
+        assert result.error.code == "CONFIRMATION_REQUIRED"
+        assert result.error.message == "Tracked reads need approval."
+        assert not tool.executed
+
+    async def test_permission_policy_ask_executes_after_confirmation(self, trace_ctx):
+        tool = TrackingTool()
+        reg = ToolRegistry()
+        reg.register(tool)
+        policy = PermissionPolicy(
+            rules=[
+                PermissionRule(
+                    action=PermissionAction.ASK,
+                    reason="Tracked reads need approval.",
+                    match=PermissionMatch(tool_names=["tracked_read"]),
+                )
+            ]
+        )
+        gw = ToolGateway(
+            registry=reg,
+            permission_policy=policy,
+            confirmation_callback=_auto_confirm,
+        )
+
+        result = await gw.call(
+            _make_call("tracked_read", arguments={}),
+            trace_ctx=trace_ctx,
+        )
+
+        assert result.success
+        assert result.output == "tracked"
+        assert tool.executed
+
+    async def test_permission_policy_decision_is_traced(self, registry, tmp_path, trace_ctx):
+        trace_writer = TraceWriter(trace_dir=tmp_path)
+        policy = PermissionPolicy(
+            rules=[
+                PermissionRule(
+                    id="deny-echo",
+                    action=PermissionAction.DENY,
+                    reason="Echo disabled.",
+                    match=PermissionMatch(tool_names=["echo"]),
+                )
+            ]
+        )
+        gw = ToolGateway(
+            registry=registry,
+            trace_writer=trace_writer,
+            permission_policy=policy,
+        )
+
+        await gw.call(_make_call("echo"), trace_ctx=trace_ctx)
+
+        trace_file = tmp_path / "test-run.jsonl"
+        event = json.loads(trace_file.read_text().splitlines()[0])
+        decision = event["metadata"]["permission_decision"]
+        assert decision["action"] == "deny"
+        assert decision["reason"] == "Echo disabled."
+        assert decision["matched_rule_id"] == "deny-echo"
 
 
 # ── TestValidation ───────────────────────────────────────────────

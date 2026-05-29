@@ -9,6 +9,15 @@ from arcana.contracts.llm import (
     ModelConfig,
     TokenUsage,
 )
+from arcana.contracts.permission import (
+    PermissionAction,
+    PermissionDecision,
+    PermissionMatch,
+    PermissionPolicy,
+    PermissionRequest,
+    PermissionRule,
+    PermissionScope,
+)
 from arcana.contracts.runtime import (
     PolicyDecision,
     RuntimeConfig,
@@ -36,6 +45,14 @@ __all__ = [
     "LLMResponse",
     "TokenUsage",
     "Budget",
+    # Permission
+    "PermissionAction",
+    "PermissionDecision",
+    "PermissionMatch",
+    "PermissionPolicy",
+    "PermissionRequest",
+    "PermissionRule",
+    "PermissionScope",
     # Tool
     "ToolSpec",
     "ToolCall",

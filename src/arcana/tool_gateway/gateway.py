@@ -8,6 +8,12 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
+from arcana.contracts.permission import (
+    PermissionAction,
+    PermissionDecision,
+    PermissionPolicy,
+    PermissionRequest,
+)
 from arcana.contracts.tool import (
     SideEffect,
     ToolCall,
@@ -77,6 +83,7 @@ class ToolGateway:
         registry: ToolRegistry,
         trace_writer: TraceWriter | None = None,
         granted_capabilities: set[str] | None = None,
+        permission_policy: PermissionPolicy | None = None,
         confirmation_callback: Callable[[ToolCall, ToolSpec], Awaitable[bool]] | None = None,
         backend: ExecutionBackend | None = None,
         idempotency_cache_limit: int | None = 1024,
@@ -88,6 +95,8 @@ class ToolGateway:
             registry: Tool registry with registered providers
             trace_writer: Optional trace writer for audit logging
             granted_capabilities: Set of capabilities granted to this agent
+            permission_policy: Optional structured allow/deny/ask policy.
+                When omitted, the legacy capability + confirmation behavior is preserved.
             confirmation_callback: Async callback for write confirmation.
                 If None and a write tool is called, ConfirmationRequired is raised.
             backend: Execution backend for tool isolation.
@@ -109,6 +118,7 @@ class ToolGateway:
         self.registry = registry
         self.trace_writer = trace_writer
         self.granted_capabilities = granted_capabilities or set()
+        self.permission_policy = permission_policy
         self.confirmation_callback = confirmation_callback
         self.backend = backend or InProcessBackend()
 
@@ -174,7 +184,33 @@ class ToolGateway:
                 ),
             )
 
-        # 3. Validate arguments
+        # 3. Structured permission policy
+        permission_decision = self._evaluate_permission(spec)
+        if (
+            permission_decision is not None
+            and permission_decision.action == PermissionAction.DENY
+        ):
+            result = ToolResult(
+                tool_call_id=tool_call.id,
+                name=tool_call.name,
+                success=False,
+                error=ToolError(
+                    category=ToolErrorCategory.PERMISSION,
+                    message=permission_decision.reason,
+                    code="PERMISSION_DENIED",
+                ),
+            )
+            if trace_ctx:
+                self._log_tool_call(
+                    tool_call,
+                    result,
+                    spec,
+                    trace_ctx,
+                    metadata=self._permission_metadata(permission_decision),
+                )
+            return result
+
+        # 4. Validate arguments
         validation_error = validate_arguments(spec, tool_call.arguments)
         if validation_error is not None:
             result = ToolResult(
@@ -184,10 +220,16 @@ class ToolGateway:
                 error=validation_error,
             )
             if trace_ctx:
-                self._log_tool_call(tool_call, result, spec, trace_ctx)
+                self._log_tool_call(
+                    tool_call,
+                    result,
+                    spec,
+                    trace_ctx,
+                    metadata=self._permission_metadata(permission_decision),
+                )
             return result
 
-        # 4. Check idempotency cache (lock held through execute to prevent duplicate runs)
+        # 5. Check idempotency cache (lock held through execute to prevent duplicate runs)
         if tool_call.idempotency_key is not None:
             async with self._cache_lock:
                 cached = self._idempotency_cache.get(tool_call.idempotency_key)
@@ -195,29 +237,59 @@ class ToolGateway:
                     self._idempotency_cache.move_to_end(tool_call.idempotency_key)
                     return cached
 
-                # 5. Confirm (write tools)
-                confirmation_result = await self._confirm_execution(tool_call, spec)
+                # 6. Confirm (write tools or policy ask)
+                confirmation_result = await self._confirm_execution(
+                    tool_call,
+                    spec,
+                    permission_decision=permission_decision,
+                )
                 if confirmation_result is not None:
+                    if trace_ctx:
+                        self._log_tool_call(
+                            tool_call,
+                            confirmation_result,
+                            spec,
+                            trace_ctx,
+                            metadata=self._permission_metadata(permission_decision),
+                        )
                     return confirmation_result
 
-                # 6. Execute with retry
+                # 7. Execute with retry
                 result = await self._execute_with_retry(provider, tool_call, spec)
 
-                # 7. Cache result
+                # 8. Cache result
                 self._idempotency_cache[tool_call.idempotency_key] = result
                 if self._idempotency_cache_limit is not None:
                     while len(self._idempotency_cache) > self._idempotency_cache_limit:
                         self._idempotency_cache.popitem(last=False)
         else:
             # No idempotency key — skip cache entirely
-            confirmation_result = await self._confirm_execution(tool_call, spec)
+            confirmation_result = await self._confirm_execution(
+                tool_call,
+                spec,
+                permission_decision=permission_decision,
+            )
             if confirmation_result is not None:
+                if trace_ctx:
+                    self._log_tool_call(
+                        tool_call,
+                        confirmation_result,
+                        spec,
+                        trace_ctx,
+                        metadata=self._permission_metadata(permission_decision),
+                    )
                 return confirmation_result
             result = await self._execute_with_retry(provider, tool_call, spec)
 
-        # 8. Audit
+        # 9. Audit
         if trace_ctx:
-            self._log_tool_call(tool_call, result, spec, trace_ctx)
+            self._log_tool_call(
+                tool_call,
+                result,
+                spec,
+                trace_ctx,
+                metadata=self._permission_metadata(permission_decision),
+            )
 
         return result
 
@@ -308,6 +380,20 @@ class ToolGateway:
         missing = required - self.granted_capabilities
         return sorted(missing)
 
+    def _evaluate_permission(self, spec: ToolSpec) -> PermissionDecision | None:
+        """Evaluate optional structured permission policy for a tool spec."""
+        if self.permission_policy is None:
+            return None
+        request = PermissionRequest.from_tool_spec(spec)
+        return self.permission_policy.evaluate(request)
+
+    @staticmethod
+    def _permission_metadata(decision: PermissionDecision | None) -> dict[str, Any]:
+        """Build trace metadata for a permission decision."""
+        if decision is None:
+            return {}
+        return {"permission_decision": decision.model_dump(mode="json")}
+
     async def _check_idempotency(self, key: str | None) -> ToolResult | None:
         """Return cached result if idempotency key was seen before."""
         if key is None:
@@ -323,7 +409,11 @@ class ToolGateway:
             self._idempotency_cache[key] = result
 
     async def _confirm_execution(
-        self, tool_call: ToolCall, spec: ToolSpec
+        self,
+        tool_call: ToolCall,
+        spec: ToolSpec,
+        *,
+        permission_decision: PermissionDecision | None = None,
     ) -> ToolResult | None:
         """
         Gate execution behind confirmation for write tools.
@@ -331,17 +421,30 @@ class ToolGateway:
         Returns None if confirmed (proceed with execution).
         Returns ToolResult if rejected or confirmation required.
         """
-        if spec.side_effect != SideEffect.WRITE and not spec.requires_confirmation:
+        policy_requires_approval = (
+            permission_decision is not None
+            and permission_decision.action == PermissionAction.ASK
+        )
+        if (
+            not policy_requires_approval
+            and spec.side_effect != SideEffect.WRITE
+            and not spec.requires_confirmation
+        ):
             return None
 
         if self.confirmation_callback is None:
+            reason = (
+                permission_decision.reason
+                if policy_requires_approval and permission_decision is not None
+                else f"Tool '{tool_call.name}' requires human confirmation"
+            )
             return ToolResult(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
                 success=False,
                 error=ToolError(
                     category=ToolErrorCategory.CONFIRMATION_REQUIRED,
-                    message=f"Tool '{tool_call.name}' requires human confirmation",
+                    message=reason,
                     code="CONFIRMATION_REQUIRED",
                 ),
             )
@@ -354,7 +457,11 @@ class ToolGateway:
                 success=False,
                 error=ToolError(
                     category=ToolErrorCategory.CONFIRMATION_REQUIRED,
-                    message=f"Execution of '{tool_call.name}' was rejected",
+                    message=(
+                        permission_decision.reason
+                        if policy_requires_approval and permission_decision is not None
+                        else f"Execution of '{tool_call.name}' was rejected"
+                    ),
                     code="CONFIRMATION_REJECTED",
                 ),
             )
@@ -449,6 +556,7 @@ class ToolGateway:
         result: ToolResult,
         spec: ToolSpec,
         trace_ctx: TraceContext,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Write a TraceEvent with ToolCallRecord for audit."""
         if not self.trace_writer:
@@ -472,6 +580,7 @@ class ToolGateway:
             parent_step_id=tool_call.parent_step_id,
             event_type=EventType.TOOL_CALL,
             tool_call=record,
+            metadata=metadata or {},
         )
         self.trace_writer.write(event)
 
