@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from arcana.contracts.tool import ToolCall, ToolError, ToolErrorCategory, ToolResult, ToolSpec
+from arcana.contracts.mcp import MCPError
+from arcana.contracts.tool import (
+    ToolCall,
+    ToolError,
+    ToolErrorCategory,
+    ToolResult,
+    ToolSpec,
+)
+from arcana.mcp.client import MCPCallError
+from arcana.mcp.protocol import mcp_error_to_tool_error
 
 
 class MCPToolProvider:
@@ -45,6 +54,15 @@ class MCPToolProvider:
                 name=call.name,
                 success=True,
                 output=result,
+            )
+        except MCPCallError as e:
+            return ToolResult(
+                tool_call_id=call.id,
+                name=call.name,
+                success=False,
+                error=mcp_error_to_tool_error(
+                    MCPError(code=e.code, message=str(e))
+                ),
             )
         except Exception as e:
             return ToolResult(

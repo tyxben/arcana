@@ -93,6 +93,8 @@ class TestProtocol:
         mcp = MCPToolSpec(name="write", input_schema={})
         spec = mcp_tool_to_arcana_spec(mcp, "fs", capability_prefix="mcp.fs")
         assert "mcp.fs.write" in spec.capabilities
+        assert spec.side_effect == SideEffect.WRITE
+        assert spec.requires_confirmation
 
     def test_arcana_to_mcp(self):
         spec = ToolSpec(
@@ -174,6 +176,33 @@ class TestMCPToolProvider:
         result = await provider.execute(call)
         assert not result.success
         assert "Connection lost" in result.error.message
+        assert result.error.category == ToolErrorCategory.TRANSPORT
+
+    @pytest.mark.asyncio
+    async def test_execute_mcp_validation_error_is_not_retryable(self):
+        from arcana.mcp.client import MCPCallError
+        from arcana.mcp.tool_provider import MCPToolProvider
+
+        mock_client = MagicMock()
+        mock_client.call_tool = AsyncMock(
+            side_effect=MCPCallError(-32602, "Invalid params")
+        )
+        mock_client.connected_servers = ["fs"]
+
+        spec = ToolSpec(name="fs.read", description="Read", input_schema={})
+        provider = MCPToolProvider(
+            client=mock_client,
+            server_name="fs",
+            mcp_tool_name="read",
+            arcana_spec=spec,
+        )
+
+        call = ToolCall(id="1", name="fs.read", arguments={})
+        result = await provider.execute(call)
+        assert not result.success
+        assert result.error.category == ToolErrorCategory.VALIDATION
+        assert not result.error.is_retryable
+        assert result.error.code == "-32602"
 
     @pytest.mark.asyncio
     async def test_health_check(self):

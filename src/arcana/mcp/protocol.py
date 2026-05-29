@@ -32,11 +32,14 @@ def mcp_tool_to_arcana_spec(
     if capability_prefix:
         capabilities.append(f"{capability_prefix}.{mcp_spec.name}")
 
+    side_effect = _infer_side_effect(mcp_spec)
+
     return ToolSpec(
         name=f"{server_name}.{mcp_spec.name}",
         description=mcp_spec.description or f"MCP tool: {mcp_spec.name}",
         input_schema=mcp_spec.input_schema,
-        side_effect=_infer_side_effect(mcp_spec),
+        side_effect=side_effect,
+        requires_confirmation=side_effect == SideEffect.WRITE,
         capabilities=capabilities,
         when_to_use=(
             f"MCP tool from {server_name}: "
