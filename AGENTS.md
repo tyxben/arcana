@@ -233,23 +233,20 @@ Runtime methods also include:
 
 ## Constitution
 
-`CONSTITUTION.md` -- v3.4, **nine principles** plus the **four prohibitions**
+`CONSTITUTION.md` -- v3.6, **nine principles** plus the **four prohibitions**
 (No Premature Structuring · No Controllability Theater · No Context Hoarding ·
 No Mechanical Retry). Defines the division of responsibility between LLM,
 runtime, and user, the contributor compact, and (Chapter VI added in v3.3)
 the binding stability promise that the v1.0.0+ public surface enumerated in
-`specs/v1.0.0-stability.md` §1 follows strict semver. v3.4 (Amendment 3,
-2026-05-03) clarifies Principle 8 to be transport-agnostic — in-process,
-cross-process, and remote agents share the same addressable-by-name
-semantics, transport mechanics belong to the framework, transport-class
-failures surface to the LLM as structured feedback — and adds an Inviolable
-Rule that the framework never imposes a default supervision policy on
-multi-agent sessions (pools fail open). The PR-level constitutional checklist
-lives at `.github/pull_request_template.md` and a full set of
-runtime-enforced invariants lives at
-`tests/test_constitutional_invariants.py` (13 tests covering side-effect
-dispatch, ask_user non-blocking, cognitive opt-in, structured-output / tool
-coexistence, and the No-Mechanical-Retry contract).
+`specs/v1.0.0-stability.md` §1 follows strict semver. v3.5 added mandatory
+context provenance, no silent semantic downgrade, and passive cognitive
+surfacing only as labeled evidence after opt-in. v3.6 (2026-05-27) adds the
+protocol/safety boundary: MCP, connectors, A2A, browser/computer-use, and
+future remote protocols are capability transports, not trust boundaries;
+guardrails are boundaries, not hidden workflows; evals are release evidence,
+not runtime governance. The PR-level constitutional checklist lives at
+`.github/pull_request_template.md` and a full set of runtime-enforced
+invariants lives at `tests/test_constitutional_invariants.py`.
 
 ## Project Status
 

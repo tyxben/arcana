@@ -162,7 +162,7 @@ All providers use a single OpenAI-compatible adapter. Adding a new provider is o
 
 Most agent frameworks treat LLMs as unreliable workers that need a manager watching every step. They force rigid formats -- ReAct loops, JSON command schemas, mechanical retries -- and dump entire tool catalogs into every prompt. The result is high ceremony, low capability. The framework spends its complexity constraining the LLM instead of releasing it.
 
-Arcana takes the opposite approach: it is an operating system for LLM agents, not a pipeline. The LLM decides strategy; the runtime provides services -- budget enforcement, tool dispatch, trace recording, context management. The framework never interprets LLM output: raw facts (`TurnFacts`) and runtime assessment (`TurnAssessment`) are kept visibly separate. Eight design principles and four prohibitions, codified in a [Constitution](constitution.md), govern every line of code.
+Arcana takes the opposite approach: it is an operating system for LLM agents, not a pipeline. The LLM decides strategy; the runtime provides services -- budget enforcement, tool dispatch, trace recording, context management. The framework never interprets LLM output: raw facts (`TurnFacts`) and runtime assessment (`TurnAssessment`) are kept visibly separate. Nine design principles and four prohibitions, codified in a [Constitution](constitution.md), govern every line of code.
 
 ---
 

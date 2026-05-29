@@ -1,6 +1,6 @@
 # The Arcana Constitution
 
-**Version: 3.5** — see [Revision History](#revision-history)
+**Version: 3.6** — see [Revision History](#revision-history)
 
 This is not a style guide. This is the architectural law of Arcana. Every line of code, every PR, every design decision must answer to this document.
 
@@ -96,6 +96,8 @@ A tool is not an API wrapper. A tool is a capability the LLM can reason about.
 
 Every tool must declare not just its schema, but its affordances: when to use it, what to expect from it, what failure means. The LLM should be able to look at a tool and understand not just how to call it, but whether to call it.
 
+**Corollary -- Protocols Are Capability Transports, Not Trust Boundaries:** MCP servers, provider-hosted connectors, remote tools, browser/computer-use surfaces, and future protocol bridges are ways to transport capabilities into the runtime. They do not make a capability trustworthy merely by being standard. Every imported capability must enter through the same contract discipline as local tools: identity, declared affordance, authority, side-effect class, approval requirements, provenance, and auditable execution. A remote capability that cannot state these properties is not ready to be exposed to the LLM.
+
 ### Principle 4: Allow Strategy Leaps
 
 The LLM does not owe us a step-by-step trace of its reasoning.
@@ -140,6 +142,8 @@ Metrics that do not matter:
 - Did it use all planned steps?
 - Did it produce pretty logs?
 
+**Corollary -- Evaluation Is Evidence, Not Governance:** Evals, regression gates, red-team suites, and alignment probes are required evidence for risky changes, especially changes that add autonomy, tool authority, remote protocols, or long-running execution. They do not become a hidden supervisor. A failing eval blocks a release or returns structured risk evidence to the caller; it does not authorize the framework to secretly rewrite the LLM's strategy, insert unrequested steps, or treat benchmark success as proof of real-world correctness.
+
 ### Principle 8: Agent Autonomy in Collaboration
 
 When multiple agents collaborate, the framework provides coordination infrastructure -- communication channels, budget allocation, turn scheduling -- but never dictates hierarchy or strategy.
@@ -147,6 +151,8 @@ When multiple agents collaborate, the framework provides coordination infrastruc
 No agent is subordinate to another by framework decree. If a planner-executor pattern emerges, it is because the agents' prompts define those roles, not because the framework enforces a topology.
 
 The framework's role: ensure every agent gets its turn, stays within budget, and is given the means to see what others have said -- **addressable communication primitives** (name-addressed channels, shared context stores, or equivalent) **whose transport may be in-process, cross-process, or remote**. The framework owns transport mechanics (delivery, identity, serialization, wire-level retry); the LLM owns what to send, who to address, and how to react when a send returns a structured failure. Transport-class failures surface to the LLM as structured feedback (in the same shape as `ToolErrorCategory.TRANSPORT`), never as opaque exceptions or silent message loss. The agents' role: decide what to say, who to say it to, what to read from whom, when to agree, when to disagree, and when to declare the task complete.
+
+**Corollary -- Interoperability Without Topology Capture:** Open agent protocols may standardize discovery, identity, message envelopes, version negotiation, and task exchange. Arcana may implement adapters for them. Arcana must not inherit their orchestration policy as framework law. A protocol adapter can say "this remote agent exists, here is how to address it, here is what authority it requests, here is what failed." It cannot say "therefore use this agent next," "therefore cancel the sibling agents," or "therefore this protocol's agent graph is the user's workflow."
 
 ### Principle 9: Cognitive Primitives as Services
 
@@ -166,7 +172,7 @@ A cognitive primitive in the tool list is a door the LLM may open; it is not a c
 
 Passive monitoring is permitted only after two opt-ins: the user enabled the primitive, and the LLM explicitly armed it by calling the primitive. For example, an `anchor` service may later surface a possible contradiction to the LLM because the LLM asked the runtime to watch that assumption. Such output must be labeled as framework-authored evidence, never as instruction, verdict, automatic correction, or hidden state mutation. The LLM decides whether the evidence matters.
 
-Implementation status is not implied by this principle. As of v3.5, `recall`, `pin`, and `unpin` are implemented runtime services. `branch`, `anchor`, and `hint` remain roadmap primitives until their contracts and tests ship.
+Implementation status is not implied by this principle. As of v3.6, `recall`, `pin`, and `unpin` are implemented runtime services. `branch`, `anchor`, and `hint` remain roadmap primitives until their contracts and tests ship.
 
 See `specs/constitution-amendment-1-cognitive-primitives.md` for the full argument and `specs/v0.7.0-cognitive-primitives.md` for the first implementation.
 
@@ -184,6 +190,8 @@ See `specs/constitution-amendment-1-cognitive-primitives.md` for the full argume
 - **Enabling interaction**: providing mechanisms for the LLM to communicate with the user mid-execution
 - **Providing cognitive primitives**: services for the LLM to operate on its own reasoning state (recall compressed history, pin critical content, branch reasoning, anchor assumptions, hint future context). These services are available for the LLM to invoke; the framework never compels their use.
 - **Preserving provenance**: keeping authorship, compression status, runtime notes, and semantic downgrades visible enough that the LLM, user, and trace consumer can tell what kind of evidence they are reading.
+- **Mediating external protocols**: importing MCP/A2A-style capabilities, connectors, remote tools, and remote agents only through explicit contracts for identity, authority, side effects, approval, provenance, and transport failure.
+- **Evaluating risk**: maintaining regression, security, and alignment-oriented evaluations for behavior that expands autonomy, authority, context ingestion, or protocol reach.
 
 ### The LLM Is Responsible For:
 
@@ -218,6 +226,10 @@ The framework never decides strategy. The LLM never enforces budgets. The framew
 
 **The framework never imposes a default supervision policy on multi-agent sessions.** Supervision -- what happens to siblings when one agent fails, when to retry, when to escalate -- is a coordination strategy decision that belongs to the user's orchestration code. The framework provides the mechanisms (task groups, cancel scopes, structured failure propagation) but ships no default policy. A pool that hits an unhandled failure with no user-defined policy fails *open*: the error propagates to the caller, siblings are not auto-cancelled, no agent is auto-restarted. Predictably nothing is a valid framework default; silently something is not.
 
+**Remote capability is never trusted by protocol membership alone.** A remote MCP server, connector, A2A peer, browser surface, or computer-use environment is treated as untrusted input until the caller grants authority. The runtime must preserve allow/deny decisions, approval requirements, side-effect classes, authentication context, and tool-result provenance. Prompt injection carried through retrieved context, tool output, or peer-agent messages is a protocol risk, not an LLM quirk to be wished away.
+
+**Guardrails are boundaries, not workflows.** Input checks, output checks, tool-call checks, sandbox policies, and human approvals may block unsafe execution or return structured feedback. They must not become hidden planners. A guardrail may say "this action is outside policy" or "approval required"; it may not silently replace the user's goal, choose the next strategy, or convert every task into a review pipeline.
+
 When you find yourself writing code where the framework makes a judgment call that belongs to the LLM, stop. Refactor. That is a constitutional violation.
 
 ---
@@ -238,6 +250,8 @@ Before submitting, answer these:
 8. **Agent autonomy?** If this involves multiple agents, does it preserve each agent's freedom to decide its own approach?
 9. **User optionality?** If this involves user interaction, can execution continue without it?
 10. **Provenance and downgrade honesty?** If this adds context blocks, framework notes, provider fallback, or capability degradation, can the LLM and trace consumer tell what changed, who authored it, and what authority it carries?
+11. **Protocol boundary?** If this imports MCP/A2A/connectors/remote tools/computer-use, are identity, authority, side effects, approval, and provenance explicit before exposure to the LLM?
+12. **Evaluation evidence?** If this expands autonomy, authority, remote protocol reach, or long-running behavior, is there a focused eval or regression test that would catch the new failure mode?
 
 ### The Fundamental Question
 
@@ -271,6 +285,7 @@ The user-facing distillation lives in [`docs/guide/stability.md`](docs/guide/sta
 
 ## Revision History
 
+- **v3.6** (2026-05-27) — Incorporate 2025-2026 agent-platform trends without adopting their workflow assumptions: MCP/connectors as capability transports, A2A-style interoperability as addressable communication rather than topology, guardrails as boundaries rather than hidden planners, and evals as release evidence rather than runtime governance. See `specs/constitution-amendment-5-agent-protocols-and-safety.md`.
 - **v3.5** (2026-05-12) — Clarify the boundary for advanced cognitive primitives and adaptive runtime behavior. Add mandatory context provenance under Principle 2, no silent semantic downgrade under Principle 6, and an Inviolable Rule allowing only opt-in passive cognitive surfacing as labeled evidence, not control. Move cognitive primitive implementation status into Principle 9 itself so roadmap names are not mistaken for shipped guarantees. See `specs/constitution-amendment-4-cognitive-passive-surfacing.md`.
 - **v3.4** (2026-05-03) — Amend Principle 8 to make communication primitives explicitly transport-agnostic (in-process, cross-process, or remote), with transport mechanics owned by the framework and transport-class failures surfaced to the LLM as structured feedback. Add a Chapter IV Inviolable Rule: the framework never imposes a default supervision policy on multi-agent sessions; pools fail open (errors propagate to caller, siblings not auto-cancelled, no auto-restart) absent user-defined policy. See `specs/constitution-amendment-3-multi-agent-os.md`.
 - **v3.3** (2026-04-30) — Add Chapter VI (Stability Commitments). Codifies the v1.0.0+ semver contract and deprecation policy as a binding evolution promise alongside the behavioral and design promises. Cross-links to `docs/guide/stability.md` (user-facing) and `specs/v1.0.0-stability.md` (source of truth).
