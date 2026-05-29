@@ -161,6 +161,41 @@ class TestRuntimeRun:
                 assert result.success
                 assert result.output == "42"
 
+    @pytest.mark.asyncio
+    async def test_run_tools_merge_with_runtime_tools(self):
+        """run(tools=...) adds per-run tools without dropping runtime tools."""
+        from arcana.contracts.state import AgentState, ExecutionStatus
+        from arcana.sdk import tool
+
+        @tool()
+        def runtime_lookup(query: str) -> str:
+            return f"runtime:{query}"
+
+        @tool()
+        def run_lookup(query: str) -> str:
+            return f"run:{query}"
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+            tools=[runtime_lookup],
+        )
+        mock_state = AgentState(
+            run_id="test",
+            status=ExecutionStatus.COMPLETED,
+            working_memory={"answer": "done"},
+        )
+
+        with patch("arcana.runtime.conversation.ConversationAgent") as MockAgent:
+            instance = MockAgent.return_value
+            instance.run = AsyncMock(return_value=mock_state)
+
+            await rt.run("test", tools=[run_lookup])
+
+        tool_gateway = MockAgent.call_args.kwargs["tool_gateway"]
+        assert set(tool_gateway.registry.list_tools()) == {"runtime_lookup", "run_lookup"}
+        assert rt.tools == ["runtime_lookup"]
+
 
 class TestRuntimeStream:
     @pytest.mark.asyncio
@@ -173,6 +208,117 @@ class TestRuntimeStream:
         with pytest.raises(ValueError, match="Streaming only supported"):
             async for _ in rt.stream("test", engine="adaptive"):
                 pass
+
+    @pytest.mark.asyncio
+    async def test_stream_accumulates_runtime_totals_on_completion(self):
+        """Runtime.stream() records final stream usage in runtime totals."""
+        from arcana.contracts.state import AgentState, ExecutionStatus
+        from arcana.contracts.streaming import StreamEvent, StreamEventType
+
+        class FakeAgent:
+            def __init__(self, **kwargs):
+                self._state = None
+
+            async def astream(self, goal):
+                self._state = AgentState(
+                    run_id="stream-run",
+                    status=ExecutionStatus.COMPLETED,
+                    working_memory={"answer": "done"},
+                    tokens_used=12,
+                    cost_usd=0.34,
+                )
+                yield StreamEvent(
+                    event_type=StreamEventType.RUN_COMPLETE,
+                    run_id="stream-run",
+                    content="done",
+                )
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        with patch("arcana.runtime.conversation.ConversationAgent", side_effect=FakeAgent):
+            events = [event async for event in rt.stream("test")]
+
+        assert len(events) == 1
+        assert rt.tokens_used == 12
+        assert rt.budget_used_usd == pytest.approx(0.34)
+
+    @pytest.mark.asyncio
+    async def test_stream_accumulates_runtime_totals_on_exception(self):
+        """Runtime.stream() records partial usage when streaming raises."""
+        from arcana.contracts.state import AgentState, ExecutionStatus
+        from arcana.contracts.streaming import StreamEvent, StreamEventType
+
+        class FakeAgent:
+            def __init__(self, **kwargs):
+                self._state = None
+
+            async def astream(self, goal):
+                yield StreamEvent(
+                    event_type=StreamEventType.RUN_START,
+                    run_id="stream-run",
+                    content=goal,
+                )
+                self._state = AgentState(
+                    run_id="stream-run",
+                    status=ExecutionStatus.FAILED,
+                    working_memory={},
+                    tokens_used=7,
+                    cost_usd=0.07,
+                )
+                raise RuntimeError("stream failed")
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        with patch("arcana.runtime.conversation.ConversationAgent", side_effect=FakeAgent):
+            with pytest.raises(RuntimeError, match="stream failed"):
+                async for _ in rt.stream("test"):
+                    pass
+
+        assert rt.tokens_used == 7
+        assert rt.budget_used_usd == pytest.approx(0.07)
+
+    @pytest.mark.asyncio
+    async def test_stream_accumulates_runtime_totals_on_early_close(self):
+        """Runtime.stream() records partial usage when the caller closes early."""
+        from arcana.contracts.state import AgentState, ExecutionStatus
+        from arcana.contracts.streaming import StreamEvent, StreamEventType
+
+        class FakeAgent:
+            def __init__(self, **kwargs):
+                self._state = None
+
+            async def astream(self, goal):
+                self._state = AgentState(
+                    run_id="stream-run",
+                    status=ExecutionStatus.RUNNING,
+                    working_memory={},
+                    tokens_used=5,
+                    cost_usd=0.05,
+                )
+                yield StreamEvent(
+                    event_type=StreamEventType.RUN_START,
+                    run_id="stream-run",
+                    content=goal,
+                )
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        with patch("arcana.runtime.conversation.ConversationAgent", side_effect=FakeAgent):
+            stream = rt.stream("test")
+            await stream.__anext__()
+            await stream.aclose()
+
+        assert rt.tokens_used == 5
+        assert rt.budget_used_usd == pytest.approx(0.05)
 
 
 class TestRuntimeChain:
@@ -870,6 +1016,45 @@ class TestSession:
         rt = Runtime()
         session = Session(runtime=rt, budget=Budget(max_cost_usd=0.5))
         assert session.budget.max_cost_usd == 0.5
+
+    @pytest.mark.asyncio
+    async def test_session_tools_merge_with_runtime_tools(self):
+        """session(tools=...) adds per-session tools without dropping runtime tools."""
+        from arcana.contracts.state import AgentState, ExecutionStatus
+        from arcana.sdk import tool
+
+        @tool()
+        def runtime_lookup(query: str) -> str:
+            return f"runtime:{query}"
+
+        @tool()
+        def session_lookup(query: str) -> str:
+            return f"session:{query}"
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+            tools=[runtime_lookup],
+        )
+        mock_state = AgentState(
+            run_id="test",
+            status=ExecutionStatus.COMPLETED,
+            working_memory={"answer": "done"},
+        )
+
+        with patch("arcana.runtime.conversation.ConversationAgent") as MockAgent:
+            instance = MockAgent.return_value
+            instance.run = AsyncMock(return_value=mock_state)
+
+            async with rt.session(tools=[session_lookup]) as session:
+                await session.run("test")
+
+        tool_gateway = MockAgent.call_args.kwargs["tool_gateway"]
+        assert set(tool_gateway.registry.list_tools()) == {
+            "runtime_lookup",
+            "session_lookup",
+        }
+        assert rt.tools == ["runtime_lookup"]
 
 
 class TestRuntimeBudgetQuery:
@@ -1591,3 +1776,154 @@ class TestChainStepBudget:
         assert captured["y"] is not None
         assert captured["y"].max_cost_usd == 0.20
         assert captured["y"].max_tokens == 2000
+
+    @pytest.mark.asyncio
+    async def test_parallel_chain_budget_is_split_across_branches(self):
+        """Parallel branches share, rather than each receive, the chain budget."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured: list[Budget] = []
+
+        async def mock_run(goal, **kwargs):
+            branch_budget = kwargs["budget"]
+            captured.append(branch_budget)
+            return RunResult(
+                output=goal,
+                success=True,
+                steps=1,
+                tokens_used=branch_budget.max_tokens,
+                cost_usd=branch_budget.max_cost_usd,
+                run_id=goal,
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                [
+                    ChainStep(name="x", goal="Do X"),
+                    ChainStep(name="y", goal="Do Y"),
+                ],
+            ],
+            budget=Budget(max_cost_usd=0.10, max_tokens=101),
+        )
+
+        assert result.success
+        assert [b.max_cost_usd for b in captured] == [
+            pytest.approx(0.05),
+            pytest.approx(0.05),
+        ]
+        assert [b.max_tokens for b in captured] == [51, 50]
+        assert result.total_cost_usd == pytest.approx(0.10)
+        assert result.total_tokens == 101
+
+    @pytest.mark.asyncio
+    async def test_parallel_chain_rejects_budget_too_small_for_branches(self):
+        """A zero-token branch allocation is rejected instead of becoming unlimited."""
+        from arcana.gateway.base import BudgetExceededError
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        async def mock_run(goal, **kwargs):
+            return RunResult(output="should-not-run", success=True)
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        with pytest.raises(BudgetExceededError, match="token budget too small"):
+            await rt.chain(
+                steps=[
+                    [
+                        ChainStep(name="x", goal="Do X"),
+                        ChainStep(name="y", goal="Do Y"),
+                    ],
+                ],
+                budget=Budget(max_cost_usd=1.0, max_tokens=1),
+            )
+
+    @pytest.mark.asyncio
+    async def test_parallel_chain_budget_split_handles_default_cost_budget(self):
+        """Parallel budget splitting uses Runtime Budget defaults for unspecified cost."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured: list[Budget] = []
+
+        async def mock_run(goal, **kwargs):
+            branch_budget = kwargs["budget"]
+            captured.append(branch_budget)
+            return RunResult(
+                output=goal,
+                success=True,
+                steps=1,
+                tokens_used=branch_budget.max_tokens,
+                cost_usd=0.0,
+                run_id=goal,
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                [
+                    ChainStep(name="x", goal="Do X"),
+                    ChainStep(name="y", goal="Do Y"),
+                ],
+            ],
+            budget=Budget(max_tokens=9),
+        )
+
+        assert result.success
+        assert [b.max_tokens for b in captured] == [5, 4]
+        assert [b.max_cost_usd for b in captured] == [
+            pytest.approx(5.0),
+            pytest.approx(5.0),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_parallel_chain_budget_split_handles_default_token_budget(self):
+        """Parallel budget splitting uses Runtime Budget defaults for unspecified tokens."""
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+
+        captured: list[Budget] = []
+
+        async def mock_run(goal, **kwargs):
+            branch_budget = kwargs["budget"]
+            captured.append(branch_budget)
+            return RunResult(
+                output=goal,
+                success=True,
+                steps=1,
+                tokens_used=0,
+                cost_usd=branch_budget.max_cost_usd,
+                run_id=goal,
+            )
+
+        rt.run = mock_run  # type: ignore[assignment]
+
+        result = await rt.chain(
+            steps=[
+                [
+                    ChainStep(name="x", goal="Do X"),
+                    ChainStep(name="y", goal="Do Y"),
+                ],
+            ],
+            budget=Budget(max_cost_usd=0.12),
+        )
+
+        assert result.success
+        assert [b.max_cost_usd for b in captured] == [
+            pytest.approx(0.06),
+            pytest.approx(0.06),
+        ]
+        assert [b.max_tokens for b in captured] == [250_000, 250_000]

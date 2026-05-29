@@ -357,6 +357,35 @@ class TestChatSessionSend:
         # Verify all messages are tracked
         assert session.message_count > 10  # system + 10 user + 10 assistant
 
+    @pytest.mark.asyncio
+    async def test_max_history_zero_retains_no_non_system_messages(self):
+        """max_history=0 keeps the system prompt and trims all chat history."""
+        rt = _make_runtime()
+        rt._gateway.generate = AsyncMock(
+            return_value=_make_text_response("Response")
+        )
+        rt._gateway.stream = MagicMock(side_effect=NotImplementedError)
+
+        session = ChatSession(runtime=rt, max_history=0)
+        response = await session.send("Hello")
+
+        assert response.content == "Response"
+        assert session.message_count == 1
+        assert session.history == []
+
+    def test_max_history_zero_trims_seed_history(self):
+        """Seeded non-system messages are also trimmed when max_history=0."""
+        rt = _make_runtime()
+        session = ChatSession(runtime=rt, max_history=0)
+
+        session.seed_history([
+            {"role": "user", "content": "prior question"},
+            {"role": "assistant", "content": "prior answer"},
+        ])
+
+        assert session.message_count == 1
+        assert session.history == []
+
 
 class TestChatSessionStream:
     @pytest.mark.asyncio

@@ -650,8 +650,15 @@ class Runtime:
 
         agent = ConversationAgent(**agent_kwargs)
 
-        async for event in agent.astream(goal):
-            yield event
+        try:
+            async for event in agent.astream(goal):
+                yield event
+        finally:
+            state = getattr(agent, "_state", None)
+            if state is not None:
+                async with self._totals_lock:
+                    self._total_tokens_used += state.tokens_used
+                    self._total_cost_usd += state.cost_usd
 
     async def connect_mcp(self) -> list[str]:
         """Connect to configured MCP servers and register tools.
@@ -826,16 +833,19 @@ class Runtime:
         total_cost_usd = 0.0
         current_context: str = input
 
+        def _chain_remaining_budget() -> Budget | None:
+            if budget is None:
+                return None
+            return Budget(
+                max_cost_usd=max(0.0, budget.max_cost_usd - total_cost_usd),
+                max_tokens=max(0, budget.max_tokens - total_tokens),
+            )
+
         def _effective_budget(step_budget: Budget | None) -> Budget | None:
             """Compute effective budget: min(step_budget, chain_remaining)."""
             if budget is None and step_budget is None:
                 return None
-            chain_remaining: Budget | None = None
-            if budget is not None:
-                chain_remaining = Budget(
-                    max_cost_usd=max(0.0, budget.max_cost_usd - total_cost_usd),
-                    max_tokens=max(0, budget.max_tokens - total_tokens),
-                )
+            chain_remaining = _chain_remaining_budget()
             if step_budget is not None and chain_remaining is not None:
                 return Budget(
                     max_cost_usd=min(step_budget.max_cost_usd, chain_remaining.max_cost_usd),
@@ -843,10 +853,62 @@ class Runtime:
                 )
             return step_budget if step_budget is not None else chain_remaining
 
+        def _parallel_budgets(parallel_steps: list[ChainStep]) -> list[Budget | None]:
+            """Allocate the remaining chain budget across parallel branches.
+
+            Parallel branches cannot each receive the full remaining chain
+            budget; otherwise their combined spend may exceed the chain cap.
+            When a chain budget exists, split the remaining budget evenly and
+            then apply each branch's own step budget as an additional cap.
+            """
+            if budget is None:
+                return [_effective_budget(s.budget) for s in parallel_steps]
+
+            remaining = _chain_remaining_budget()
+            if remaining is None:
+                return [_effective_budget(s.budget) for s in parallel_steps]
+
+            branch_count = len(parallel_steps)
+            if branch_count == 0:
+                return []
+            if remaining.max_cost_usd <= 0:
+                from arcana.gateway.base import BudgetExceededError
+
+                raise BudgetExceededError(
+                    "Chain cost budget exhausted before parallel group",
+                    budget_type="cost",
+                )
+            if remaining.max_tokens < branch_count:
+                from arcana.gateway.base import BudgetExceededError
+
+                raise BudgetExceededError(
+                    "Chain token budget too small for parallel group",
+                    budget_type="tokens",
+                )
+
+            cost_share = remaining.max_cost_usd / branch_count
+            token_base = remaining.max_tokens // branch_count
+            token_remainder = remaining.max_tokens % branch_count
+
+            allocated: list[Budget | None] = []
+            for index, step in enumerate(parallel_steps):
+                branch_budget = Budget(
+                    max_cost_usd=cost_share,
+                    max_tokens=token_base + (1 if index < token_remainder else 0),
+                )
+                if step.budget is not None:
+                    branch_budget = Budget(
+                        max_cost_usd=min(step.budget.max_cost_usd, branch_budget.max_cost_usd),
+                        max_tokens=min(step.budget.max_tokens, branch_budget.max_tokens),
+                    )
+                allocated.append(branch_budget)
+            return allocated
+
         for step_or_group in steps:
             if isinstance(step_or_group, list):
                 # Parallel execution
                 parallel_steps = step_or_group
+                parallel_budgets = _parallel_budgets(parallel_steps)
 
                 async def _run_parallel(s: ChainStep, ctx: str, eff_budget: Budget | None) -> tuple[str, RunResult]:
                     ctx_val: dict[str, Any] | str | None = ctx if ctx else None
@@ -859,7 +921,10 @@ class Runtime:
                     return s.name, r
 
                 results = await asyncio.gather(
-                    *[_run_parallel(s, current_context, _effective_budget(s.budget)) for s in parallel_steps],
+                    *[
+                        _run_parallel(s, current_context, eff_budget)
+                        for s, eff_budget in zip(parallel_steps, parallel_budgets, strict=True)
+                    ],
                 )
 
                 failed = False
@@ -1364,6 +1429,53 @@ class Runtime:
         gateway = ToolGateway(registry=registry)
         return registry, gateway
 
+    def _tool_gateway_for_run(
+        self,
+        extra_tools: list[Callable] | None = None,  # type: ignore[type-arg]
+    ) -> Any:
+        """Return a run-scoped gateway containing runtime and per-run tools."""
+        if not extra_tools:
+            return self._tool_gateway
+
+        from arcana.sdk import _FunctionToolProvider
+        from arcana.tool_gateway.gateway import ToolGateway
+        from arcana.tool_gateway.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        base_gateway = self._tool_gateway
+
+        if base_gateway is not None:
+            for name in base_gateway.registry.list_tools():
+                provider = base_gateway.registry.get(name)
+                if provider is not None:
+                    registry.register(provider)
+
+        registered_extra = False
+        for func in extra_tools:
+            if hasattr(func, "_fn"):
+                func = func._fn
+            spec = getattr(func, "_arcana_tool_spec", None)
+            if spec is None:
+                continue
+            registry.register(_FunctionToolProvider(spec=spec, func=func))
+            registered_extra = True
+
+        if not registered_extra:
+            return self._tool_gateway
+
+        if base_gateway is None:
+            return ToolGateway(registry=registry, trace_writer=self._trace_writer)
+
+        return ToolGateway(
+            registry=registry,
+            trace_writer=base_gateway.trace_writer,
+            granted_capabilities=set(base_gateway.granted_capabilities),
+            permission_policy=base_gateway.permission_policy,
+            confirmation_callback=base_gateway.confirmation_callback,
+            backend=base_gateway.backend,
+            idempotency_cache_limit=base_gateway._idempotency_cache_limit,
+        )
+
     def _create_session(
         self,
         engine: str = "conversation",
@@ -1490,8 +1602,7 @@ class Session:
         import json as _json
 
         # Merge tools: runtime tools + session extra tools
-        tool_gateway = self._runtime._tool_gateway
-        # TODO: merge extra_tools if provided
+        tool_gateway = self._runtime._tool_gateway_for_run(self._extra_tools)
 
         if self._provider_override or self._model_override:
             resolved_provider = self._provider_override or self._runtime._config.default_provider
@@ -1807,7 +1918,7 @@ class ChatSession:
         System messages are always preserved. When ``max_history`` is ``None``
         (default), no trimming occurs.
         """
-        if self._max_history is None or len(self._messages) <= self._max_history:
+        if self._max_history is None:
             return
         from arcana.contracts.llm import MessageRole
 
@@ -1815,7 +1926,10 @@ class ChatSession:
         non_system = [m for m in self._messages if m.role != MessageRole.SYSTEM]
         if len(non_system) <= self._max_history:
             return
-        self._messages = system_msgs + non_system[-self._max_history:]
+        if self._max_history == 0:
+            self._messages = system_msgs
+        else:
+            self._messages = system_msgs + non_system[-self._max_history:]
 
     async def send(
         self,
@@ -2214,6 +2328,7 @@ class ChatSession:
             return
 
         self._messages.extend(appended)
+        self._trim_history()
 
         if self._runtime._trace_writer is not None:
             from arcana.contracts.trace import EventType, TraceEvent
