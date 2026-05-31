@@ -8,7 +8,7 @@ from arcana.contracts.permission import (
     PermissionRule,
     PermissionScope,
 )
-from arcana.contracts.tool import SideEffect, ToolSpec
+from arcana.contracts.tool import SideEffect, ToolProvenance, ToolSpec
 
 
 def test_default_policy_allows_unmatched_call() -> None:
@@ -155,16 +155,27 @@ def test_permission_request_can_be_built_from_tool_spec() -> None:
         input_schema={"type": "object", "properties": {}},
         capabilities=["fs:read"],
         side_effect=SideEffect.READ,
+        provenance=ToolProvenance(origin="mcp", server_name="filesystem"),
     )
 
-    request = PermissionRequest.from_tool_spec(
-        spec,
-        origin="mcp",
-        server_name="filesystem",
-    )
+    # Provenance is read from the spec itself -- the single source of truth.
+    request = PermissionRequest.from_tool_spec(spec)
 
     assert request.tool_name == "file_read"
     assert request.capabilities == ["fs:read"]
     assert request.origin == "mcp"
     assert request.server_name == "filesystem"
     assert request.side_effect == SideEffect.READ
+
+
+def test_from_tool_spec_without_provenance_is_local() -> None:
+    spec = ToolSpec(
+        name="local_tool",
+        description="A local tool",
+        input_schema={"type": "object", "properties": {}},
+    )
+
+    request = PermissionRequest.from_tool_spec(spec)
+
+    assert request.origin == "local"
+    assert request.server_name is None

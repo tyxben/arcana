@@ -22,6 +22,13 @@ Invariants covered:
   and RATE_LIMIT errors are eligible for the gateway's retry loop;
   VALIDATION, PERMISSION, LOGIC, CONFIRMATION_REQUIRED, and UNEXPECTED
   surface immediately so the LLM can react with a different strategy.
+- **Capability provenance is real** (Principle 3 + v3.5/v3.6) — imported
+  (MCP) capabilities carry origin/server provenance that the permission
+  policy acts on: a server-scoped deny rule fires for the remote tool and
+  never for a local one. Provenance is not a decorative recorded field; it
+  changes a real authorization outcome and is non-bypassable. (The
+  refuse-when-provenance-missing *exposure* gate is future work, not this
+  invariant.)
 
 Future invariants (not yet pinned, tracked as work):
 
@@ -38,10 +45,18 @@ Future invariants (not yet pinned, tracked as work):
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 
 import pytest
 
+from arcana.contracts.mcp import MCPToolSpec
+from arcana.contracts.permission import (
+    PermissionAction,
+    PermissionMatch,
+    PermissionPolicy,
+    PermissionRule,
+)
 from arcana.contracts.tool import (
     ASK_USER_TOOL_NAME,
     SideEffect,
@@ -51,6 +66,8 @@ from arcana.contracts.tool import (
     ToolResult,
     ToolSpec,
 )
+from arcana.contracts.trace import TraceContext
+from arcana.mcp.protocol import mcp_tool_to_arcana_spec
 from arcana.runtime.ask_user import AskUserHandler
 from arcana.runtime.cognitive import (
     PIN_TOOL_NAME,
@@ -62,6 +79,7 @@ from arcana.tool_gateway.base import ToolProvider
 from arcana.tool_gateway.gateway import ToolGateway
 from arcana.tool_gateway.local_channel import LocalChannel
 from arcana.tool_gateway.registry import ToolRegistry
+from arcana.trace.writer import TraceWriter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -363,3 +381,112 @@ class TestNoMechanicalRetry:
             f"Default max_retries={spec.max_retries} is too aggressive; "
             f"see CONSTITUTION fourth prohibition (No Mechanical Retry)."
         )
+
+
+# ---------------------------------------------------------------------------
+# Principle 3 + v3.5/v3.6 — capability provenance is real, not decorative
+# ---------------------------------------------------------------------------
+
+
+class _StaticSpecTool(ToolProvider):
+    """Provider that returns a fixed spec and succeeds — used to register a
+    provenance-bearing capability into a real ToolGateway."""
+
+    def __init__(self, spec: ToolSpec) -> None:
+        self._spec = spec
+
+    @property
+    def spec(self) -> ToolSpec:
+        return self._spec
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        return ToolResult(
+            tool_call_id=call.id, name=call.name, success=True, output="ok"
+        )
+
+
+class TestCapabilityProvenanceIsReal:
+    """Imported (MCP) capabilities carry real provenance the policy acts on.
+
+    This is the anti-"fake provenance" guard. Before provenance was wired,
+    the gateway evaluated every tool as origin='local' / server_name=None, so
+    the ``origins`` / ``server_names`` policy dimensions were structurally
+    dead. A future refactor that drops provenance at the gateway evaluation
+    site re-collapses everything to local and breaks these tests.
+
+    Out of scope here (tracked separately): this slice RECORDS provenance and
+    lets policy act on it. It does NOT implement the roadmap's
+    refuse-when-provenance-missing *exposure* gate (Phase 1, item 2) — these
+    tests must not be read as proof that gate exists.
+    """
+
+    def test_mcp_registration_stamps_origin_and_server(self) -> None:
+        mcp = MCPToolSpec(
+            name="read_file", description="Read", input_schema={"type": "object"}
+        )
+        spec = mcp_tool_to_arcana_spec(mcp, server_name="fs")
+        assert spec.provenance is not None
+        assert spec.provenance.origin == "mcp"
+        assert spec.provenance.server_name == "fs"
+
+    @pytest.mark.asyncio
+    async def test_server_rule_fires_for_mcp_and_not_for_local(self, tmp_path) -> None:
+        mcp = MCPToolSpec(
+            name="read",
+            description="Read",
+            input_schema={"type": "object", "properties": {}},
+        )
+        mcp_spec = mcp_tool_to_arcana_spec(mcp, server_name="untrusted")
+
+        registry = ToolRegistry()
+        registry.register(_StaticSpecTool(mcp_spec))  # name: "untrusted.read"
+        registry.register(
+            _StaticSpecTool(
+                ToolSpec(
+                    name="local_read",
+                    description="local",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            )
+        )
+
+        policy = PermissionPolicy(
+            rules=[
+                PermissionRule(
+                    id="deny-untrusted-server",
+                    action=PermissionAction.DENY,
+                    reason="Untrusted MCP server.",
+                    match=PermissionMatch(server_names=["untrusted"]),
+                )
+            ]
+        )
+        trace_writer = TraceWriter(trace_dir=tmp_path)
+        trace_ctx = TraceContext(run_id="invariant-run")
+        gw = ToolGateway(
+            registry=registry, trace_writer=trace_writer, permission_policy=policy
+        )
+
+        # 1. Authorization outcome: the server-scoped rule fires for the MCP tool.
+        denied = await gw.call(
+            ToolCall(id="1", name="untrusted.read", arguments={}), trace_ctx=trace_ctx
+        )
+        assert not denied.success
+        assert denied.error is not None
+        assert denied.error.category == ToolErrorCategory.PERMISSION
+        assert denied.error.code == "PERMISSION_DENIED"
+
+        # 2. Labeled evidence (v3.5 mandatory context provenance): the same
+        #    decision records real provenance in the trace, not just a denial.
+        #    This pins the trace-emission half so "non-bypassable" covers both
+        #    the authorization outcome AND the evidence trail.
+        event = json.loads(
+            (tmp_path / "invariant-run.jsonl").read_text().splitlines()[0]
+        )
+        assert event["metadata"]["provenance"]["origin"] == "mcp"
+        assert event["metadata"]["provenance"]["server_name"] == "untrusted"
+
+        # 3. The same server-scoped rule must NOT touch a local capability.
+        allowed = await gw.call(
+            ToolCall(id="2", name="local_read", arguments={}), trace_ctx=trace_ctx
+        )
+        assert allowed.success

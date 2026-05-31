@@ -96,6 +96,17 @@ class TestProtocol:
         assert spec.side_effect == SideEffect.WRITE
         assert spec.requires_confirmation
 
+    def test_mcp_to_arcana_spec_carries_provenance(self):
+        mcp = MCPToolSpec(
+            name="read_file",
+            description="Read",
+            input_schema={"type": "object"},
+        )
+        spec = mcp_tool_to_arcana_spec(mcp, server_name="fs")
+        assert spec.provenance is not None
+        assert spec.provenance.origin == "mcp"
+        assert spec.provenance.server_name == "fs"
+
     def test_arcana_to_mcp(self):
         spec = ToolSpec(
             name="search", description="Search", input_schema={"type": "object"}

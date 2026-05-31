@@ -26,7 +26,7 @@ from arcana.contracts.runtime import (
 )
 from arcana.contracts.state import AgentState, ExecutionStatus, StateSnapshot
 from arcana.contracts.strategy import AdaptiveState, StrategyDecision, StrategyType
-from arcana.contracts.tool import ToolCall, ToolResult, ToolSpec
+from arcana.contracts.tool import ToolCall, ToolProvenance, ToolResult, ToolSpec
 from arcana.contracts.trace import (
     BudgetSnapshot,
     StopReason,
@@ -55,6 +55,7 @@ __all__ = [
     "PermissionScope",
     # Tool
     "ToolSpec",
+    "ToolProvenance",
     "ToolCall",
     "ToolResult",
     # State

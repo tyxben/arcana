@@ -16,6 +16,7 @@ from arcana.contracts.tool import (
     ToolCall,
     ToolError,
     ToolErrorCategory,
+    ToolProvenance,
     ToolResult,
     ToolSpec,
 )
@@ -428,6 +429,179 @@ class TestAuthorization:
         assert decision["action"] == "deny"
         assert decision["reason"] == "Echo disabled."
         assert decision["matched_rule_id"] == "deny-echo"
+
+
+# ── TestProvenanceWiring ─────────────────────────────────────────
+
+
+class _ProvenanceTrackingTool(ToolProvider):
+    """Tracking provider whose spec carries provenance (MCP-like)."""
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        origin: str = "mcp",
+        server_name: str | None = None,
+    ) -> None:
+        self._name = name
+        self._provenance = ToolProvenance(origin=origin, server_name=server_name)
+        self.executed = False
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self._name,
+            description=f"{self._name} (origin={self._provenance.origin})",
+            input_schema={"type": "object", "properties": {}},
+            side_effect=SideEffect.READ,
+            provenance=self._provenance,
+        )
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        self.executed = True
+        return ToolResult(
+            tool_call_id=call.id, name=call.name, success=True, output="ok"
+        )
+
+
+class TestProvenanceWiring:
+    """Real MCP origin/server provenance flows into the permission policy + trace.
+
+    Before provenance was wired, ``_evaluate_permission`` evaluated every tool
+    as origin='local' / server_name=None, so the ``origins`` / ``server_names``
+    match dimensions were dead — a server-scoped rule could never match an MCP
+    tool. These tests pin the activation of those dimensions.
+    """
+
+    async def test_mcp_tool_denied_by_server_name_local_tool_allowed(self, trace_ctx):
+        server_x = _ProvenanceTrackingTool("serverX.read", server_name="serverX")
+        server_y = _ProvenanceTrackingTool("serverY.read", server_name="serverY")
+        reg = ToolRegistry()
+        reg.register(server_x)
+        reg.register(server_y)
+        reg.register(EchoTool())  # local, no provenance
+        policy = PermissionPolicy(
+            rules=[
+                PermissionRule(
+                    id="deny-serverY",
+                    action=PermissionAction.DENY,
+                    reason="serverY is untrusted.",
+                    match=PermissionMatch(server_names=["serverY"]),
+                )
+            ]
+        )
+        gw = ToolGateway(registry=reg, permission_policy=policy)
+
+        denied = await gw.call(
+            _make_call("serverY.read", arguments={}), trace_ctx=trace_ctx
+        )
+        assert not denied.success
+        assert denied.error is not None
+        assert denied.error.category == ToolErrorCategory.PERMISSION
+        assert denied.error.code == "PERMISSION_DENIED"
+        assert not server_y.executed
+
+        # serverX falls through to default ALLOW; the rule is server-scoped.
+        allowed = await gw.call(
+            _make_call("serverX.read", arguments={}), trace_ctx=trace_ctx
+        )
+        assert allowed.success
+        assert server_x.executed
+
+        # A local tool is never collaterally caught by a server_names rule.
+        local = await gw.call(_make_call("echo"), trace_ctx=trace_ctx)
+        assert local.success
+
+    async def test_origin_rule_does_not_catch_local_tool(self, trace_ctx):
+        mcp_tool = _ProvenanceTrackingTool(
+            "srv.do_thing", origin="mcp", server_name="srv"
+        )
+        reg = ToolRegistry()
+        reg.register(mcp_tool)
+        reg.register(EchoTool())
+        policy = PermissionPolicy(
+            rules=[
+                PermissionRule(
+                    id="deny-mcp",
+                    action=PermissionAction.DENY,
+                    reason="MCP origin blocked.",
+                    match=PermissionMatch(origins=["mcp"]),
+                )
+            ]
+        )
+        gw = ToolGateway(registry=reg, permission_policy=policy)
+
+        local = await gw.call(_make_call("echo"), trace_ctx=trace_ctx)
+        assert local.success  # origin='local' not caught by origins=['mcp']
+
+        blocked = await gw.call(
+            _make_call("srv.do_thing", arguments={}), trace_ctx=trace_ctx
+        )
+        assert not blocked.success
+        assert blocked.error.code == "PERMISSION_DENIED"
+        assert not mcp_tool.executed
+
+    async def test_permission_provenance_is_traced(self, tmp_path, trace_ctx):
+        trace_writer = TraceWriter(trace_dir=tmp_path)
+        mcp_tool = _ProvenanceTrackingTool("serverY.read", server_name="serverY")
+        reg = ToolRegistry()
+        reg.register(mcp_tool)
+        policy = PermissionPolicy(
+            rules=[
+                PermissionRule(
+                    id="deny-serverY",
+                    action=PermissionAction.DENY,
+                    reason="serverY untrusted.",
+                    match=PermissionMatch(server_names=["serverY"]),
+                )
+            ]
+        )
+        gw = ToolGateway(
+            registry=reg, trace_writer=trace_writer, permission_policy=policy
+        )
+
+        await gw.call(_make_call("serverY.read", arguments={}), trace_ctx=trace_ctx)
+
+        event = json.loads((tmp_path / "test-run.jsonl").read_text().splitlines()[0])
+        # Indirect proof: a server_names rule matched -> provenance reached policy.
+        assert event["metadata"]["permission_decision"]["matched_rule_id"] == "deny-serverY"
+        # Direct proof: provenance is recorded in trace metadata.
+        assert event["metadata"]["provenance"]["origin"] == "mcp"
+        assert event["metadata"]["provenance"]["server_name"] == "serverY"
+
+    async def test_allowed_mcp_tool_still_traces_provenance(self, tmp_path, trace_ctx):
+        # The executed-success path logs via a SEPARATE _log_tool_call call site
+        # than the denied path; this pins provenance on that audit site so a
+        # refactor cannot silently stop tracing provenance on successful calls.
+        trace_writer = TraceWriter(trace_dir=tmp_path)
+        mcp_tool = _ProvenanceTrackingTool("serverX.read", server_name="serverX")
+        reg = ToolRegistry()
+        reg.register(mcp_tool)
+        gw = ToolGateway(registry=reg, trace_writer=trace_writer)  # no policy
+
+        result = await gw.call(
+            _make_call("serverX.read", arguments={}), trace_ctx=trace_ctx
+        )
+        assert result.success
+        assert mcp_tool.executed
+
+        event = json.loads((tmp_path / "test-run.jsonl").read_text().splitlines()[0])
+        assert event["metadata"]["provenance"]["origin"] == "mcp"
+        assert event["metadata"]["provenance"]["server_name"] == "serverX"
+
+    def test_provenance_not_leaked_to_provider_schema(self):
+        reg = _make_registry(
+            _make_spec(
+                "srv.read",
+                provenance=ToolProvenance(origin="mcp", server_name="srv"),
+            ),
+        )
+        tools = reg.to_openai_tools()
+        # The new field must never reach the provider function-calling API.
+        assert "provenance" not in json.dumps(tools)
+        assert "server_name" not in json.dumps(tools)
+        assert set(tools[0]["function"].keys()) == {"name", "description", "parameters"}
 
 
 # ── TestValidation ───────────────────────────────────────────────
@@ -1156,6 +1330,21 @@ class TestToolSpecAffordanceFields:
         assert spec.success_next_step is None
         assert spec.category is None
         assert spec.related_tools == []
+        # Provenance is additive-with-default (stability §1.4): a local tool
+        # carries no explicit provenance and is implicitly origin="local".
+        assert spec.provenance is None
+
+    def test_provenance_set_and_roundtrips(self):
+        spec = ToolSpec(
+            name="srv.read",
+            description="read",
+            input_schema={},
+            provenance=ToolProvenance(origin="mcp", server_name="srv"),
+        )
+        assert spec.provenance.origin == "mcp"
+        assert spec.provenance.server_name == "srv"
+        restored = ToolSpec.model_validate(spec.model_dump())
+        assert restored.provenance == ToolProvenance(origin="mcp", server_name="srv")
 
     def test_all_affordance_fields_settable(self):
         spec = ToolSpec(

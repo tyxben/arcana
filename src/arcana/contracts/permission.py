@@ -37,20 +37,24 @@ class PermissionRequest(BaseModel):
     side_effect: SideEffect = SideEffect.READ
 
     @classmethod
-    def from_tool_spec(
-        cls,
-        spec: ToolSpec,
-        *,
-        origin: str = "local",
-        server_name: str | None = None,
-    ) -> PermissionRequest:
-        """Build a permission request from a stable ToolSpec."""
+    def from_tool_spec(cls, spec: ToolSpec) -> PermissionRequest:
+        """Build a permission request from a stable ToolSpec.
 
+        Provenance is read from the spec's own ``provenance`` -- the single
+        source of truth. A spec without provenance is treated as origin
+        ``"local"``. Provenance is supplied by stamping the spec at its
+        construction site (e.g. ``mcp_tool_to_arcana_spec``); there is
+        deliberately no out-of-band override, so a partial or contradictory
+        ``origin`` / ``server_name`` pair cannot be expressed at this security
+        boundary.
+        """
+
+        prov = spec.provenance
         return cls(
             tool_name=spec.name,
             capabilities=list(spec.capabilities),
-            origin=origin,
-            server_name=server_name,
+            origin=prov.origin if prov else "local",
+            server_name=prov.server_name if prov else None,
             side_effect=spec.side_effect,
         )
 

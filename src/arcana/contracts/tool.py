@@ -49,6 +49,25 @@ _RETRY_ELIGIBLE_CATEGORIES: frozenset[ToolErrorCategory] = frozenset({
 })
 
 
+class ToolProvenance(BaseModel):
+    """Where a capability came from.
+
+    Populated for *imported* capabilities (e.g. MCP tools). A ``ToolSpec``
+    whose ``provenance`` is ``None`` is implicitly local. Consumed by the
+    permission policy (``origin`` / ``server_name`` match dimensions) and
+    surfaced to trace + the LLM-facing formatters.
+
+    Deliberately minimal for the First Iteration Slice: only ``origin`` and
+    ``server_name``. The richer provenance the roadmap anticipates
+    (authority, auth context, approval policy, timeout, protocol error
+    class) belongs to the later ProtocolBridge work and is intentionally
+    NOT modeled here -- CONSTITUTION: *No Premature Structuring*.
+    """
+
+    origin: str = "local"  # "local" | "mcp" | (future) "a2a", "connector"
+    server_name: str | None = None  # remote server identity; None for local
+
+
 class ToolSpec(BaseModel):
     """Specification of a tool."""
 
@@ -61,6 +80,13 @@ class ToolSpec(BaseModel):
     side_effect: SideEffect = SideEffect.READ
     requires_confirmation: bool = False
     capabilities: list[str] = Field(default_factory=list)
+
+    # Provenance -- where this capability came from. Optional and
+    # backward-compatible (``None`` == implicit origin="local"). Like the
+    # affordance fields below, it is NEVER sent to the provider
+    # function-calling API; it is read only by the permission policy, trace,
+    # and the LLM-facing formatters.
+    provenance: ToolProvenance | None = None
 
     # Retry configuration. Default kept conservative: one retry buys forgiveness
     # for transient flap without masking a real failure (No Mechanical Retry).

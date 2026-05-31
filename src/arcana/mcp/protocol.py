@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from arcana.contracts.mcp import MCPError, MCPMessage, MCPToolSpec
-from arcana.contracts.tool import SideEffect, ToolError, ToolErrorCategory, ToolSpec
+from arcana.contracts.tool import (
+    SideEffect,
+    ToolError,
+    ToolErrorCategory,
+    ToolProvenance,
+    ToolSpec,
+)
 
 
 def serialize_message(msg: MCPMessage) -> bytes:
@@ -41,6 +47,7 @@ def mcp_tool_to_arcana_spec(
         side_effect=side_effect,
         requires_confirmation=side_effect == SideEffect.WRITE,
         capabilities=capabilities,
+        provenance=ToolProvenance(origin="mcp", server_name=server_name),
         when_to_use=(
             f"MCP tool from {server_name}: "
             f"{mcp_spec.description or mcp_spec.name}"

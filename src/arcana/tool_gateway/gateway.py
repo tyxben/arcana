@@ -206,7 +206,7 @@ class ToolGateway:
                     result,
                     spec,
                     trace_ctx,
-                    metadata=self._permission_metadata(permission_decision),
+                    metadata=self._permission_metadata(permission_decision, spec),
                 )
             return result
 
@@ -225,7 +225,7 @@ class ToolGateway:
                     result,
                     spec,
                     trace_ctx,
-                    metadata=self._permission_metadata(permission_decision),
+                    metadata=self._permission_metadata(permission_decision, spec),
                 )
             return result
 
@@ -250,7 +250,7 @@ class ToolGateway:
                             confirmation_result,
                             spec,
                             trace_ctx,
-                            metadata=self._permission_metadata(permission_decision),
+                            metadata=self._permission_metadata(permission_decision, spec),
                         )
                     return confirmation_result
 
@@ -276,7 +276,7 @@ class ToolGateway:
                         confirmation_result,
                         spec,
                         trace_ctx,
-                        metadata=self._permission_metadata(permission_decision),
+                        metadata=self._permission_metadata(permission_decision, spec),
                     )
                 return confirmation_result
             result = await self._execute_with_retry(provider, tool_call, spec)
@@ -288,7 +288,7 @@ class ToolGateway:
                 result,
                 spec,
                 trace_ctx,
-                metadata=self._permission_metadata(permission_decision),
+                metadata=self._permission_metadata(permission_decision, spec),
             )
 
         return result
@@ -388,11 +388,22 @@ class ToolGateway:
         return self.permission_policy.evaluate(request)
 
     @staticmethod
-    def _permission_metadata(decision: PermissionDecision | None) -> dict[str, Any]:
-        """Build trace metadata for a permission decision."""
-        if decision is None:
-            return {}
-        return {"permission_decision": decision.model_dump(mode="json")}
+    def _permission_metadata(
+        decision: PermissionDecision | None,
+        spec: ToolSpec,
+    ) -> dict[str, Any]:
+        """Build trace metadata for a permission decision + capability provenance.
+
+        Provenance is emitted only for imported capabilities (``spec.provenance``
+        is not ``None``); local tools carry no provenance entry. This is the
+        ``traced`` half of the roadmap's permission/provenance requirement.
+        """
+        metadata: dict[str, Any] = {}
+        if decision is not None:
+            metadata["permission_decision"] = decision.model_dump(mode="json")
+        if spec.provenance is not None:
+            metadata["provenance"] = spec.provenance.model_dump(mode="json")
+        return metadata
 
     async def _check_idempotency(self, key: str | None) -> ToolResult | None:
         """Return cached result if idempotency key was seen before."""
