@@ -241,18 +241,38 @@ Primary files:
 
 The first implementation slice should be deliberately small:
 
-1. Fix the Phase 0 bugs.
+1. Fix the Phase 0 bugs. **(done)**
 2. Add `PermissionPolicy` contracts and wire them only into `ToolGateway.call`.
+   **(done)**
 3. Add tests for allow, deny, confirmation-required, callback failure, and
-   traced denial.
+   traced denial. **(done)**
 4. Fix MCP error classification so JSON-RPC validation, permission, and logic
-   failures do not all become retryable transport failures.
+   failures do not all become retryable transport failures. **(done)**
 5. Extend MCP tool registration with origin/provenance metadata if it can be
    done without breaking `ToolSpec`; otherwise add a wrapper metadata structure
-   and keep `ToolSpec` stable.
+   and keep `ToolSpec` stable. **(done)** — resolved to the on-`ToolSpec` path:
+   adding an optional `provenance: ToolProvenance | None` field is a sanctioned
+   minor bump (`specs/v1.0.0-stability.md` §1.4, "field addition with default"),
+   so no wrapper was needed. `mcp_tool_to_arcana_spec` stamps
+   `ToolProvenance(origin="mcp", server_name=...)`; `from_tool_spec` reads it as
+   the single source of truth; the gateway emits it to trace metadata. This
+   activates the previously-dead `origins` / `server_names` policy dimensions.
 
 This gives Arcana the safety substrate needed before accepting more remote tools,
 skills, hooks, or subtask delegation.
+
+Two adjacent gaps were surfaced while landing item 5 and are **deliberately
+carved out** of this slice (tracked as P1 rows below), so the recorded-provenance
+behavior is not mistaken for more than it is:
+
+- The dynamic-discovery `on_tools_changed` → `ToolRegistry` re-registration
+  bridge does not exist (`setup_mcp_tools` installs no handler), so dynamically
+  discovered/removed MCP tools never reach the registry. The provenance design
+  is forward-compatible: when the bridge lands it re-invokes
+  `mcp_tool_to_arcana_spec` and re-stamps provenance for free.
+- This slice **records** provenance and lets policy act on it; it does **not**
+  implement the Phase 1 item-2 *exposure gate* (refuse / conservatively
+  downgrade imported capabilities missing required metadata).
 
 ## Implementation Backlog
 
@@ -262,9 +282,11 @@ skills, hooks, or subtask delegation.
 | P0 | Runtime stream usage accumulates tokens/cost even on exceptions or early generator close. | `runtime_core.py`, `runtime/conversation.py` | `tests/test_runtime_core.py` |
 | P0 | Parallel chain budget has a defined shared-budget behavior. | `runtime_core.py` | `tests/test_runtime_core.py` |
 | P0 | `ChatSession(max_history=0)` keeps zero non-system messages. | `runtime_core.py` | `tests/test_chat_session.py` |
-| P1 | Add `PermissionPolicy` / approval contracts and wire into `ToolGateway.call`. | `contracts/*`, `tool_gateway/gateway.py` | `tests/test_permission_policy.py`, `tests/test_tool_gateway.py` |
-| P1 | Normalize MCP provenance and fix MCP error classification. | `mcp/protocol.py`, `mcp/setup.py`, `mcp/tool_provider.py` | `tests/test_mcp.py`, `tests/test_mcp_dynamic_discovery.py` |
-| P1 | Add trace metadata for permission, provenance, guardrail, and protocol discovery decisions. | `contracts/trace.py`, `trace/*` | `tests/test_constitutional_invariants.py` |
+| P1 | ~~Add `PermissionPolicy` / approval contracts and wire into `ToolGateway.call`.~~ **done** | `contracts/*`, `tool_gateway/gateway.py` | `tests/test_permission_policy.py`, `tests/test_tool_gateway.py` |
+| P1 | ~~Normalize MCP provenance and fix MCP error classification.~~ **done** (origin/server via `ToolProvenance` on `ToolSpec`; error classification via `mcp_error_to_tool_error`). | `mcp/protocol.py`, `mcp/tool_provider.py` | `tests/test_mcp.py` |
+| P1 | Trace metadata for permission **(done — `permission_decision` + `provenance` keys)** and for guardrail / protocol-discovery decisions **(pending)**. | `contracts/trace.py`, `trace/*` | `tests/test_constitutional_invariants.py` |
+| P1 | **Dynamic-discovery bridge**: install an `on_tools_changed` handler in `setup_mcp_tools` that re-registers (unregisters stale + registers fresh, re-hashes, re-authorizes, re-traces, re-stamps provenance) into the same `ToolRegistry` on `tools/list_changed`. Carved out of the provenance slice. | `mcp/setup.py`, `runtime_core.py` | `tests/test_mcp_dynamic_discovery.py` |
+| P1 | **Provenance exposure gate**: refuse or conservatively downgrade imported capabilities missing required provenance / side-effect / approval metadata before exposing them to the LLM (Phase 1 item 2). Current slice only records provenance. | `mcp/setup.py`, `tool_gateway/registry.py` | `tests/test_constitutional_invariants.py` |
 | P2 | Add Skills v1: `SKILL.md` discovery, digest, explicit/lazy loading, context provenance. | `contracts/skill.py`, `context/builder.py`, `runtime/conversation.py` | `tests/test_skills.py` |
 | P2 | Add lifecycle hooks v1 as typed Python hooks; block only at explicit boundaries. | `runtime/hooks/*`, `tool_gateway/gateway.py` | `tests/test_hooks_safety.py` |
 | P3 | Add optional `runtime.subagents()` facade and delegation tools. | `runtime_core.py`, `multi_agent/*` | `tests/test_subagent_service.py`, `tests/test_trace_pool.py` |
