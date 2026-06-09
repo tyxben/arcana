@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from arcana.contracts.mcp import MCPMessage, MCPServerConfig, MCPToolSpec
+from arcana.contracts.tool import (
+    SideEffect,
+    ToolCall,
+    ToolProvenance,
+    ToolResult,
+    ToolSpec,
+)
+from arcana.contracts.trace import EventType
 from arcana.mcp.protocol import is_notification
+from arcana.mcp.setup import setup_mcp_tools, unregister_mcp_tools_for_server
+from arcana.tool_gateway.registry import ToolRegistry
+from arcana.trace.writer import TraceWriter
 
 # ---------------------------------------------------------------------------
 # is_notification() pure function tests
@@ -61,6 +73,26 @@ def _make_mock_transport(responses: list[MCPMessage]) -> AsyncMock:
     mock.receive = AsyncMock(side_effect=responses)
     mock.close = AsyncMock()
     return mock
+
+
+class _StaticProvider:
+    def __init__(self, spec: ToolSpec) -> None:
+        self._spec = spec
+
+    @property
+    def spec(self) -> ToolSpec:
+        return self._spec
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        return ToolResult(
+            tool_call_id=call.id,
+            name=call.name,
+            success=True,
+            output="ok",
+        )
+
+    async def health_check(self) -> bool:
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -369,3 +401,187 @@ class TestMCPClientDynamicDiscovery:
         assert "srv.c" in names
         # Other server's tools are untouched
         assert "other.x" in names
+
+
+# ---------------------------------------------------------------------------
+# setup_mcp_tools bridge: dynamic discovery reaches ToolRegistry
+# ---------------------------------------------------------------------------
+
+
+class TestMCPSetupDynamicRegistryBridge:
+    def test_unregister_mcp_tools_for_server_preserves_non_matching_tools(self):
+        registry = ToolRegistry()
+        registry.register(
+            _StaticProvider(
+                ToolSpec(
+                    name="srv.remote",
+                    description="Remote",
+                    input_schema={},
+                    provenance=ToolProvenance(origin="mcp", server_name="srv"),
+                )
+            )
+        )
+        registry.register(
+            _StaticProvider(
+                ToolSpec(
+                    name="other.remote",
+                    description="Other remote",
+                    input_schema={},
+                    provenance=ToolProvenance(origin="mcp", server_name="other"),
+                )
+            )
+        )
+        registry.register(
+            _StaticProvider(
+                ToolSpec(
+                    name="srv.local_shadow",
+                    description="Local",
+                    input_schema={},
+                )
+            )
+        )
+
+        removed = unregister_mcp_tools_for_server(
+            registry=registry,
+            server_name="srv",
+        )
+
+        assert removed == ["srv.remote"]
+        assert "srv.remote" not in registry.list_tools()
+        assert "other.remote" in registry.list_tools()
+        assert "srv.local_shadow" in registry.list_tools()
+
+    @pytest.mark.asyncio
+    async def test_setup_bridge_refreshes_registry_and_traces(self, tmp_path):
+        registry = ToolRegistry()
+        registry.register(
+            _StaticProvider(
+                ToolSpec(
+                    name="srv.local_shadow",
+                    description="Local",
+                    input_schema={},
+                )
+            )
+        )
+        trace_writer = TraceWriter(trace_dir=tmp_path)
+
+        call_count = 0
+
+        async def receive_side_effect():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MCPMessage(id=1, result={"capabilities": {}})
+            if call_count == 2:
+                return MCPMessage(
+                    id=2,
+                    result={
+                        "tools": [
+                            {
+                                "name": "old_tool",
+                                "description": "Old",
+                                "inputSchema": {},
+                                "annotations": {"readOnlyHint": True},
+                            }
+                        ]
+                    },
+                )
+            if call_count == 3:
+                return MCPMessage(method="notifications/tools/list_changed")
+            if call_count == 4:
+                return MCPMessage(
+                    id=4,
+                    result={
+                        "tools": [
+                            {
+                                "name": "new_read",
+                                "description": "New read",
+                                "inputSchema": {},
+                                "annotations": {"readOnlyHint": True},
+                            },
+                            {
+                                "name": "new_unknown",
+                                "description": "No authoritative hint",
+                                "inputSchema": {},
+                            },
+                        ]
+                    },
+                )
+            if call_count == 5:
+                return MCPMessage(
+                    id=3,
+                    result={"content": [{"type": "text", "text": "done"}]},
+                )
+            return MCPMessage(id=999, result={})
+
+        mock_transport = AsyncMock()
+        mock_transport.is_connected = True
+        mock_transport.connect = AsyncMock()
+        mock_transport.send = AsyncMock()
+        mock_transport.receive = AsyncMock(side_effect=receive_side_effect)
+        mock_transport.close = AsyncMock()
+
+        with patch(
+            "arcana.mcp.client._create_transport",
+            return_value=mock_transport,
+        ):
+            config = MCPServerConfig(name="srv", command="echo")
+            client = await setup_mcp_tools(
+                [config],
+                registry,
+                trace_writer=trace_writer,
+            )
+
+            assert "srv.old_tool" in registry.list_tools()
+            assert "srv.local_shadow" in registry.list_tools()
+
+            result = await client.call_tool("srv", "old_tool", {})
+            assert result == "done"
+
+            names = registry.list_tools()
+            assert "srv.old_tool" not in names
+            assert "srv.new_read" in names
+            assert "srv.new_unknown" in names
+            assert "srv.local_shadow" in names
+
+            read_spec = registry.get("srv.new_read").spec
+            assert read_spec.side_effect == SideEffect.READ
+            assert read_spec.requires_confirmation is False
+            assert read_spec.provenance is not None
+            assert read_spec.provenance.server_name == "srv"
+
+            unknown_spec = registry.get("srv.new_unknown").spec
+            assert unknown_spec.side_effect == SideEffect.WRITE
+            assert unknown_spec.requires_confirmation is True
+
+            run_ids = trace_writer.list_runs()
+            assert len(run_ids) == 1
+            events = [
+                json.loads(line)
+                for line in (tmp_path / f"{run_ids[0]}.jsonl").read_text().splitlines()
+            ]
+            admissions = [
+                e
+                for e in events
+                if e["event_type"] == EventType.CAPABILITY_ADMISSION.value
+            ]
+            metadata_by_tool = {
+                e["metadata"]["tool_name"]: e["metadata"] for e in admissions
+            }
+
+            assert set(metadata_by_tool) == {
+                "srv.old_tool",
+                "srv.new_read",
+                "srv.new_unknown",
+            }
+            assert metadata_by_tool["srv.new_read"]["decision"] == "admitted"
+            assert metadata_by_tool["srv.new_unknown"]["decision"] == "downgraded"
+            assert (
+                metadata_by_tool["srv.new_unknown"]["side_effect_basis"] == "inferred"
+            )
+            assert all(
+                len(metadata["capability_digest"]) == 16
+                for metadata in metadata_by_tool.values()
+            )
+
+            await client.disconnect_all()

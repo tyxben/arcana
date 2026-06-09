@@ -12,6 +12,7 @@ from arcana.mcp.client import MCPClient
 from arcana.mcp.protocol import mcp_tool_to_arcana_spec, resolve_side_effect
 from arcana.mcp.tool_provider import MCPToolProvider
 from arcana.tool_gateway.registry import ToolRegistry
+from arcana.utils.hashing import canonical_hash
 
 if TYPE_CHECKING:
     from arcana.trace.writer import TraceWriter
@@ -57,10 +58,10 @@ def register_mcp_tools(
     provenance integrity (``_admit``), and the decision is written to trace as
     labeled evidence before the tool can reach the LLM.
 
-    Returns the qualified names of the tools that were admitted. It is designed
-    to be re-invoked on ``tools/list_changed`` by a future dynamic-discovery
-    bridge: calling it again re-classifies, re-authorizes, and re-traces every
-    tool for free.
+    Returns the qualified names of the tools that were admitted. It is
+    re-invoked on ``tools/list_changed`` by ``setup_mcp_tools``' dynamic
+    discovery bridge: calling it again re-classifies, re-authorizes, and
+    re-traces every tool for free.
     """
     admitted: list[str] = []
     for mcp_tool in mcp_tools:
@@ -113,6 +114,28 @@ def register_mcp_tools(
     return admitted
 
 
+def unregister_mcp_tools_for_server(
+    *,
+    registry: ToolRegistry,
+    server_name: str,
+) -> list[str]:
+    """Remove registered MCP providers for one server, preserving local tools."""
+    removed: list[str] = []
+    for name in list(registry.list_tools()):
+        provider = registry.get(name)
+        if provider is None:
+            continue
+        provenance = provider.spec.provenance
+        if (
+            provenance is not None
+            and provenance.origin == "mcp"
+            and provenance.server_name == server_name
+            and registry.unregister(name)
+        ):
+            removed.append(name)
+    return removed
+
+
 def _trace_admission(
     trace_writer: TraceWriter | None,
     trace_ctx: TraceContext | None,
@@ -140,6 +163,7 @@ def _trace_admission(
             "side_effect_basis": basis,
             "side_effect": spec.side_effect.value,
             "requires_confirmation": spec.requires_confirmation,
+            "capability_digest": canonical_hash(spec.model_dump(mode="json")),
             "reason": reason,
         },
     )
@@ -158,12 +182,51 @@ async def setup_mcp_tools(
     with full authorization, validation, and audit. Every imported tool passes
     through the admission gate (``register_mcp_tools``): conservative
     side-effect classification, provenance-integrity check, and a traced
-    admission decision before exposure to the LLM.
+    admission decision before exposure to the LLM. Dynamic
+    ``tools/list_changed`` notifications refresh the same registry by removing
+    stale providers for that MCP server and re-registering the latest list
+    through the same gate.
 
     Returns the MCPClient (caller should keep it alive).
     """
-    client = MCPClient()
     trace_ctx = trace_writer.create_context() if trace_writer is not None else None
+    configs_by_name = {config.name: config for config in configs}
+
+    client: MCPClient
+
+    async def _on_tools_changed(
+        server_name: str,
+        new_tools: list[MCPToolSpec],
+    ) -> None:
+        config = configs_by_name.get(server_name)
+        if config is None:
+            logger.warning(
+                "Ignoring tools/list_changed for unconfigured MCP server '%s'",
+                server_name,
+            )
+            return
+
+        removed = unregister_mcp_tools_for_server(
+            registry=registry,
+            server_name=server_name,
+        )
+        admitted = register_mcp_tools(
+            client=client,
+            server_name=server_name,
+            mcp_tools=new_tools,
+            registry=registry,
+            capability_prefix=config.capability_prefix,
+            trace_writer=trace_writer,
+            trace_ctx=trace_ctx,
+        )
+        logger.info(
+            "Refreshed MCP tools for server '%s': removed=%d admitted=%d",
+            server_name,
+            len(removed),
+            len(admitted),
+        )
+
+    client = MCPClient(on_tools_changed=_on_tools_changed)
 
     for config in configs:
         mcp_tools = await client.connect(config)
