@@ -13,7 +13,6 @@ from arcana.contracts.mcp import (
 )
 from arcana.contracts.tool import SideEffect, ToolCall, ToolErrorCategory, ToolSpec
 from arcana.mcp.protocol import (
-    _infer_side_effect,
     arcana_spec_to_mcp_tool,
     deserialize_message,
     make_error_response,
@@ -21,6 +20,7 @@ from arcana.mcp.protocol import (
     make_response,
     mcp_error_to_tool_error,
     mcp_tool_to_arcana_spec,
+    resolve_side_effect,
     serialize_message,
 )
 
@@ -114,19 +114,74 @@ class TestProtocol:
         mcp = arcana_spec_to_mcp_tool(spec)
         assert mcp.name == "search"
 
-    def test_infer_side_effect_read(self):
+    def test_resolve_side_effect_unannotated_is_conservative(self):
+        # No authoritative signal: even a read-named tool is treated as a
+        # writer requiring confirmation. Guessing READ from the name is the
+        # silent semantic downgrade the exposure gate exists to kill.
         mcp = MCPToolSpec(
             name="read_file", description="Read a file", input_schema={}
         )
-        assert _infer_side_effect(mcp) == SideEffect.READ
+        side_effect, requires_confirmation, basis = resolve_side_effect(mcp)
+        assert side_effect == SideEffect.WRITE
+        assert requires_confirmation is True
+        assert basis == "inferred"
 
-    def test_infer_side_effect_write(self):
+    def test_resolve_side_effect_declared_read_only(self):
         mcp = MCPToolSpec(
-            name="write_file",
-            description="Write content to a file",
+            name="search",
+            description="Search",
             input_schema={},
+            annotations={"readOnlyHint": True},
         )
-        assert _infer_side_effect(mcp) == SideEffect.WRITE
+        side_effect, requires_confirmation, basis = resolve_side_effect(mcp)
+        assert side_effect == SideEffect.READ
+        assert requires_confirmation is False
+        assert basis == "declared_read"
+
+    def test_resolve_side_effect_declared_destructive(self):
+        mcp = MCPToolSpec(
+            name="rm",
+            description="Remove",
+            input_schema={},
+            annotations={"destructiveHint": True},
+        )
+        side_effect, requires_confirmation, basis = resolve_side_effect(mcp)
+        assert side_effect == SideEffect.WRITE
+        assert requires_confirmation is True
+        assert basis == "declared_write"
+
+    def test_resolve_side_effect_explicit_not_read_only(self):
+        mcp = MCPToolSpec(
+            name="touch",
+            description="Touch",
+            input_schema={},
+            annotations={"readOnlyHint": False},
+        )
+        side_effect, _, basis = resolve_side_effect(mcp)
+        assert side_effect == SideEffect.WRITE
+        assert basis == "declared_write"
+
+    def test_declared_read_only_spec_is_not_confirmation_gated(self):
+        # End-to-end through the spec builder: a server that declares its tool
+        # read-only buys out of conservative treatment (recorded as provenance).
+        mcp = MCPToolSpec(
+            name="list_dir",
+            description="List a directory",
+            input_schema={},
+            annotations={"readOnlyHint": True},
+        )
+        spec = mcp_tool_to_arcana_spec(mcp, server_name="fs")
+        assert spec.side_effect == SideEffect.READ
+        assert spec.requires_confirmation is False
+
+    def test_unannotated_spec_is_downgraded(self):
+        # End-to-end: no annotations -> exposed as WRITE + confirmation.
+        mcp = MCPToolSpec(
+            name="lookup", description="Look something up", input_schema={}
+        )
+        spec = mcp_tool_to_arcana_spec(mcp, server_name="svc")
+        assert spec.side_effect == SideEffect.WRITE
+        assert spec.requires_confirmation is True
 
     def test_error_mapping_retryable(self):
         err = MCPError(code=-32603, message="Internal error")

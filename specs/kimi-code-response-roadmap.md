@@ -270,9 +270,11 @@ behavior is not mistaken for more than it is:
   discovered/removed MCP tools never reach the registry. The provenance design
   is forward-compatible: when the bridge lands it re-invokes
   `mcp_tool_to_arcana_spec` and re-stamps provenance for free.
-- This slice **records** provenance and lets policy act on it; it does **not**
-  implement the Phase 1 item-2 *exposure gate* (refuse / conservatively
-  downgrade imported capabilities missing required metadata).
+- ~~This slice **records** provenance and lets policy act on it; it does **not**
+  implement the Phase 1 item-2 *exposure gate*.~~ **The exposure gate has since
+  landed** (conservative side-effect downgrade + provenance-integrity refuse,
+  traced as `CAPABILITY_ADMISSION`); see the backlog row below. Only the
+  dynamic-discovery bridge remains carved out.
 
 ## Implementation Backlog
 
@@ -286,7 +288,7 @@ behavior is not mistaken for more than it is:
 | P1 | ~~Normalize MCP provenance and fix MCP error classification.~~ **done** (origin/server via `ToolProvenance` on `ToolSpec`; error classification via `mcp_error_to_tool_error`). | `mcp/protocol.py`, `mcp/tool_provider.py` | `tests/test_mcp.py` |
 | P1 | Trace metadata for permission **(done — `permission_decision` + `provenance` keys)** and for guardrail / protocol-discovery decisions **(pending)**. | `contracts/trace.py`, `trace/*` | `tests/test_constitutional_invariants.py` |
 | P1 | **Dynamic-discovery bridge**: install an `on_tools_changed` handler in `setup_mcp_tools` that re-registers (unregisters stale + registers fresh, re-hashes, re-authorizes, re-traces, re-stamps provenance) into the same `ToolRegistry` on `tools/list_changed`. Carved out of the provenance slice. | `mcp/setup.py`, `runtime_core.py` | `tests/test_mcp_dynamic_discovery.py` |
-| P1 | **Provenance exposure gate**: refuse or conservatively downgrade imported capabilities missing required provenance / side-effect / approval metadata before exposing them to the LLM (Phase 1 item 2). Current slice only records provenance. | `mcp/setup.py`, `tool_gateway/registry.py` | `tests/test_constitutional_invariants.py` |
+| P1 | ~~**Provenance exposure gate**: refuse or conservatively downgrade imported capabilities missing required metadata before exposing them to the LLM (Phase 1 item 2).~~ **done** (admission gate in `register_mcp_tools`). Scoped honestly to what the contracts can express: **side-effect** — a tool with no authoritative `readOnlyHint` is exposed as WRITE + confirmation (the old name-keyword heuristic, a silent v3.5 downgrade, was deleted); **provenance** — a spec claiming a remote origin without a `server_name` is refused; both decisions emit a `CAPABILITY_ADMISSION` trace event. **approval policy** deliberately NOT gated — it is not modeled per-tool (only global `PermissionPolicy` + `requires_confirmation`), so requiring it would be premature structuring; deferred to ProtocolBridge. | `mcp/setup.py`, `mcp/protocol.py`, `contracts/mcp.py`, `contracts/trace.py` | `tests/test_constitutional_invariants.py` (`TestImportedCapabilityExposureGate`), `tests/test_mcp.py` |
 | P2 | Add Skills v1: `SKILL.md` discovery, digest, explicit/lazy loading, context provenance. | `contracts/skill.py`, `context/builder.py`, `runtime/conversation.py` | `tests/test_skills.py` |
 | P2 | Add lifecycle hooks v1 as typed Python hooks; block only at explicit boundaries. | `runtime/hooks/*`, `tool_gateway/gateway.py` | `tests/test_hooks_safety.py` |
 | P3 | Add optional `runtime.subagents()` facade and delegation tools. | `runtime_core.py`, `multi_agent/*` | `tests/test_subagent_service.py`, `tests/test_trace_pool.py` |
@@ -300,8 +302,11 @@ The roadmap is not complete unless these behaviors are covered:
   become system, developer, or user instructions.
 - Permission denial, missing approval, and approval denial do not execute tools
   and surface non-retryable structured feedback.
-- Remote capabilities without provenance, side-effect class, or approval policy
-  are not exposed to the LLM.
+- Remote capabilities without an authoritative side-effect declaration are
+  exposed conservatively (WRITE + confirmation), and those claiming a remote
+  origin with no server identity are refused outright — both before reaching
+  the LLM, both traced. (**done** — `TestImportedCapabilityExposureGate`.)
+  Per-tool approval-policy gating is deferred (not modeled; ProtocolBridge).
 - Dynamic MCP tool changes are re-hashed, re-authorized, and traced before
   becoming visible.
 - Guardrails can block, redact, warn, or request approval; they cannot rewrite

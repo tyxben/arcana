@@ -41,6 +41,15 @@ class MCPToolSpec(BaseModel):
     name: str
     description: str | None = None
     input_schema: dict[str, Any] = Field(default_factory=dict)
+    # Server-asserted behavioral hints (MCP ``annotations`` object:
+    # ``readOnlyHint`` / ``destructiveHint`` / ``idempotentHint`` / ...).
+    # Kept as a raw passthrough dict, NOT a typed model -- only two keys are
+    # consumed (the side-effect resolution in ``mcp_tool_to_arcana_spec``) and
+    # the camelCase wire keys map cleanly through dict access. These are the
+    # *source's own* claims, recorded as provenance evidence; they are never an
+    # Arcana trust guarantee (CONSTITUTION Amendment 5: a protocol is a
+    # transport, not a trust boundary).
+    annotations: dict[str, Any] | None = None
 
 
 class MCPResource(BaseModel):

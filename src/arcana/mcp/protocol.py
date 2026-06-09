@@ -38,14 +38,14 @@ def mcp_tool_to_arcana_spec(
     if capability_prefix:
         capabilities.append(f"{capability_prefix}.{mcp_spec.name}")
 
-    side_effect = _infer_side_effect(mcp_spec)
+    side_effect, requires_confirmation, _basis = resolve_side_effect(mcp_spec)
 
     return ToolSpec(
         name=f"{server_name}.{mcp_spec.name}",
         description=mcp_spec.description or f"MCP tool: {mcp_spec.name}",
         input_schema=mcp_spec.input_schema,
         side_effect=side_effect,
-        requires_confirmation=side_effect == SideEffect.WRITE,
+        requires_confirmation=requires_confirmation,
         capabilities=capabilities,
         provenance=ToolProvenance(origin="mcp", server_name=server_name),
         when_to_use=(
@@ -121,25 +121,34 @@ def make_error_response(
     return MCPMessage(id=msg_id, error=MCPError(code=code, message=message))
 
 
-def _infer_side_effect(mcp_spec: MCPToolSpec) -> SideEffect:
-    """Infer side effect from MCP tool name/description. Pure heuristic."""
-    name_lower = mcp_spec.name.lower()
-    desc_lower = (mcp_spec.description or "").lower()
+def resolve_side_effect(mcp_spec: MCPToolSpec) -> tuple[SideEffect, bool, str]:
+    """Resolve an imported tool's side-effect class conservatively. Pure.
 
-    write_indicators = [
-        "write",
-        "create",
-        "delete",
-        "update",
-        "set",
-        "put",
-        "post",
-        "remove",
-        "send",
-        "execute",
-    ]
-    for indicator in write_indicators:
-        if indicator in name_lower or indicator in desc_lower:
-            return SideEffect.WRITE
+    Returns ``(side_effect, requires_confirmation, basis)`` where ``basis`` is
+    one of ``"declared_read"`` / ``"declared_write"`` / ``"inferred"``.
 
-    return SideEffect.READ
+    The MCP ``tools/list`` payload carries no machine-readable mutation
+    contract beyond the optional ``annotations`` hints. Guessing READ from a
+    tool's *name* (the old keyword heuristic) is precisely the silent semantic
+    downgrade CONSTITUTION v3.5 forbids: a real writer whose name lacks a magic
+    word would be exposed to the LLM as a confirmation-free reader.
+
+    So the only thing that buys a tool out of conservative treatment is the
+    *source's own explicit declaration* (``readOnlyHint``) -- which is logged
+    as provenance evidence, not silently assumed. Absent an authoritative
+    signal we assume the more dangerous class: WRITE + confirmation (and, via
+    side_effect=WRITE, serialized batch dispatch). Amendment 5: the hint is the
+    server's claim, never an Arcana trust guarantee.
+    """
+    annotations = mcp_spec.annotations or {}
+    read_only = annotations.get("readOnlyHint")
+    destructive = annotations.get("destructiveHint")
+
+    if read_only is True and destructive is not True:
+        # Source explicitly declares read-only -- trusted-as-claimed, recorded.
+        return SideEffect.READ, False, "declared_read"
+    if destructive is True or read_only is False:
+        # Source explicitly declares a mutating/destructive tool.
+        return SideEffect.WRITE, True, "declared_write"
+    # No authoritative signal -> conservative downgrade.
+    return SideEffect.WRITE, True, "inferred"

@@ -26,9 +26,12 @@ Invariants covered:
   (MCP) capabilities carry origin/server provenance that the permission
   policy acts on: a server-scoped deny rule fires for the remote tool and
   never for a local one. Provenance is not a decorative recorded field; it
-  changes a real authorization outcome and is non-bypassable. (The
-  refuse-when-provenance-missing *exposure* gate is future work, not this
-  invariant.)
+  changes a real authorization outcome and is non-bypassable.
+- **Imported capabilities are admission-gated** (v3.5 + Amendment 5) — an
+  imported tool with no authoritative read-only declaration is exposed as
+  WRITE + confirmation (never a guessed confirmation-free READ), a spec
+  claiming a remote origin without a server identity is refused, and both
+  decisions leave a CAPABILITY_ADMISSION trace event.
 
 Future invariants (not yet pinned, tracked as work):
 
@@ -63,11 +66,14 @@ from arcana.contracts.tool import (
     ToolCall,
     ToolError,
     ToolErrorCategory,
+    ToolProvenance,
     ToolResult,
     ToolSpec,
 )
-from arcana.contracts.trace import TraceContext
+from arcana.contracts.trace import EventType, TraceContext
+from arcana.mcp.client import MCPClient
 from arcana.mcp.protocol import mcp_tool_to_arcana_spec
+from arcana.mcp.setup import _admit, register_mcp_tools
 from arcana.runtime.ask_user import AskUserHandler
 from arcana.runtime.cognitive import (
     PIN_TOOL_NAME,
@@ -414,10 +420,9 @@ class TestCapabilityProvenanceIsReal:
     dead. A future refactor that drops provenance at the gateway evaluation
     site re-collapses everything to local and breaks these tests.
 
-    Out of scope here (tracked separately): this slice RECORDS provenance and
-    lets policy act on it. It does NOT implement the roadmap's
-    refuse-when-provenance-missing *exposure* gate (Phase 1, item 2) — these
-    tests must not be read as proof that gate exists.
+    The complementary *exposure* gate (conservative side-effect downgrade +
+    provenance-integrity refuse, applied before a tool reaches the LLM) is
+    pinned separately by ``TestImportedCapabilityExposureGate`` below.
     """
 
     def test_mcp_registration_stamps_origin_and_server(self) -> None:
@@ -490,3 +495,113 @@ class TestCapabilityProvenanceIsReal:
             ToolCall(id="2", name="local_read", arguments={}), trace_ctx=trace_ctx
         )
         assert allowed.success
+
+
+class TestImportedCapabilityExposureGate:
+    """Imported capabilities are admission-gated before reaching the LLM.
+
+    Two boundaries, both non-bypassable:
+
+    1. *No silent semantic downgrade* (v3.5): an imported tool with no
+       authoritative read-only declaration is exposed as WRITE + confirmation,
+       never a guessed confirmation-free READ. A regression that re-introduces
+       name-keyword guessing would let a real writer reach the LLM unconfirmed.
+    2. *Refuse contradictory provenance*: a spec that claims a remote origin
+       but carries no server identity cannot be attributed or authorized, so it
+       is refused rather than exposed (roadmap test matrix).
+
+    Both decisions leave labeled evidence (CAPABILITY_ADMISSION trace event).
+    A server's own ``readOnlyHint`` is the only thing that buys a tool out of
+    conservative treatment — recorded as the source's claim, not an Arcana
+    guarantee (Amendment 5).
+    """
+
+    @pytest.mark.asyncio
+    async def test_unannotated_tool_reaches_gateway_requiring_confirmation(
+        self, tmp_path
+    ) -> None:
+        registry = ToolRegistry()
+        trace_writer = TraceWriter(trace_dir=tmp_path)
+        trace_ctx = TraceContext(run_id="gate-run")
+
+        # A read-*named* tool with no annotations: the old heuristic would have
+        # exposed it as a confirmation-free READ.
+        admitted = register_mcp_tools(
+            client=MCPClient(),
+            server_name="svc",
+            mcp_tools=[MCPToolSpec(name="read_thing", description="Read", input_schema={})],
+            registry=registry,
+            trace_writer=trace_writer,
+            trace_ctx=trace_ctx,
+        )
+        assert admitted == ["svc.read_thing"]
+
+        spec = registry.get("svc.read_thing").spec
+        assert spec.side_effect == SideEffect.WRITE
+        assert spec.requires_confirmation is True
+
+        # The gateway actually gates it: no confirmation callback -> blocked,
+        # never executed.
+        gw = ToolGateway(registry=registry)
+        result = await gw.call(ToolCall(id="1", name="svc.read_thing", arguments={}))
+        assert not result.success
+        assert result.error is not None
+        assert result.error.category == ToolErrorCategory.CONFIRMATION_REQUIRED
+
+        # Labeled evidence: the downgrade is in the trace.
+        events = [
+            json.loads(line)
+            for line in (tmp_path / "gate-run.jsonl").read_text().splitlines()
+        ]
+        admission = [
+            e for e in events if e["event_type"] == EventType.CAPABILITY_ADMISSION.value
+        ]
+        assert len(admission) == 1
+        assert admission[0]["metadata"]["decision"] == "downgraded"
+        assert admission[0]["metadata"]["side_effect_basis"] == "inferred"
+
+    @pytest.mark.asyncio
+    async def test_declared_read_only_tool_is_not_gated(self, tmp_path) -> None:
+        registry = ToolRegistry()
+        register_mcp_tools(
+            client=MCPClient(),
+            server_name="fs",
+            mcp_tools=[
+                MCPToolSpec(
+                    name="list_dir",
+                    description="List",
+                    input_schema={},
+                    annotations={"readOnlyHint": True},
+                )
+            ],
+            registry=registry,
+        )
+        spec = registry.get("fs.list_dir").spec
+        assert spec.side_effect == SideEffect.READ
+        assert spec.requires_confirmation is False
+
+        gw = ToolGateway(registry=registry)
+        # No confirmation callback, yet a declared read-only tool is admitted
+        # through (it would fail at execution since the client is unconnected,
+        # but it is NOT confirmation-gated).
+        result = await gw.call(ToolCall(id="1", name="fs.list_dir", arguments={}))
+        assert (
+            result.error is None
+            or result.error.category != ToolErrorCategory.CONFIRMATION_REQUIRED
+        )
+
+    def test_contradictory_provenance_is_refused(self) -> None:
+        # origin claims remote, but no server identity -> cannot be attributed.
+        bad = ToolSpec(
+            name="ghost",
+            description="x",
+            input_schema={},
+            provenance=ToolProvenance(origin="mcp", server_name=None),
+        )
+        ok, reason = _admit(bad)
+        assert ok is False
+        assert "server_name" in reason
+
+        # A local tool with no provenance is fine (implicitly local).
+        local = ToolSpec(name="local", description="x", input_schema={})
+        assert _admit(local) == (True, "admitted")

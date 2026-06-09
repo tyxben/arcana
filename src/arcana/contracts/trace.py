@@ -65,6 +65,12 @@ class EventType(str, Enum):
     # Cognitive primitives (v0.7.0) — recall / pin / unpin invocations
     COGNITIVE_PRIMITIVE = "cognitive_primitive"
 
+    # Capability admission — an imported (remote) capability was admitted,
+    # conservatively downgraded, or refused before being exposed to the LLM.
+    # The labeled evidence behind the exposure gate (CONSTITUTION v3.5: no
+    # silent semantic downgrade; Amendment 5: protocols are transports).
+    CAPABILITY_ADMISSION = "capability_admission"
+
     # Session lifecycle — history seeded by user code (cold-start
     # restore from external storage). Emitted by ChatSession.seed_history.
     HISTORY_SEEDED = "history_seeded"

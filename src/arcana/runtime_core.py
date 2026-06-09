@@ -679,7 +679,9 @@ class Runtime:
             self._tool_gateway = ToolGateway(registry=self._tool_registry)
 
         self._mcp_client = await setup_mcp_tools(
-            self._mcp_configs, self._tool_registry
+            self._mcp_configs,
+            self._tool_registry,
+            trace_writer=self._trace_writer,
         )
 
         return [name for name, _ in self._mcp_client.get_all_tools()]
