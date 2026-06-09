@@ -275,6 +275,8 @@ async def run(
     system: str | None = None,
     context: dict[str, Any] | str | None = None,
     on_parse_error: Callable | None = None,  # type: ignore[type-arg]
+    skill_paths: list[str] | None = None,
+    skills: list[str] | None = None,
 ) -> RunResult:
     """
     Run an agent to accomplish a goal.
@@ -311,6 +313,9 @@ async def run(
         context: Additional context for the agent. A dict is serialized
             as JSON; a string is used as-is. Injected as a ``<context>``
             block so the agent can reference prior outputs or external data.
+        skill_paths: Optional SKILL.md paths/directories to load for this run.
+            Empty by default; no skills are scanned or injected unless set.
+        skills: Optional skill names to force into this run's working set.
         on_parse_error: Optional callback invoked when the LLM returns
             text that cannot be parsed into the ``response_format`` model.
             Receives ``(raw_string, error)`` where *error* is a
@@ -352,7 +357,11 @@ async def run(
     from arcana.runtime_core import Runtime, RuntimeConfig
 
     providers: dict[str, str | dict[str, str]] = {provider: api_key or ""}
-    config = RuntimeConfig(default_provider=provider, default_model=model)
+    config = RuntimeConfig(
+        default_provider=provider,
+        default_model=model,
+        skill_paths=skill_paths or [],
+    )
     rt = Runtime(
         providers=providers,
         tools=tools,
@@ -369,6 +378,7 @@ async def run(
         system=system,
         context=context,
         on_parse_error=on_parse_error,
+        skills=skills,
     )
 
     # Convert to sdk.RunResult (keep backward compat)

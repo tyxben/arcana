@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from arcana.contracts.skill import SkillSelectionRecord
+
 
 class ContextLayer(str, Enum):
     IDENTITY = "identity"
@@ -138,6 +140,9 @@ class ContextDecision(BaseModel):
     # Structured per-message evidence (one entry per input message)
     decisions: list[MessageDecision] = Field(default_factory=list)
 
+    # Selected skills that entered the working set this turn.
+    skill_selections: list[SkillSelectionRecord] = Field(default_factory=list)
+
     # What was compressed/dropped (message role:summary pairs)
     # Kept for backward compatibility; authoritative evidence is in `decisions`.
     compressed_messages: list[str] = Field(default_factory=list)
@@ -215,3 +220,8 @@ class ContextReport(BaseModel):
     # Tool loading info (for lazy registry)
     tools_loaded: int = 0
     tools_available: int = 0
+
+    # Skill loading info (selected skill context only; no always-on catalog)
+    skills_loaded: int = 0
+    skills_available: int = 0
+    skills_tokens: int = 0

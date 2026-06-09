@@ -290,6 +290,12 @@ class RuntimeConfig(BaseModel):
     tool_calling_hint: str | None = None
     tool_calling_hints: dict[str, str] = Field(default_factory=dict)
 
+    # Skills v1. Empty by default: no skill catalog is scanned and no skill
+    # context is injected unless the caller configures paths. Paths may point to
+    # a SKILL.md file, a directory containing SKILL.md, or a directory tree.
+    skill_paths: list[str] = Field(default_factory=list)
+    max_skills: int = 3
+
 
 class Runtime:
     """
@@ -365,6 +371,9 @@ class Runtime:
         self._mcp_configs = mcp_servers or []
         self._mcp_client: Any = None  # MCPClient, set after connect_mcp()
 
+        # Setup skill registry (optional, default off)
+        self._skill_registry = self._setup_skills(self._config.skill_paths)
+
         # Cumulative budget tracking across runs (lock protects concurrent run() calls)
         self._totals_lock = asyncio.Lock()
         self._total_tokens_used: int = 0
@@ -431,6 +440,7 @@ class Runtime:
         max_turns: int | None = None,
         budget: Budget | None = None,
         tools: list[Callable] | None = None,  # type: ignore[type-arg]
+        skills: list[str] | None = None,
         response_format: type[BaseModel] | None = None,
         images: list[str] | None = None,
         input_handler: Callable | None = None,  # type: ignore[type-arg]
@@ -449,6 +459,8 @@ class Runtime:
             max_turns: Override default max turns
             budget: Override default budget for this run
             tools: Additional tools for this run only
+            skills: Optional skill names to force into this run's working set
+                when those skills exist in ``RuntimeConfig.skill_paths``.
             response_format: Pydantic model class for structured output.
                 When provided, the LLM response is parsed and validated
                 against this model. ``result.output`` will be an instance
@@ -513,6 +525,7 @@ class Runtime:
             max_turns=max_turns,
             budget=budget,
             extra_tools=tools,
+            skill_names=skills,
             memory_context=memory_context,
             response_format=response_format,
             images=images,
@@ -645,6 +658,8 @@ class Runtime:
             goal=None,
             gateway=self._gateway,
             strategy=ctx_strategy,
+            skill_registry=getattr(self, "_skill_registry", None),
+            max_skills=self._config.max_skills,
         )
         agent_kwargs["context_builder"] = ctx_builder
 
@@ -1431,6 +1446,15 @@ class Runtime:
         gateway = ToolGateway(registry=registry)
         return registry, gateway
 
+    def _setup_skills(self, skill_paths: list[str]) -> Any:
+        """Load configured SKILL.md files into a registry, or return None."""
+        if not skill_paths:
+            return None
+        from arcana.contracts.skill import SkillRegistry
+
+        registry = SkillRegistry.from_paths(skill_paths, scope="project")
+        return registry if registry.total_count > 0 else None
+
     def _tool_gateway_for_run(
         self,
         extra_tools: list[Callable] | None = None,  # type: ignore[type-arg]
@@ -1484,6 +1508,7 @@ class Runtime:
         max_turns: int | None = None,
         budget: Budget | None = None,
         extra_tools: list[Callable] | None = None,  # type: ignore[type-arg]
+        skill_names: list[str] | None = None,
         memory_context: str = "",
         response_format: type[BaseModel] | None = None,
         images: list[str] | None = None,
@@ -1500,6 +1525,7 @@ class Runtime:
             max_turns=max_turns or self._config.max_turns,
             budget=budget or self._budget_policy,
             extra_tools=extra_tools,
+            skill_names=skill_names,
             memory_context=memory_context,
             response_format=response_format,
             images=images,
@@ -1564,6 +1590,7 @@ class Session:
         max_turns: int = 20,
         budget: Budget | None = None,
         extra_tools: list[Callable] | None = None,  # type: ignore[type-arg]
+        skill_names: list[str] | None = None,
         memory_context: str = "",
         response_format: type[BaseModel] | None = None,
         images: list[str] | None = None,
@@ -1578,6 +1605,7 @@ class Session:
         self._max_turns = max_turns
         self._budget_config = budget or Budget()
         self._extra_tools = extra_tools
+        self._skill_names = list(skill_names or [])
         self._memory_context = memory_context
         self._response_format = response_format
         self._images = images
@@ -1674,6 +1702,9 @@ class Session:
                 goal=None,
                 gateway=self._runtime._gateway,
                 strategy=ctx_strategy,
+                skill_registry=getattr(self._runtime, "_skill_registry", None),
+                explicit_skills=self._skill_names,
+                max_skills=self._runtime._config.max_skills,
             )
             agent_kwargs["context_builder"] = ctx_builder
 
@@ -2118,6 +2149,8 @@ class ChatSession:
                 getattr(self._runtime, "_context_strategy", None)
                 or ContextStrategy()
             ),
+            skill_registry=getattr(self._runtime, "_skill_registry", None),
+            max_skills=self._runtime._config.max_skills,
         )
 
         # For pool sessions, wrap the shared TraceWriter so every emitted

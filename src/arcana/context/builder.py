@@ -18,6 +18,7 @@ from arcana.contracts.context import (
     WorkingSet,
 )
 from arcana.contracts.llm import Message, MessageRole, ModelConfig
+from arcana.contracts.skill import SkillRegistry, SkillSelectionRecord
 from arcana.contracts.state import AgentState
 
 if TYPE_CHECKING:
@@ -81,6 +82,9 @@ class WorkingSetBuilder:
         gateway: ModelGatewayRegistry | None = None,
         compression_model: ModelConfig | None = None,
         strategy: ContextStrategy | None = None,
+        skill_registry: SkillRegistry | None = None,
+        explicit_skills: list[str] | None = None,
+        max_skills: int = 3,
     ) -> None:
         self._identity = identity
         self._budget = token_budget or TokenBudget()
@@ -89,6 +93,10 @@ class WorkingSetBuilder:
         self._gateway = gateway
         self._compression_model = compression_model
         self._strategy = strategy or ContextStrategy()
+        self._skill_registry = skill_registry
+        self._explicit_skills = list(explicit_skills or [])
+        self._max_skills = max(0, max_skills)
+        self._last_skill_selections: list[SkillSelectionRecord] = []
 
         # Track whether memory has been injected into system prompt
         self._memory_injected: bool = False
@@ -133,6 +141,10 @@ class WorkingSetBuilder:
         Passing ``None`` disables pin rendering.
         """
         self._pin_state = pin_state
+
+    def set_explicit_skills(self, skill_names: list[str] | None) -> None:
+        """Set per-run skill names that should be injected when available."""
+        self._explicit_skills = list(skill_names or [])
 
     def _active_pins(self, *, turn: int) -> list[Any]:
         """Return active pins for ``turn`` (or empty when no pin state).
@@ -211,6 +223,87 @@ class WorkingSetBuilder:
             )
 
         return out
+
+    def _skill_messages(self) -> list[Message]:
+        """Select and render skill context messages for the current goal."""
+        self._last_skill_selections = []
+        if self._skill_registry is None or self._max_skills <= 0:
+            return []
+
+        selected = self._skill_registry.select(
+            goal=self._goal or "",
+            explicit_names=self._explicit_skills,
+            limit=self._max_skills,
+        )
+        messages: list[Message] = []
+        for skill, reason in selected:
+            self._last_skill_selections.append(skill.selection_record(reason))
+            messages.append(
+                Message(
+                    role=MessageRole.SYSTEM,
+                    content=skill.render_for_context(),
+                )
+            )
+        return messages
+
+    def _skill_token_total(self, skill_messages: list[Message]) -> int:
+        return sum(m.token_count for m in skill_messages)
+
+    def _apply_skills(
+        self,
+        curated: list[Message],
+        skill_messages: list[Message],
+    ) -> list[Message]:
+        """Insert selected skill messages after the system message."""
+        if not skill_messages:
+            self._record_skill_accounting(loaded=0, tokens=0)
+            return curated
+
+        if curated:
+            out = [curated[0], *skill_messages, *curated[1:]]
+        else:
+            out = list(skill_messages)
+
+        skill_tokens = self._skill_token_total(skill_messages)
+        self._record_skill_accounting(
+            loaded=len(skill_messages),
+            tokens=skill_tokens,
+            messages_out=len(out),
+        )
+        return out
+
+    def _record_skill_accounting(
+        self,
+        *,
+        loaded: int,
+        tokens: int,
+        messages_out: int | None = None,
+    ) -> None:
+        available = self._skill_registry.total_count if self._skill_registry else 0
+        if self.last_decision is not None:
+            self.last_decision.skill_selections = list(self._last_skill_selections)
+            self.last_decision.budget_used += tokens
+            if messages_out is not None:
+                self.last_decision.messages_out = messages_out
+        if self.last_report is not None:
+            self.last_report.skills_loaded = loaded
+            self.last_report.skills_available = available
+            self.last_report.skills_tokens = tokens
+            self.last_report.total_tokens += tokens
+            self.last_report.window_size = self._budget.total_window
+            self.last_report.utilization = (
+                self.last_report.total_tokens / max(self._budget.total_window, 1)
+            )
+
+    def _apply_context_injections(
+        self,
+        curated: list[Message],
+        skill_messages: list[Message],
+        pin_messages: list[Message],
+    ) -> list[Message]:
+        """Apply framework-authored context blocks in deterministic order."""
+        with_skills = self._apply_skills(curated, skill_messages)
+        return self._apply_pins(with_skills, pin_messages)
 
     def _append_pin_decisions(
         self,
@@ -544,6 +637,8 @@ class WorkingSetBuilder:
         # they're excluded from any compression step.
         pin_messages = self._pin_messages(turn=turn)
         pin_tokens = self._pin_token_total(pin_messages)
+        skill_messages = self._skill_messages()
+        skill_tokens = self._skill_token_total(skill_messages)
 
         # Apply per-layer budget caps
         effective_tool_tokens = tool_token_estimate
@@ -557,6 +652,7 @@ class WorkingSetBuilder:
             - self._budget.response_reserve
             - effective_tool_tokens
             - pin_tokens
+            - skill_tokens
         )
 
         # Apply memory budget cap
@@ -639,7 +735,7 @@ class WorkingSetBuilder:
             report.tool_results_pruned = p0_pruned
             report.tool_results_tokens_saved = p0_saved
             self.last_report = report
-            return self._apply_pins(messages, pin_messages)
+            return self._apply_context_injections(messages, skill_messages, pin_messages)
 
         # Over budget — try tail_preserve first (relevance compression),
         # then fall back to aggressive_truncate if result is still too large.
@@ -695,7 +791,11 @@ class WorkingSetBuilder:
                 report.tool_results_pruned = p0_pruned
                 report.tool_results_tokens_saved = p0_saved
                 self.last_report = report
-                return self._apply_pins(curated, pin_messages)
+                return self._apply_context_injections(
+                    curated,
+                    skill_messages,
+                    pin_messages,
+                )
 
         report = self._build_context_report(
             turn=turn,
@@ -710,7 +810,7 @@ class WorkingSetBuilder:
         report.tool_results_pruned = p0_pruned
         report.tool_results_tokens_saved = p0_saved
         self.last_report = report
-        return self._apply_pins(result, pin_messages)
+        return self._apply_context_injections(result, skill_messages, pin_messages)
 
     def _compress_with_relevance(
         self,
@@ -953,6 +1053,8 @@ class WorkingSetBuilder:
         # v0.7.0 — reserve budget for active pins (async path).
         pin_messages = self._pin_messages(turn=turn)
         pin_tokens = self._pin_token_total(pin_messages)
+        skill_messages = self._skill_messages()
+        skill_tokens = self._skill_token_total(skill_messages)
 
         # Apply per-layer budget caps (identical to sync version)
         effective_tool_tokens = tool_token_estimate
@@ -964,6 +1066,7 @@ class WorkingSetBuilder:
             - self._budget.response_reserve
             - effective_tool_tokens
             - pin_tokens
+            - skill_tokens
         )
 
         # Apply memory budget cap
@@ -1045,7 +1148,7 @@ class WorkingSetBuilder:
             report.tool_results_pruned = p0_pruned
             report.tool_results_tokens_saved = p0_saved
             self.last_report = report
-            return self._apply_pins(messages, pin_messages)
+            return self._apply_context_injections(messages, skill_messages, pin_messages)
 
         # Strategy: llm_summarize or aggressive_truncate with gateway available —
         # try LLM compression first (gateway-assisted), fall back to aggressive truncate
@@ -1100,7 +1203,11 @@ class WorkingSetBuilder:
                     report.tool_results_pruned = p0_pruned
                     report.tool_results_tokens_saved = p0_saved
                     self.last_report = report
-                    return self._apply_pins(curated, pin_messages)
+                    return self._apply_context_injections(
+                        curated,
+                        skill_messages,
+                        pin_messages,
+                    )
             report = self._build_context_report(
                 turn=turn,
                 strategy_name="llm_summarize",
@@ -1114,7 +1221,7 @@ class WorkingSetBuilder:
             report.tool_results_pruned = p0_pruned
             report.tool_results_tokens_saved = p0_saved
             self.last_report = report
-            return self._apply_pins(result, pin_messages)
+            return self._apply_context_injections(result, skill_messages, pin_messages)
 
         # Default: tail_preserve (or aggressive without gateway)
         effective_strategy = strategy_name if strategy_name not in ("passthrough",) else "tail_preserve"
@@ -1167,7 +1274,11 @@ class WorkingSetBuilder:
                 report.tool_results_pruned = p0_pruned
                 report.tool_results_tokens_saved = p0_saved
                 self.last_report = report
-                return self._apply_pins(curated, pin_messages)
+                return self._apply_context_injections(
+                    curated,
+                    skill_messages,
+                    pin_messages,
+                )
         report = self._build_context_report(
             turn=turn,
             strategy_name=effective_strategy,
@@ -1181,7 +1292,7 @@ class WorkingSetBuilder:
         report.tool_results_pruned = p0_pruned
         report.tool_results_tokens_saved = p0_saved
         self.last_report = report
-        return self._apply_pins(result, pin_messages)
+        return self._apply_context_injections(result, skill_messages, pin_messages)
 
     async def _acompress_with_relevance(
         self,

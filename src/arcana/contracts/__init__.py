@@ -24,6 +24,7 @@ from arcana.contracts.runtime import (
     StepResult,
     StepType,
 )
+from arcana.contracts.skill import SkillRegistry, SkillSelectionRecord, SkillSpec
 from arcana.contracts.state import AgentState, ExecutionStatus, StateSnapshot
 from arcana.contracts.strategy import AdaptiveState, StrategyDecision, StrategyType
 from arcana.contracts.tool import ToolCall, ToolProvenance, ToolResult, ToolSpec
@@ -73,6 +74,10 @@ __all__ = [
     "PolicyDecision",
     "StepResult",
     "StepType",
+    # Skill
+    "SkillSpec",
+    "SkillSelectionRecord",
+    "SkillRegistry",
     # Trace
     "TraceEvent",
     "TraceContext",
