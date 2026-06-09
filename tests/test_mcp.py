@@ -1,5 +1,6 @@
 """Tests for MCP module — protocol, client, tool provider, setup."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +13,7 @@ from arcana.contracts.mcp import (
     MCPTransportType,
 )
 from arcana.contracts.tool import SideEffect, ToolCall, ToolErrorCategory, ToolSpec
+from arcana.contracts.trace import EventType
 from arcana.mcp.protocol import (
     arcana_spec_to_mcp_tool,
     deserialize_message,
@@ -381,3 +383,45 @@ class TestMCPSetup:
             assert "test" in client.connected_servers
 
             await client.disconnect_all()
+
+    @pytest.mark.asyncio
+    async def test_setup_traces_protocol_discovery_failure(self, tmp_path):
+        from arcana.mcp.setup import setup_mcp_tools
+        from arcana.tool_gateway.registry import ToolRegistry
+        from arcana.trace.writer import TraceWriter
+
+        mock_transport = AsyncMock()
+        mock_transport.connect = AsyncMock(side_effect=RuntimeError("boom"))
+        mock_transport.close = AsyncMock()
+
+        registry = ToolRegistry()
+        trace_writer = TraceWriter(trace_dir=tmp_path)
+        config = MCPServerConfig(name="broken", command="echo")
+
+        with patch(
+            "arcana.mcp.client._create_transport", return_value=mock_transport
+        ):
+            with pytest.raises(ConnectionError):
+                await setup_mcp_tools(
+                    [config],
+                    registry,
+                    trace_writer=trace_writer,
+                )
+
+        run_ids = trace_writer.list_runs()
+        assert len(run_ids) == 1
+        events = [
+            json.loads(line)
+            for line in (tmp_path / f"{run_ids[0]}.jsonl").read_text().splitlines()
+        ]
+        discovery = [
+            e for e in events if e["event_type"] == EventType.PROTOCOL_DISCOVERY.value
+        ]
+        assert len(discovery) == 1
+        metadata = discovery[0]["metadata"]
+        assert metadata["protocol"] == "mcp"
+        assert metadata["server_name"] == "broken"
+        assert metadata["transport"] == "stdio"
+        assert metadata["action"] == "initial_tools_list"
+        assert metadata["decision"] == "failed"
+        assert "boom" in metadata["reason"]

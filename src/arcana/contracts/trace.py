@@ -71,6 +71,17 @@ class EventType(str, Enum):
     # silent semantic downgrade; Amendment 5: protocols are transports).
     CAPABILITY_ADMISSION = "capability_admission"
 
+    # Protocol discovery — a capability transport (MCP today, A2A/connectors
+    # later) was queried or refreshed. This records the adapter-level decision
+    # to discover/ignore/fail a protocol source; individual tool exposure
+    # decisions remain CAPABILITY_ADMISSION events.
+    PROTOCOL_DISCOVERY = "protocol_discovery"
+
+    # Guardrail decisions — boundary checks that block, redact, warn, or require
+    # approval. These events are evidence of a boundary decision, not hidden
+    # planning or workflow control.
+    GUARDRAIL_DECISION = "guardrail_decision"
+
     # Session lifecycle — history seeded by user code (cold-start
     # restore from external storage). Emitted by ChatSession.seed_history.
     HISTORY_SEEDED = "history_seeded"
@@ -151,6 +162,43 @@ class PromptSnapshot(BaseModel):
     tools: list[dict[str, Any]] = Field(default_factory=list)
     response_format: dict[str, Any] | None = None
     budget_snapshot: BudgetSnapshot | None = None
+
+
+class ProtocolDiscoveryRecord(BaseModel):
+    """Metadata record for protocol capability discovery.
+
+    One record describes the adapter-level catalog event: initial listing,
+    dynamic refresh, ignored notification, or failure. Per-capability exposure
+    decisions are traced separately as ``CAPABILITY_ADMISSION`` events.
+    """
+
+    protocol: str
+    server_name: str
+    transport: str | None = None
+    action: str
+    decision: str
+    tool_count: int | None = None
+    tool_names_digest: str | None = None
+    tool_specs_digest: str | None = None
+    removed_count: int | None = None
+    admitted_count: int | None = None
+    reason: str | None = None
+
+
+class GuardrailDecisionRecord(BaseModel):
+    """Metadata record for a guardrail boundary decision.
+
+    Guardrails can block, redact, warn, or require approval. This record is
+    deliberately evidence-shaped: it records the inspected boundary and outcome
+    without carrying a replacement goal, next tool, or hidden workflow state.
+    """
+
+    guardrail_name: str
+    boundary: str
+    action: str
+    subject_digest: str | None = None
+    reason: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolCallRecord(BaseModel):

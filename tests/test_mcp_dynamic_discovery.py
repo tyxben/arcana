@@ -584,4 +584,32 @@ class TestMCPSetupDynamicRegistryBridge:
                 for metadata in metadata_by_tool.values()
             )
 
+            discovery = [
+                e
+                for e in events
+                if e["event_type"] == EventType.PROTOCOL_DISCOVERY.value
+            ]
+            discovery_by_action = {
+                e["metadata"]["action"]: e["metadata"] for e in discovery
+            }
+            initial = discovery_by_action["initial_tools_list"]
+            refresh = discovery_by_action["tools_list_changed"]
+
+            assert initial["decision"] == "discovered"
+            assert initial["server_name"] == "srv"
+            assert initial["transport"] == "stdio"
+            assert initial["tool_count"] == 1
+            assert initial["removed_count"] == 0
+            assert initial["admitted_count"] == 1
+            assert len(initial["tool_names_digest"]) == 16
+            assert len(initial["tool_specs_digest"]) == 16
+
+            assert refresh["decision"] == "refreshed"
+            assert refresh["server_name"] == "srv"
+            assert refresh["tool_count"] == 2
+            assert refresh["removed_count"] == 1
+            assert refresh["admitted_count"] == 2
+            assert len(refresh["tool_names_digest"]) == 16
+            assert len(refresh["tool_specs_digest"]) == 16
+
             await client.disconnect_all()

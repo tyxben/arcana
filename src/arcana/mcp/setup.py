@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING
 
 from arcana.contracts.mcp import MCPServerConfig, MCPToolSpec
 from arcana.contracts.tool import ToolSpec
-from arcana.contracts.trace import EventType, TraceContext, TraceEvent
+from arcana.contracts.trace import (
+    EventType,
+    ProtocolDiscoveryRecord,
+    TraceContext,
+    TraceEvent,
+)
 from arcana.mcp.client import MCPClient
 from arcana.mcp.protocol import mcp_tool_to_arcana_spec, resolve_side_effect
 from arcana.mcp.tool_provider import MCPToolProvider
@@ -170,6 +175,57 @@ def _trace_admission(
     trace_writer.write(event)
 
 
+def _trace_protocol_discovery(
+    trace_writer: TraceWriter | None,
+    trace_ctx: TraceContext | None,
+    *,
+    server_name: str,
+    transport: str,
+    action: str,
+    decision: str,
+    tools: list[MCPToolSpec] | None = None,
+    removed_count: int | None = None,
+    admitted_count: int | None = None,
+    reason: str | None = None,
+) -> None:
+    """Write a PROTOCOL_DISCOVERY trace event. No-op without a writer."""
+    if trace_writer is None or trace_ctx is None:
+        return
+
+    tool_count: int | None = None
+    tool_names_digest: str | None = None
+    tool_specs_digest: str | None = None
+    if tools is not None:
+        tool_count = len(tools)
+        tool_names_digest = canonical_hash([tool.name for tool in tools])
+        tool_specs_digest = canonical_hash(
+            [tool.model_dump(mode="json") for tool in tools]
+        )
+
+    record = ProtocolDiscoveryRecord(
+        protocol="mcp",
+        server_name=server_name,
+        transport=transport,
+        action=action,
+        decision=decision,
+        tool_count=tool_count,
+        tool_names_digest=tool_names_digest,
+        tool_specs_digest=tool_specs_digest,
+        removed_count=removed_count,
+        admitted_count=admitted_count,
+        reason=reason,
+    )
+
+    event = TraceEvent(
+        run_id=trace_ctx.run_id,
+        task_id=trace_ctx.task_id,
+        step_id=trace_ctx.new_step_id(),
+        event_type=EventType.PROTOCOL_DISCOVERY,
+        metadata=record.model_dump(mode="json", exclude_none=True),
+    )
+    trace_writer.write(event)
+
+
 async def setup_mcp_tools(
     configs: list[MCPServerConfig],
     registry: ToolRegistry,
@@ -204,6 +260,16 @@ async def setup_mcp_tools(
                 "Ignoring tools/list_changed for unconfigured MCP server '%s'",
                 server_name,
             )
+            _trace_protocol_discovery(
+                trace_writer,
+                trace_ctx,
+                server_name=server_name,
+                transport="unknown",
+                action="tools_list_changed",
+                decision="ignored",
+                tools=new_tools,
+                reason="server is not configured for this setup_mcp_tools call",
+            )
             return
 
         removed = unregister_mcp_tools_for_server(
@@ -225,12 +291,36 @@ async def setup_mcp_tools(
             len(removed),
             len(admitted),
         )
+        _trace_protocol_discovery(
+            trace_writer,
+            trace_ctx,
+            server_name=server_name,
+            transport=config.transport.value,
+            action="tools_list_changed",
+            decision="refreshed",
+            tools=new_tools,
+            removed_count=len(removed),
+            admitted_count=len(admitted),
+        )
 
     client = MCPClient(on_tools_changed=_on_tools_changed)
 
     for config in configs:
-        mcp_tools = await client.connect(config)
-        register_mcp_tools(
+        try:
+            mcp_tools = await client.connect(config)
+        except Exception as exc:
+            _trace_protocol_discovery(
+                trace_writer,
+                trace_ctx,
+                server_name=config.name,
+                transport=config.transport.value,
+                action="initial_tools_list",
+                decision="failed",
+                reason=str(exc),
+            )
+            raise
+
+        admitted = register_mcp_tools(
             client=client,
             server_name=config.name,
             mcp_tools=mcp_tools,
@@ -238,6 +328,17 @@ async def setup_mcp_tools(
             capability_prefix=config.capability_prefix,
             trace_writer=trace_writer,
             trace_ctx=trace_ctx,
+        )
+        _trace_protocol_discovery(
+            trace_writer,
+            trace_ctx,
+            server_name=config.name,
+            transport=config.transport.value,
+            action="initial_tools_list",
+            decision="discovered",
+            tools=mcp_tools,
+            removed_count=0,
+            admitted_count=len(admitted),
         )
 
     return client

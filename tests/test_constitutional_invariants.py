@@ -32,6 +32,9 @@ Invariants covered:
   WRITE + confirmation (never a guessed confirmation-free READ), a spec
   claiming a remote origin without a server identity is refused, and both
   decisions leave a CAPABILITY_ADMISSION trace event.
+- **Protocol discovery is traceable but not trust** (Amendment 5) — querying a
+  capability transport leaves PROTOCOL_DISCOVERY evidence that is distinct from
+  per-tool CAPABILITY_ADMISSION decisions.
 
 Future invariants (not yet pinned, tracked as work):
 
@@ -50,10 +53,11 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from arcana.contracts.mcp import MCPToolSpec
+from arcana.contracts.mcp import MCPMessage, MCPServerConfig, MCPToolSpec
 from arcana.contracts.permission import (
     PermissionAction,
     PermissionMatch,
@@ -70,10 +74,15 @@ from arcana.contracts.tool import (
     ToolResult,
     ToolSpec,
 )
-from arcana.contracts.trace import EventType, TraceContext
+from arcana.contracts.trace import (
+    EventType,
+    GuardrailDecisionRecord,
+    ProtocolDiscoveryRecord,
+    TraceContext,
+)
 from arcana.mcp.client import MCPClient
 from arcana.mcp.protocol import mcp_tool_to_arcana_spec
-from arcana.mcp.setup import _admit, register_mcp_tools
+from arcana.mcp.setup import _admit, register_mcp_tools, setup_mcp_tools
 from arcana.runtime.ask_user import AskUserHandler
 from arcana.runtime.cognitive import (
     PIN_TOOL_NAME,
@@ -605,3 +614,122 @@ class TestImportedCapabilityExposureGate:
         # A local tool with no provenance is fine (implicitly local).
         local = ToolSpec(name="local", description="x", input_schema={})
         assert _admit(local) == (True, "admitted")
+
+
+class TestBoundaryTraceContracts:
+    """Trace metadata for protocol discovery and guardrails is structured evidence."""
+
+    def test_protocol_discovery_record_serializes_adapter_decision(self) -> None:
+        record = ProtocolDiscoveryRecord(
+            protocol="mcp",
+            server_name="srv",
+            transport="stdio",
+            action="initial_tools_list",
+            decision="discovered",
+            tool_count=2,
+            tool_names_digest="a" * 16,
+            tool_specs_digest="b" * 16,
+            removed_count=0,
+            admitted_count=2,
+        )
+
+        data = record.model_dump(mode="json", exclude_none=True)
+
+        assert EventType.PROTOCOL_DISCOVERY.value == "protocol_discovery"
+        assert data["protocol"] == "mcp"
+        assert data["decision"] == "discovered"
+        assert data["admitted_count"] == 2
+
+    def test_guardrail_record_is_boundary_evidence_not_workflow(self) -> None:
+        record = GuardrailDecisionRecord(
+            guardrail_name="remote_tool_boundary",
+            boundary="tool_call",
+            action="block",
+            subject_digest="c" * 16,
+            reason="untrusted capability requested write access",
+        )
+
+        data = record.model_dump(mode="json", exclude_none=True)
+
+        assert EventType.GUARDRAIL_DECISION.value == "guardrail_decision"
+        assert data["action"] == "block"
+        assert "next_tool" not in data
+        assert "replacement_goal" not in data
+
+
+class TestProtocolDiscoveryIsTraceableButNotTrust:
+    """Protocol discovery is visible evidence, not an authorization shortcut.
+
+    Amendment 5 says protocols are transports, not trust boundaries. Discovering
+    tools from a protocol source therefore needs its own trace evidence, while
+    each imported tool still needs a separate admission decision before LLM
+    exposure.
+    """
+
+    @pytest.mark.asyncio
+    async def test_mcp_discovery_trace_is_separate_from_admission(
+        self,
+        tmp_path,
+    ) -> None:
+        init_response = MCPMessage(id=1, result={"capabilities": {}})
+        tools_response = MCPMessage(
+            id=2,
+            result={
+                "tools": [
+                    {
+                        "name": "list_dir",
+                        "description": "List",
+                        "inputSchema": {},
+                        "annotations": {"readOnlyHint": True},
+                    }
+                ]
+            },
+        )
+        transport = AsyncMock()
+        transport.connect = AsyncMock()
+        transport.send = AsyncMock()
+        transport.receive = AsyncMock(side_effect=[init_response, tools_response])
+        transport.close = AsyncMock()
+
+        registry = ToolRegistry()
+        trace_writer = TraceWriter(trace_dir=tmp_path)
+
+        with patch("arcana.mcp.client._create_transport", return_value=transport):
+            client = await setup_mcp_tools(
+                [MCPServerConfig(name="fs", command="echo")],
+                registry,
+                trace_writer=trace_writer,
+            )
+
+        assert "fs.list_dir" in registry.list_tools()
+
+        run_ids = trace_writer.list_runs()
+        assert len(run_ids) == 1
+        events = [
+            json.loads(line)
+            for line in (tmp_path / f"{run_ids[0]}.jsonl").read_text().splitlines()
+        ]
+        discovery = [
+            e for e in events if e["event_type"] == EventType.PROTOCOL_DISCOVERY.value
+        ]
+        admissions = [
+            e for e in events if e["event_type"] == EventType.CAPABILITY_ADMISSION.value
+        ]
+
+        assert len(discovery) == 1
+        assert len(admissions) == 1
+        discovery_metadata = discovery[0]["metadata"]
+        admission_metadata = admissions[0]["metadata"]
+
+        assert discovery_metadata["protocol"] == "mcp"
+        assert discovery_metadata["server_name"] == "fs"
+        assert discovery_metadata["decision"] == "discovered"
+        assert discovery_metadata["tool_count"] == 1
+        assert "tool_names_digest" in discovery_metadata
+        assert "tool_name" not in discovery_metadata
+
+        assert admission_metadata["tool_name"] == "fs.list_dir"
+        assert admission_metadata["decision"] == "admitted"
+        assert len(admission_metadata["capability_digest"]) == 16
+
+        await client.disconnect_all()

@@ -29,6 +29,8 @@ from arcana.contracts.strategy import AdaptiveState, StrategyDecision, StrategyT
 from arcana.contracts.tool import ToolCall, ToolProvenance, ToolResult, ToolSpec
 from arcana.contracts.trace import (
     BudgetSnapshot,
+    GuardrailDecisionRecord,
+    ProtocolDiscoveryRecord,
     StopReason,
     ToolCallRecord,
     TraceContext,
@@ -75,6 +77,8 @@ __all__ = [
     "TraceEvent",
     "TraceContext",
     "ToolCallRecord",
+    "ProtocolDiscoveryRecord",
+    "GuardrailDecisionRecord",
     "BudgetSnapshot",
     "StopReason",
 ]
