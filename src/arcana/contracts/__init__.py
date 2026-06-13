@@ -1,6 +1,11 @@
 """Core contracts and data models for Arcana."""
 
 from arcana.contracts.channel import ExecutionChannel
+from arcana.contracts.guardrail import (
+    GuardrailAction,
+    GuardrailDecision,
+    ToolGuardrailRequest,
+)
 from arcana.contracts.llm import (
     Budget,
     LLMRequest,
@@ -48,6 +53,10 @@ __all__ = [
     "LLMResponse",
     "TokenUsage",
     "Budget",
+    # Guardrails
+    "GuardrailAction",
+    "GuardrailDecision",
+    "ToolGuardrailRequest",
     # Permission
     "PermissionAction",
     "PermissionDecision",

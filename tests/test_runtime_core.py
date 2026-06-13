@@ -196,6 +196,44 @@ class TestRuntimeRun:
         assert set(tool_gateway.registry.list_tools()) == {"runtime_lookup", "run_lookup"}
         assert rt.tools == ["runtime_lookup"]
 
+    @pytest.mark.asyncio
+    async def test_run_scoped_tool_gateway_keeps_runtime_guardrails(self):
+        """run(tools=...) clones runtime guardrails into the run-scoped gateway."""
+        from arcana.contracts.guardrail import GuardrailAction, GuardrailDecision
+        from arcana.contracts.state import AgentState, ExecutionStatus
+        from arcana.sdk import tool
+
+        def guardrail(request):
+            return GuardrailDecision(
+                guardrail_name="block-all",
+                action=GuardrailAction.BLOCK,
+                reason="blocked",
+            )
+
+        @tool()
+        def run_lookup(query: str) -> str:
+            return f"run:{query}"
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+            guardrails=[guardrail],
+        )
+        mock_state = AgentState(
+            run_id="test",
+            status=ExecutionStatus.COMPLETED,
+            working_memory={"answer": "done"},
+        )
+
+        with patch("arcana.runtime.conversation.ConversationAgent") as MockAgent:
+            instance = MockAgent.return_value
+            instance.run = AsyncMock(return_value=mock_state)
+
+            await rt.run("test", tools=[run_lookup])
+
+        tool_gateway = MockAgent.call_args.kwargs["tool_gateway"]
+        assert tool_gateway.guardrails == [guardrail]
+
 
 class TestRuntimeStream:
     @pytest.mark.asyncio

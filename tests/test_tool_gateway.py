@@ -5,6 +5,11 @@ import json
 
 import pytest
 
+from arcana.contracts.guardrail import (
+    GuardrailAction,
+    GuardrailDecision,
+    ToolGuardrailRequest,
+)
 from arcana.contracts.permission import (
     PermissionAction,
     PermissionMatch,
@@ -20,7 +25,7 @@ from arcana.contracts.tool import (
     ToolResult,
     ToolSpec,
 )
-from arcana.contracts.trace import TraceContext
+from arcana.contracts.trace import EventType, TraceContext
 from arcana.tool_gateway.base import ToolProvider
 from arcana.tool_gateway.formatter import format_tool_for_llm, format_tool_list_for_llm
 from arcana.tool_gateway.gateway import ToolGateway
@@ -831,6 +836,127 @@ class TestConfirmation:
         assert not result.success
         assert result.error is not None
         assert result.error.code == "CONFIRMATION_REJECTED"
+
+
+# ── TestGuardrails ───────────────────────────────────────────────
+
+
+class TestToolGuardrails:
+    """Tool-call guardrails block or shape execution only at the boundary."""
+
+    async def test_guardrail_blocks_without_execution(self, trace_ctx):
+        tool = TrackingTool()
+        reg = ToolRegistry()
+        reg.register(tool)
+
+        def block_all(request: ToolGuardrailRequest) -> GuardrailDecision:
+            return GuardrailDecision(
+                guardrail_name="deny-tracked",
+                action=GuardrailAction.BLOCK,
+                reason="Tracked reads are blocked.",
+            )
+
+        gw = ToolGateway(registry=reg, guardrails=[block_all])
+
+        result = await gw.call(
+            _make_call("tracked_read", arguments={}),
+            trace_ctx=trace_ctx,
+        )
+
+        assert not result.success
+        assert result.error is not None
+        assert result.error.category == ToolErrorCategory.PERMISSION
+        assert result.error.code == "GUARDRAIL_BLOCKED"
+        assert result.error.details["guardrail"] == "deny-tracked"
+        assert not tool.executed
+
+    async def test_guardrail_redacts_arguments_before_validation_and_execution(
+        self,
+        registry,
+        trace_ctx,
+    ):
+        def redact_message(request: ToolGuardrailRequest) -> GuardrailDecision:
+            assert request.arguments["message"] == "secret"
+            return GuardrailDecision(
+                guardrail_name="redact-message",
+                action=GuardrailAction.REDACT,
+                reason="Message content redacted.",
+                redacted_arguments={"message": "[redacted]"},
+            )
+
+        gw = ToolGateway(registry=registry, guardrails=[redact_message])
+
+        result = await gw.call(
+            _make_call("echo", arguments={"message": "secret"}),
+            trace_ctx=trace_ctx,
+        )
+
+        assert result.success
+        assert result.output == "[redacted]"
+
+    async def test_guardrail_require_approval_uses_confirmation_callback(
+        self,
+        registry,
+        trace_ctx,
+    ):
+        def ask_for_read(request: ToolGuardrailRequest) -> GuardrailDecision:
+            return GuardrailDecision(
+                guardrail_name="read-approval",
+                action=GuardrailAction.REQUIRE_APPROVAL,
+                reason="Echo needs approval.",
+            )
+
+        rejected = ToolGateway(registry=registry, guardrails=[ask_for_read])
+        rejected_result = await rejected.call(_make_call("echo"), trace_ctx=trace_ctx)
+        assert not rejected_result.success
+        assert rejected_result.error is not None
+        assert rejected_result.error.code == "GUARDRAIL_APPROVAL_REQUIRED"
+
+        approved = ToolGateway(
+            registry=registry,
+            guardrails=[ask_for_read],
+            confirmation_callback=_auto_confirm,
+        )
+        approved_result = await approved.call(_make_call("echo"), trace_ctx=trace_ctx)
+        assert approved_result.success
+
+    async def test_guardrail_decision_is_traced(self, registry, tmp_path, trace_ctx):
+        trace_writer = TraceWriter(trace_dir=tmp_path)
+
+        def warn(request: ToolGuardrailRequest) -> GuardrailDecision:
+            return GuardrailDecision(
+                guardrail_name="warn-echo",
+                action=GuardrailAction.WARN,
+                reason="Echo inspected.",
+                details={"severity": "low"},
+            )
+
+        gw = ToolGateway(
+            registry=registry,
+            trace_writer=trace_writer,
+            guardrails=[warn],
+        )
+
+        result = await gw.call(_make_call("echo"), trace_ctx=trace_ctx)
+        assert result.success
+
+        events = [
+            json.loads(line)
+            for line in (tmp_path / "test-run.jsonl").read_text().splitlines()
+        ]
+        guardrail_events = [
+            e
+            for e in events
+            if e["event_type"] == EventType.GUARDRAIL_DECISION.value
+        ]
+        assert len(guardrail_events) == 1
+        metadata = guardrail_events[0]["metadata"]
+        assert metadata["guardrail_name"] == "warn-echo"
+        assert metadata["boundary"] == "tool_call"
+        assert metadata["action"] == "warn"
+        assert metadata["reason"] == "Echo inspected."
+        assert metadata["details"]["tool_name"] == "echo"
+        assert metadata["details"]["severity"] == "low"
 
 
 # ── TestRetry ────────────────────────────────────────────────────

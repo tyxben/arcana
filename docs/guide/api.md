@@ -191,6 +191,7 @@ class Runtime:
         *,
         providers: dict[str, str] | None = None,
         tools: list[Callable] | None = None,
+        guardrails: list[Callable] | None = None,
         mcp_servers: list[MCPServerConfig] | None = None,
         budget: Budget | None = None,
         trace: bool = False,
@@ -207,6 +208,7 @@ class Runtime:
 |------|------|---------|-------------|
 | `providers` | `dict[str, str] \| None` | `None` | Provider name to API key mapping, e.g. `{"deepseek": "sk-xxx", "openai": "sk-proj-xxx"}`. Empty string reads from env var. |
 | `tools` | `list[Callable] \| None` | `None` | List of `@arcana.tool` decorated functions to register. |
+| `guardrails` | `list[Callable] \| None` | `None` | Tool-call boundary guardrails. Each receives `ToolGuardrailRequest` and returns `GuardrailDecision`; can block, warn, redact args, or require approval. |
 | `mcp_servers` | `list[MCPServerConfig] \| None` | `None` | MCP server configurations for external tool servers. |
 | `budget` | `Budget \| None` | `None` | Default budget policy. Defaults to `Budget(max_cost_usd=10.0)`. |
 | `trace` | `bool` | `False` | Enable JSONL trace logging. |

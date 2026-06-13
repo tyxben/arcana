@@ -335,6 +335,7 @@ class Runtime:
         *,
         providers: dict[str, str | dict[str, str]] | None = None,  # {"deepseek": "sk-xxx"} or {"deepseek": {"api_key": "sk-xxx", "model": "deepseek-reasoner"}}
         tools: list[Callable] | None = None,  # type: ignore[type-arg]
+        guardrails: list[Callable] | None = None,  # type: ignore[type-arg]
         mcp_servers: list[MCPServerConfig] | None = None,
         budget: Budget | None = None,
         trace: bool = False,
@@ -347,6 +348,7 @@ class Runtime:
         self._config = config or RuntimeConfig()
         self._budget_policy = budget or Budget()
         self._namespace = namespace
+        self._tool_guardrails = list(guardrails or [])
 
         # Parse context strategy
         from arcana.contracts.context import ContextStrategy
@@ -691,7 +693,10 @@ class Runtime:
             from arcana.tool_gateway.registry import ToolRegistry
 
             self._tool_registry = ToolRegistry()
-            self._tool_gateway = ToolGateway(registry=self._tool_registry)
+            self._tool_gateway = ToolGateway(
+                registry=self._tool_registry,
+                guardrails=list(self._tool_guardrails),
+            )
 
         self._mcp_client = await setup_mcp_tools(
             self._mcp_configs,
@@ -1443,7 +1448,10 @@ class Runtime:
                 continue
             registry.register(_FunctionToolProvider(spec=spec, func=func))
 
-        gateway = ToolGateway(registry=registry)
+        gateway = ToolGateway(
+            registry=registry,
+            guardrails=list(self._tool_guardrails),
+        )
         return registry, gateway
 
     def _setup_skills(self, skill_paths: list[str]) -> Any:
@@ -1490,7 +1498,11 @@ class Runtime:
             return self._tool_gateway
 
         if base_gateway is None:
-            return ToolGateway(registry=registry, trace_writer=self._trace_writer)
+            return ToolGateway(
+                registry=registry,
+                trace_writer=self._trace_writer,
+                guardrails=list(self._tool_guardrails),
+            )
 
         return ToolGateway(
             registry=registry,
@@ -1498,6 +1510,7 @@ class Runtime:
             granted_capabilities=set(base_gateway.granted_capabilities),
             permission_policy=base_gateway.permission_policy,
             confirmation_callback=base_gateway.confirmation_callback,
+            guardrails=list(base_gateway.guardrails),
             backend=base_gateway.backend,
             idempotency_cache_limit=base_gateway._idempotency_cache_limit,
         )
@@ -2217,7 +2230,11 @@ class ChatSession:
                 if spec is None:
                     continue
                 registry.register(_FunctionToolProvider(spec=spec, func=func))
-            return ToolGateway(registry=registry)
+            return ToolGateway(
+                registry=registry,
+                trace_writer=self._runtime._trace_writer,
+                guardrails=list(self._runtime._tool_guardrails),
+            )
         return self._runtime._tool_gateway
 
     # ------------------------------------------------------------------

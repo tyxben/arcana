@@ -121,6 +121,7 @@ runtime = arcana.Runtime(
 |---|---|---|---|
 | `providers` | `dict[str, str] \| None` | `None` | Map of provider name to API key (e.g., `{"deepseek": "sk-xxx"}`) |
 | `tools` | `list[Callable] \| None` | `None` | List of `@arcana.tool` decorated functions |
+| `guardrails` | `list[Callable] \| None` | `None` | Tool-call boundary guardrails. Each receives `ToolGuardrailRequest` and returns `GuardrailDecision` |
 | `mcp_servers` | `list[MCPServerConfig] \| None` | `None` | MCP server configurations for external tool sources |
 | `budget` | `Budget \| None` | `None` | Default budget policy. Uses `Budget()` defaults if `None` |
 | `trace` | `bool` | `False` | Enable JSONL trace output |

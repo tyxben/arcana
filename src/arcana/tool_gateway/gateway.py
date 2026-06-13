@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
+from arcana.contracts.guardrail import (
+    GuardrailAction,
+    GuardrailDecision,
+    ToolGuardrailRequest,
+)
 from arcana.contracts.permission import (
     PermissionAction,
     PermissionDecision,
@@ -24,6 +30,7 @@ from arcana.contracts.tool import (
 )
 from arcana.contracts.trace import (
     EventType,
+    GuardrailDecisionRecord,
     ToolCallRecord,
     TraceEvent,
 )
@@ -85,6 +92,7 @@ class ToolGateway:
         granted_capabilities: set[str] | None = None,
         permission_policy: PermissionPolicy | None = None,
         confirmation_callback: Callable[[ToolCall, ToolSpec], Awaitable[bool]] | None = None,
+        guardrails: list[Callable[[ToolGuardrailRequest], Any]] | None = None,
         backend: ExecutionBackend | None = None,
         idempotency_cache_limit: int | None = 1024,
     ) -> None:
@@ -99,6 +107,11 @@ class ToolGateway:
                 When omitted, the legacy capability + confirmation behavior is preserved.
             confirmation_callback: Async callback for write confirmation.
                 If None and a write tool is called, ConfirmationRequired is raised.
+            guardrails: Optional tool-call boundary checks. Each guardrail
+                receives a ``ToolGuardrailRequest`` and returns a
+                ``GuardrailDecision`` or awaitable. Guardrails can block,
+                warn, redact arguments, or require approval; they do not
+                choose tools or alter agent strategy.
             backend: Execution backend for tool isolation.
                 Defaults to InProcessBackend (current behavior, zero overhead).
             idempotency_cache_limit: Maximum number of ``ToolResult`` entries
@@ -120,6 +133,7 @@ class ToolGateway:
         self.granted_capabilities = granted_capabilities or set()
         self.permission_policy = permission_policy
         self.confirmation_callback = confirmation_callback
+        self.guardrails = list(guardrails or [])
         self.backend = backend or InProcessBackend()
 
         self._idempotency_cache_limit = idempotency_cache_limit
@@ -210,7 +224,31 @@ class ToolGateway:
                 )
             return result
 
-        # 4. Validate arguments
+        # 4. Tool-call guardrails
+        guarded_call, guardrail_result, guardrail_decision = await self._apply_guardrails(
+            tool_call,
+            spec,
+            trace_ctx,
+        )
+        if guardrail_result is not None:
+            if trace_ctx:
+                metadata = self._permission_metadata(permission_decision, spec)
+                if guardrail_decision is not None:
+                    metadata["guardrail_decision"] = guardrail_decision.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                    )
+                self._log_tool_call(
+                    guarded_call,
+                    guardrail_result,
+                    spec,
+                    trace_ctx,
+                    metadata=metadata,
+                )
+            return guardrail_result
+        tool_call = guarded_call
+
+        # 5. Validate arguments
         validation_error = validate_arguments(spec, tool_call.arguments)
         if validation_error is not None:
             result = ToolResult(
@@ -229,7 +267,7 @@ class ToolGateway:
                 )
             return result
 
-        # 5. Check idempotency cache (lock held through execute to prevent duplicate runs)
+        # 6. Check idempotency cache (lock held through execute to prevent duplicate runs)
         if tool_call.idempotency_key is not None:
             async with self._cache_lock:
                 cached = self._idempotency_cache.get(tool_call.idempotency_key)
@@ -237,7 +275,7 @@ class ToolGateway:
                     self._idempotency_cache.move_to_end(tool_call.idempotency_key)
                     return cached
 
-                # 6. Confirm (write tools or policy ask)
+                # 7. Confirm (write tools or policy ask)
                 confirmation_result = await self._confirm_execution(
                     tool_call,
                     spec,
@@ -254,10 +292,10 @@ class ToolGateway:
                         )
                     return confirmation_result
 
-                # 7. Execute with retry
+                # 8. Execute with retry
                 result = await self._execute_with_retry(provider, tool_call, spec)
 
-                # 8. Cache result
+                # 9. Cache result
                 self._idempotency_cache[tool_call.idempotency_key] = result
                 if self._idempotency_cache_limit is not None:
                     while len(self._idempotency_cache) > self._idempotency_cache_limit:
@@ -281,7 +319,7 @@ class ToolGateway:
                 return confirmation_result
             result = await self._execute_with_retry(provider, tool_call, spec)
 
-        # 9. Audit
+        # 10. Audit
         if trace_ctx:
             self._log_tool_call(
                 tool_call,
@@ -386,6 +424,144 @@ class ToolGateway:
             return None
         request = PermissionRequest.from_tool_spec(spec)
         return self.permission_policy.evaluate(request)
+
+    async def _apply_guardrails(
+        self,
+        tool_call: ToolCall,
+        spec: ToolSpec,
+        trace_ctx: TraceContext | None,
+    ) -> tuple[ToolCall, ToolResult | None, GuardrailDecision | None]:
+        """Run configured tool-call guardrails before validation/execution."""
+        current_call = tool_call
+        last_decision: GuardrailDecision | None = None
+
+        for guardrail in self.guardrails:
+            request = ToolGuardrailRequest.from_tool_call(
+                tool_name=current_call.name,
+                arguments=current_call.arguments,
+                spec=spec,
+            )
+            raw_decision = guardrail(request)
+            if inspect.isawaitable(raw_decision):
+                raw_decision = await raw_decision
+            if raw_decision is None:
+                continue
+            if not isinstance(raw_decision, GuardrailDecision):
+                raw_decision = GuardrailDecision.model_validate(raw_decision)
+            decision = raw_decision
+            last_decision = decision
+            self._log_guardrail_decision(decision, request, spec, trace_ctx)
+
+            if decision.action in (GuardrailAction.ALLOW, GuardrailAction.WARN):
+                continue
+
+            if decision.action == GuardrailAction.REDACT:
+                if decision.redacted_arguments is None:
+                    result = self._guardrail_error_result(
+                        current_call,
+                        decision,
+                        category=ToolErrorCategory.VALIDATION,
+                        code="GUARDRAIL_REDACTION_MISSING",
+                    )
+                    return current_call, result, decision
+                current_call = current_call.model_copy(
+                    update={"arguments": decision.redacted_arguments}
+                )
+                continue
+
+            if decision.action == GuardrailAction.REQUIRE_APPROVAL:
+                if self.confirmation_callback is None:
+                    result = self._guardrail_error_result(
+                        current_call,
+                        decision,
+                        category=ToolErrorCategory.CONFIRMATION_REQUIRED,
+                        code="GUARDRAIL_APPROVAL_REQUIRED",
+                    )
+                    return current_call, result, decision
+                confirmed = await self.confirmation_callback(current_call, spec)
+                if not confirmed:
+                    result = self._guardrail_error_result(
+                        current_call,
+                        decision,
+                        category=ToolErrorCategory.CONFIRMATION_REQUIRED,
+                        code="GUARDRAIL_APPROVAL_REJECTED",
+                    )
+                    return current_call, result, decision
+                continue
+
+            if decision.action == GuardrailAction.BLOCK:
+                result = self._guardrail_error_result(
+                    current_call,
+                    decision,
+                    category=ToolErrorCategory.PERMISSION,
+                    code="GUARDRAIL_BLOCKED",
+                )
+                return current_call, result, decision
+
+        return current_call, None, last_decision
+
+    @staticmethod
+    def _guardrail_error_result(
+        tool_call: ToolCall,
+        decision: GuardrailDecision,
+        *,
+        category: ToolErrorCategory,
+        code: str,
+    ) -> ToolResult:
+        """Build a ToolResult for a blocking guardrail decision."""
+        return ToolResult(
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            success=False,
+            error=ToolError(
+                category=category,
+                message=decision.reason,
+                code=code,
+                details={
+                    "guardrail": decision.guardrail_name,
+                    "action": decision.action.value,
+                    **decision.details,
+                },
+            ),
+        )
+
+    def _log_guardrail_decision(
+        self,
+        decision: GuardrailDecision,
+        request: ToolGuardrailRequest,
+        spec: ToolSpec,
+        trace_ctx: TraceContext | None,
+    ) -> None:
+        """Write a GUARDRAIL_DECISION trace event."""
+        if not self.trace_writer or trace_ctx is None:
+            return
+
+        details = dict(decision.details)
+        details["tool_name"] = request.tool_name
+        details["side_effect"] = spec.side_effect.value
+        if spec.provenance is not None:
+            details["provenance"] = spec.provenance.model_dump(mode="json")
+        if decision.redacted_arguments is not None:
+            details["redacted_arguments_digest"] = canonical_hash(
+                decision.redacted_arguments
+            )
+
+        record = GuardrailDecisionRecord(
+            guardrail_name=decision.guardrail_name,
+            boundary=request.boundary,
+            action=decision.action.value,
+            subject_digest=request.arguments_digest,
+            reason=decision.reason,
+            details=details,
+        )
+        event = TraceEvent(
+            run_id=trace_ctx.run_id,
+            task_id=trace_ctx.task_id,
+            step_id=trace_ctx.new_step_id(),
+            event_type=EventType.GUARDRAIL_DECISION,
+            metadata=record.model_dump(mode="json", exclude_none=True),
+        )
+        self.trace_writer.write(event)
 
     @staticmethod
     def _permission_metadata(
