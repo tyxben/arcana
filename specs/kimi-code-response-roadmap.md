@@ -23,6 +23,23 @@ workflow. The framework must keep its core law:
 - no context hoarding through always-on skills or full remote catalogs
 - no silent weakening of tool, output, budget, or provenance contracts
 
+## Related Planning Artifacts
+
+This file is the **canonical, code-linked roadmap** (each item carries a
+`done`/pending marker and points at the source + test files). Two companion
+artifacts orbit it:
+
+- `specs/arcana-agent-architecture-evolution-plan.html` — an **external-trends
+  design note** (OpenAI Agents / MCP / A2A / AG-UI / LangGraph / AgentCore /
+  AlphaEvolve / DGM), not a tracker. Its Phase 1–4/6 items are re-skins of the
+  phases below; treat this roadmap, not the HTML, as the source of truth for what
+  is actually built.
+- `specs/constitution-amendment-6-self-evolution-boundaries.md` — the **one
+  genuinely net-new pillar** from that note (self-evolution), captured as a
+  *candidate* constitutional boundary (principles only, mechanism deferred). No
+  self-evolution code is in scope for this roadmap until those contracts/evals
+  land.
+
 ## Agent Team Findings
 
 Four focused reviews were run against the current repo before this roadmap was
