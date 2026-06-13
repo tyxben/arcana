@@ -1,0 +1,1507 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arcana External Agent Architecture and Evolution Plan</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1f2933;
+      --muted: #5f6b7a;
+      --paper: #f7f9fc;
+      --panel: #ffffff;
+      --band: #f1f5f9;
+      --line: #d7dee8;
+      --line-strong: #afbdcc;
+      --blue: #1f6feb;
+      --cyan: #06768f;
+      --green: #1f7a3f;
+      --amber: #b45309;
+      --red: #b42318;
+      --violet: #6d28d9;
+      --slate: #334155;
+      --code-bg: #eef2f7;
+      --shadow: 0 10px 28px rgba(31, 41, 51, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.58;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 20px;
+      border-right: 1px solid #263348;
+      background: #101827;
+      color: #e6edf7;
+    }
+
+    aside h1 {
+      margin: 0 0 8px;
+      font-size: 23px;
+      line-height: 1.14;
+      letter-spacing: 0;
+    }
+
+    aside p {
+      margin: 0 0 20px;
+      color: #aebbd0;
+      font-size: 13px;
+    }
+
+    nav {
+      display: grid;
+      gap: 4px;
+    }
+
+    nav a {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 6px;
+      color: #d7e1ee;
+      font-size: 13px;
+    }
+
+    nav a:hover {
+      background: #1d293a;
+      text-decoration: none;
+    }
+
+    .main {
+      min-width: 0;
+    }
+
+    .hero {
+      padding: 56px min(5vw, 56px) 40px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--cyan);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .hero h2 {
+      max-width: 1160px;
+      margin: 0;
+      font-size: clamp(32px, 5vw, 60px);
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 1020px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: 20px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      max-width: 1160px;
+      margin-top: 32px;
+    }
+
+    .metric {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 23px;
+      line-height: 1.2;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    main {
+      padding: 32px min(5vw, 56px) 72px;
+    }
+
+    section {
+      max-width: 1220px;
+      margin: 0 auto 34px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    section h2 {
+      margin: 0 0 14px;
+      font-size: 26px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    section h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    section h4 {
+      margin: 18px 0 8px;
+      font-size: 15px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    ul,
+    ol {
+      margin: 8px 0 14px 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #eef4fb;
+      font-weight: 700;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: var(--code-bg);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      overflow: auto;
+      margin: 14px 0;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111827;
+      color: #e6edf7;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: inherit;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .item {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdff;
+    }
+
+    .item h3,
+    .item h4 {
+      margin-top: 0;
+    }
+
+    .callout {
+      padding: 16px 18px;
+      border-left: 4px solid var(--blue);
+      border-radius: 6px;
+      background: #eff6ff;
+    }
+
+    .callout.warning {
+      border-left-color: var(--amber);
+      background: #fff7ed;
+    }
+
+    .callout.danger {
+      border-left-color: var(--red);
+      background: #fff1f2;
+    }
+
+    .callout.success {
+      border-left-color: var(--green);
+      background: #f0fdf4;
+    }
+
+    .phase {
+      border-left: 5px solid var(--cyan);
+    }
+
+    .phase-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .phase-head h2 {
+      margin-bottom: 0;
+    }
+
+    .window {
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .done {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .next {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    .later {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .risk-high {
+      color: var(--red);
+      font-weight: 700;
+    }
+
+    .risk-med {
+      color: var(--amber);
+      font-weight: 700;
+    }
+
+    .risk-low {
+      color: var(--green);
+      font-weight: 700;
+    }
+
+    .diagram {
+      overflow-x: auto;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+
+    .diagram pre {
+      margin: 0;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      box-shadow: none;
+    }
+
+    .source-list li {
+      margin-bottom: 10px;
+    }
+
+    .footer {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 8px 0 32px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid #263348;
+      }
+
+      nav {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .hero-grid,
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .hero {
+        padding: 34px 18px 28px;
+      }
+
+      main {
+        padding: 20px 14px 48px;
+      }
+
+      section {
+        padding: 20px 16px;
+      }
+
+      nav {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <h1>Arcana Agent Architecture Plan</h1>
+      <p>外部趋势参考、宪法约束、动态框架与自进化设计</p>
+      <nav aria-label="章节导航">
+        <a href="#summary">总览</a>
+        <a href="#external-scan">外部趋势雷达</a>
+        <a href="#constitution-fit">宪法适配</a>
+        <a href="#north-star">设计目标</a>
+        <a href="#architecture">建议架构</a>
+        <a href="#phase-1">Phase 1 可用性</a>
+        <a href="#phase-2">Phase 2 能力层</a>
+        <a href="#phase-3">Phase 3 交互协议</a>
+        <a href="#phase-4">Phase 4 Hooks</a>
+        <a href="#phase-5">Phase 5 自进化</a>
+        <a href="#phase-6">Phase 6 Subagents</a>
+        <a href="#constitution-amendment">宪法修订候选</a>
+        <a href="#contracts">合同草案</a>
+        <a href="#testing">测试与 Eval</a>
+        <a href="#roadmap">里程碑</a>
+        <a href="#sources">资料来源</a>
+      </nav>
+    </aside>
+
+    <div class="main">
+      <header class="hero">
+        <p class="eyebrow">Arcana Planning Artifact</p>
+        <h2>外部 Agent 架构趋势参考下的 Arcana 动态框架与自进化路线</h2>
+        <p class="subtitle">
+          本规划不把 Hermes 或任何外部框架作为主线。它把 OpenAI Agents、MCP、A2A、AG-UI、Agent Skills、LangGraph、Microsoft Agent Framework、AWS AgentCore、AlphaEvolve、Darwin Godel Machine 等作为参考材料，再按 Arcana Constitution 重新设计。
+        </p>
+        <div class="callout warning" style="max-width: 1020px; margin-top: 22px;">
+          <p><strong>文档定位（design note，不是 roadmap tracker）：</strong>本文是外部趋势参考与架构论证，<strong>不是</strong>带 done 标记、与代码/测试挂钩的进度追踪。Phase 1–4/6 的实质条目是 <code>specs/kimi-code-response-roadmap.md</code> 已有阶段的重新表述——“当前已建成什么”以那份 canonical roadmap 为准。本文唯一的净新增支柱 self-evolution 已落为候选宪法边界 <code>specs/constitution-amendment-6-self-evolution-boundaries.md</code>（principles-only，mechanism 暂不固化，未并入正文）。</p>
+        </div>
+        <div class="hero-grid">
+          <div class="metric">
+            <strong>1528</strong>
+            <span>当前全量测试通过</span>
+          </div>
+          <div class="metric">
+            <strong>9</strong>
+            <span>本规划纳入的主要外部参考方向</span>
+          </div>
+          <div class="metric">
+            <strong>0</strong>
+            <span>建议新增隐藏 planner 数量</span>
+          </div>
+          <div class="metric">
+            <strong>1</strong>
+            <span>可能需要讨论的宪法修订候选</span>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section id="summary">
+          <h2>总览</h2>
+          <p>
+            用户的方向很清楚：不是照搬 Hermes，也不是把某个外部框架变成 Arcana 的架构中心。外界最近的变化更像一组信号：协议正在标准化，运行时正在生产化，UI 正在事件化，技能正在生命周期化，自进化正在从“灵感”转向“带评测的候选改动搜索”。
+          </p>
+          <p>
+            Arcana 已经有相当多的正确基础：contracts-first、<code>ToolGateway</code>、<code>ExecutionChannel</code>、side-effect、permission、guardrails、trace、MCP provenance、dynamic discovery、skills、context compression、batch/chain/chat/collaborate。下一步应该是把这些能力整理成更清晰的 <strong>Dynamic Capability Layer</strong>，而不是新增一个中心化超级 agent。
+          </p>
+          <div class="callout">
+            <p><strong>核心建议：</strong>Arcana 后续主线应命名为 <code>ProtocolBridge + CapabilityRegistry + Evidence Loop</code>，而不是 Hermes。Hermes 这类名字可以作为外部参考项出现，但不作为 public API 或架构锚点。</p>
+          </div>
+
+          <h3>本规划的主要结论</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>外部信号</th>
+                <th>Arcana 应吸收什么</th>
+                <th>Arcana 应避免什么</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>OpenAI Agents / Responses</td>
+                <td>统一工具调用、built-in tools、guardrails、trace/evals、developer ergonomics。</td>
+                <td>不要把 SDK 自带 handoff topology 变成默认拓扑。</td>
+              </tr>
+              <tr>
+                <td>MCP</td>
+                <td>动态工具发现、能力协商、roots/sampling/elicitation 等边界能力。</td>
+                <td>不要把协议成员身份当作信任边界。</td>
+              </tr>
+              <tr>
+                <td>A2A</td>
+                <td>Agent Card、task lifecycle、artifact、long-running status、modality negotiation。</td>
+                <td>不要让远程 agent 自动变成 supervisor。</td>
+              </tr>
+              <tr>
+                <td>AG-UI / ChatKit 风格</td>
+                <td>事件流、interrupts、state diff、frontend tool calls、可恢复交互。</td>
+                <td>不要允许模型任意生成可执行 UI 或隐藏危险 action。</td>
+              </tr>
+              <tr>
+                <td>Agent Skills</td>
+                <td>progressive disclosure、skill lifecycle、skill eval、技能可移植。</td>
+                <td>不要把 skill 当成 system/developer authority。</td>
+              </tr>
+              <tr>
+                <td>LangGraph / Microsoft / AWS</td>
+                <td>durable execution、checkpoint、workflow 显式控制、middleware/policy/registry。</td>
+                <td>不要把 Arcana 改成强制图工作流框架。</td>
+              </tr>
+              <tr>
+                <td>AlphaEvolve / DGM / Autoskill</td>
+                <td>候选改动、自动评测、archive、skill memory、proposal lifecycle。</td>
+                <td>不要生产运行时自改权限、guardrail 或核心 runtime。</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="external-scan">
+          <h2>外部趋势雷达</h2>
+          <p>
+            以下资料以官方文档、官方博客和论文为主。它们不是 Arcana 的设计命令，而是可以拆解吸收的参考信号。
+          </p>
+
+          <h3>1. OpenAI Agents / Responses / Agent tooling</h3>
+          <p>
+            OpenAI 在 2025 年 3 月发布 Responses API、built-in tools、Agents SDK、observability。官方叙事强调：生产 agent 的难点不只是模型能力，而是工具接入、多步任务、可观测性、guardrails 和 evals。
+          </p>
+          <ul>
+            <li>Responses API 把 Chat Completions 的简单性和 Assistants 的 tool use 能力合并，面向多工具、多模型轮次 agent。</li>
+            <li>Built-in tools 包括 web search、file search、computer use。</li>
+            <li>Agents SDK 公开强调 agents、handoffs、guardrails、tracing/observability。</li>
+            <li>Computer use 的官方说明明确提到 prompt injection、安全确认、环境隔离和人类监督。</li>
+          </ul>
+          <div class="callout">
+            <p><strong>对 Arcana 的启发：</strong>Arcana 已经有自己的 runtime OS，不需要照搬 Agents SDK；但应该补齐第一方 developer ergonomics：doctor、trace inspect、eval recipes、guardrail recipes、capability catalog inspect。</p>
+          </div>
+
+          <h3>2. MCP：工具与上下文协议正在成为基础设施</h3>
+          <p>
+            MCP 2025-06-18 规范把 host、client、server、resources、prompts、tools、sampling、roots、elicitation 等概念规范化。它同时明确强调 consent、data privacy、tool safety 和 sampling controls。
+          </p>
+          <ul>
+            <li>MCP server 暴露 resources、prompts、tools；client 可提供 sampling、roots、elicitation。</li>
+            <li>HTTP authorization 采用 OAuth 2.1 相关机制，强调 resource indicators、token audience validation。</li>
+            <li>规范明确说 tool descriptions/annotations 应视为不可信，除非来自可信 server。</li>
+            <li>MCP 本身不能强制安全，host 实现必须补 authorization、access control、consent UI。</li>
+          </ul>
+          <div class="callout warning">
+            <p><strong>对 Arcana 的约束：</strong>Arcana 现有宪法 v3.6 已经说“协议是能力传输层，不是信任边界”。这条需要继续强化：MCP 只进 <code>ProtocolBridge</code>，不直接进 prompt 或 tool registry。</p>
+          </div>
+
+          <h3>3. A2A：Agent Card 与 long-running task 是重要抽象</h3>
+          <p>
+            Google 2025 年发布 A2A，强调跨 vendor/framework agent 的互操作。A2A 的关键不是“多 agent 很酷”，而是几个可借鉴的协议对象：Agent Card、task lifecycle、artifact、status update、message parts、modality negotiation、安全认证。
+          </p>
+          <ul>
+            <li>Agent Card 用 JSON 描述 agent 能力，帮助 client agent 做 capability discovery。</li>
+            <li>Task object 有生命周期，支持长任务和状态同步。</li>
+            <li>Artifact 是任务产物，适合 Arcana trace/session bundle 引用。</li>
+            <li>Message parts 支持不同内容类型，适合未来 multimodal / UI negotiation。</li>
+          </ul>
+          <div class="callout">
+            <p><strong>对 Arcana 的启发：</strong>Arcana 的 <code>runtime.collaborate()</code> 和未来 <code>subagents()</code> 可以吸收 task/artifact/status/card，但用户代码仍决定谁说话、何时说话、授权什么。</p>
+          </div>
+
+          <h3>4. AG-UI / ChatKit 风格：Agent UI 正在变成事件协议</h3>
+          <p>
+            AG-UI 把 agent 到用户界面的连接定义为轻量、事件化、双向协议；重点包括 streaming chat、typed attachments、shared state、interrupts、frontend tool calls、tool output streaming、subagent composition。
+          </p>
+          <ul>
+            <li>UI 不再只是最终 answer，而是 agent 运行事件的投影。</li>
+            <li>Interrupts 支持 pause、approve、edit、retry、escalate。</li>
+            <li>Shared state 和 streamed diffs 能让前端实时渲染长任务。</li>
+            <li>Generative UI 必须受 app validation 控制，不能让模型任意挂载危险组件。</li>
+          </ul>
+          <div class="callout">
+            <p><strong>对 Arcana 的启发：</strong>Arcana 不必现在做前端协议，但 trace event、stream event 和 ask_user/guardrail approval 应设计成未来可投影到 UI 的稳定事件。</p>
+          </div>
+
+          <h3>5. Agent Skills：progressive disclosure 是已被验证的方向</h3>
+          <p>
+            Anthropic 的 Agent Skills 把技能定义为包含 <code>SKILL.md</code>、metadata、instructions、scripts、resources 的文件夹。官方强调 progressive disclosure：先加载 name/description，相关时再加载 skill body，必要时再读附加文件。
+          </p>
+          <ul>
+            <li>技能是 reusable filesystem resources，不是一次性 prompt。</li>
+            <li>技能可以包含脚本，以 deterministic code 补充 LLM。</li>
+            <li>安全上必须审计 skill 来源、脚本、依赖、网络连接。</li>
+            <li>Anthropic 明确提到未来希望 agent 创建、编辑和评估 skills。</li>
+          </ul>
+          <div class="callout success">
+            <p><strong>对 Arcana 的现状：</strong>Arcana 已有 Skills v1，方向正确。下一步应补 skill lifecycle：draft、validated、trusted、deprecated、revoked，以及 skill eval。</p>
+          </div>
+
+          <h3>6. LangGraph / Microsoft / AWS：生产化 runtime 的共识</h3>
+          <p>
+            这几条路线共同指向生产 agent 的基础设施：durable execution、persistence、human-in-the-loop、checkpoint、middleware、policy、registry、observability、evals、identity、sandbox。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>外部系统</th>
+                <th>值得吸收的点</th>
+                <th>Arcana 的取舍</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>LangGraph</td>
+                <td>durable execution、interrupt、thread_id、checkpoint、state snapshots。</td>
+                <td>Arcana 可提供 checkpoint/resume 原语，但不强制用户建 graph。</td>
+              </tr>
+              <tr>
+                <td>Microsoft Agent Framework</td>
+                <td>agent vs workflow 分工、middleware、type-safe routing、telemetry。</td>
+                <td>Arcana 应保留 <code>chain()</code>/<code>collaborate()</code> 的显式控制，不加默认 orchestrator。</td>
+              </tr>
+              <tr>
+                <td>AWS Bedrock AgentCore</td>
+                <td>runtime、gateway、identity、code interpreter、browser、observability、policy、registry。</td>
+                <td>Arcana 可借鉴 modular service taxonomy，但保持本地库/SDK 轻量性。</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>7. 自进化研究：从“自改代码”转向“评测约束下的候选搜索”</h3>
+          <p>
+            Google DeepMind AlphaEvolve、Darwin Godel Machine、MUSE-Autoskill、SkillFoundry 等方向都说明一件事：自进化有价值，但必须依赖 automated evaluators、benchmarks、archive、技能生命周期、sandbox、人类监督。没有评测和边界的自进化不是工程能力，是风险。
+          </p>
+          <ul>
+            <li>AlphaEvolve 的关键是 LLM 生成候选程序，由自动评估器验证和打分，再进入 evolutionary database。</li>
+            <li>DGM 的关键是 self-modification archive，不是单一路径自改；论文也提到 sandboxing 和 human oversight。</li>
+            <li>MUSE-Autoskill 强调 skill creation、memory、management、evaluation、refinement 作为统一生命周期。</li>
+            <li>SkillFoundry 强调从外部资源提炼 skill packages，同时必须有 provenance 和 tests。</li>
+          </ul>
+          <div class="callout danger">
+            <p><strong>对 Arcana 的红线：</strong>自进化默认只能产生 <code>EvolutionProposal</code>，不能在生产 runtime 中自动修改 permission、guardrail、provider、ProtocolBridge 或 core runtime。</p>
+          </div>
+        </section>
+
+        <section id="constitution-fit">
+          <h2>宪法适配</h2>
+          <p>
+            Arcana Constitution v3.6 已经覆盖了大量外部趋势：MCP、connectors、A2A、browser/computer-use、future remote protocols 是能力传输层，不是信任边界；guardrails 是边界，不是隐藏工作流；evals 是发布证据，不是运行时治理者。
+          </p>
+
+          <h3>当前宪法已经足够支撑的内容</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>设计</th>
+                <th>是否已被宪法覆盖</th>
+                <th>依据</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>ProtocolBridge / CapabilityRegistry</td>
+                <td><span class="status done">是</span></td>
+                <td>协议是能力传输层，进入 contracts/trace/permission。</td>
+              </tr>
+              <tr>
+                <td>MCP/A2A/AG-UI adapters</td>
+                <td><span class="status done">是</span></td>
+                <td>adapter 不继承外部 orchestration 假设。</td>
+              </tr>
+              <tr>
+                <td>Tool-call guardrails</td>
+                <td><span class="status done">是</span></td>
+                <td>guardrails 只能 block/redact/approval/warn，不做 hidden workflow。</td>
+              </tr>
+              <tr>
+                <td>Eval gates</td>
+                <td><span class="status done">是</span></td>
+                <td>evals 是 release evidence。</td>
+              </tr>
+              <tr>
+                <td>Subagents facade</td>
+                <td><span class="status done">是</span></td>
+                <td>用户控制谁说话和何时说话，不加默认 supervisor。</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>可能需要新宪法修订的内容</h3>
+          <p>
+            真正新的一点是 <strong>self-evolution</strong>。现有宪法说 evals 是发布证据，但还没有明确规定：当 agent 生成框架自身的修改建议时，哪些可以自动应用，哪些必须人工批准，哪些永远不能在 runtime 中自动改。
+          </p>
+          <div class="callout warning">
+            <p><strong>建议：</strong>短期不急着修改宪法正文，但在规划中新增“Amendment 6 候选：Self-Evolution and Runtime Mutation Boundaries”。等第一版 <code>EvolutionProposal</code> contracts 和 eval gates 落地后，再决定是否正式接受。</p>
+          </div>
+        </section>
+
+        <section id="north-star">
+          <h2>设计目标</h2>
+          <div class="grid-3">
+            <div class="item">
+              <h3>可用</h3>
+              <p>开发者能快速知道 provider、tools、skills、MCP、permission、guardrail、trace 的当前状态。</p>
+            </div>
+            <div class="item">
+              <h3>动态</h3>
+              <p>外部能力可以被发现、准入、降权、撤销、热更新，而不绕过 contracts。</p>
+            </div>
+            <div class="item">
+              <h3>可复盘</h3>
+              <p>每个高权限行为都有 trace：谁发现、谁准入、谁授权、为什么执行或拒绝。</p>
+            </div>
+            <div class="item">
+              <h3>可组合</h3>
+              <p>Runtime 不强制 graph、subagent、workflow，但提供足够原语让用户组合。</p>
+            </div>
+            <div class="item">
+              <h3>可演化</h3>
+              <p>自进化先产出 proposal、tests、evidence、risk，不直接改生产边界。</p>
+            </div>
+            <div class="item">
+              <h3>守宪</h3>
+              <p>不把协议、UI、skills、eval、guardrail 变成隐藏策略层。</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="architecture">
+          <h2>建议架构</h2>
+          <p>
+            本规划建议的主线名称是 <strong>Dynamic Capability Layer</strong>。内部可以包含 <code>ProtocolBridge</code>、<code>CapabilityRegistry</code>、<code>AdmissionController</code>、<code>ExposureSelector</code>、<code>EvidenceLoop</code>。它吸收 Hermes 等思想，但不采用 Hermes 作为 public API 名称。
+          </p>
+
+          <div class="diagram" aria-label="Arcana dynamic capability architecture">
+<pre><code>External Agentic Ecosystem
+  |-- MCP servers and registries
+  |-- A2A remote agents
+  |-- AG-UI / frontend event clients
+  |-- Provider built-in tools and connectors
+  |-- Skills packages
+  |-- Browser / computer-use / code execution backends
+        |
+        v
+ProtocolBridge Adapters
+  normalize identity, auth, protocol version, schema, side effects, errors
+        |
+        v
+Dynamic Capability Layer
+  +----------------------+    +----------------------+
+  | CapabilityRegistry   |--->| AdmissionController  |
+  | catalog + snapshots  |    | allow/downgrade/deny |
+  +----------------------+    +----------------------+
+        |                              |
+        v                              v
+  ExposureSelector              EvidenceRecorder
+  scoped visible capabilities   trace + bundle + eval evidence
+        |
+        v
+Arcana Runtime Boundaries
+  ToolGateway | ExecutionChannel | Context Builder | AskUser | Hooks | Budget
+        |
+        v
+ConversationAgent | ChatSession | Chain | Batch | Collaborate | Subagents</code></pre>
+          </div>
+
+          <h3>组件定义</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>组件</th>
+                <th>职责</th>
+                <th>禁止职责</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>ProtocolBridge</code></td>
+                <td>把外部协议对象转为 Arcana candidate capability。</td>
+                <td>不授权，不规划，不直接进 prompt。</td>
+              </tr>
+              <tr>
+                <td><code>CapabilityRegistry</code></td>
+                <td>维护当前能力目录、source、digest、版本、状态。</td>
+                <td>不执行工具，不选择 next action。</td>
+              </tr>
+              <tr>
+                <td><code>AdmissionController</code></td>
+                <td>按 provenance、side-effect、policy、trust scope 做 allow/downgrade/refuse。</td>
+                <td>不因为任务看起来有用就绕过权限。</td>
+              </tr>
+              <tr>
+                <td><code>ExposureSelector</code></td>
+                <td>决定当前 run/session 可见哪些已准入能力。</td>
+                <td>不把完整 catalog 塞入 context。</td>
+              </tr>
+              <tr>
+                <td><code>EvidenceRecorder</code></td>
+                <td>写 trace、bundle manifest、proposal evidence。</td>
+                <td>不作为权限判断来源。</td>
+              </tr>
+              <tr>
+                <td><code>EvolutionLoop</code></td>
+                <td>离线从 evidence 生成 proposal 并验证。</td>
+                <td>不在生产 runtime 自动改边界代码。</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="phase-1" class="phase">
+          <div class="phase-head">
+            <h2>Phase 1：先提升框架可用性</h2>
+            <span class="window">建议周期：1-2 周</span>
+          </div>
+          <p>
+            在动态能力层之前，先把用户看不见的现有能力变得可诊断、可解释、可学习。
+          </p>
+
+          <h3>1.1 <code>arcana doctor</code></h3>
+          <table>
+            <thead>
+              <tr>
+                <th>检查项</th>
+                <th>输出</th>
+                <th>安全要求</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>providers</td>
+                <td>默认 provider、模型、env key 是否存在、profile 能力。</td>
+                <td>不打印 key。</td>
+              </tr>
+              <tr>
+                <td>tools</td>
+                <td>数量、side-effect、requires_confirmation、capabilities。</td>
+                <td>不打印敏感参数样本。</td>
+              </tr>
+              <tr>
+                <td>MCP</td>
+                <td>server、transport、discovered/admitted/downgraded/refused counts。</td>
+                <td>标记 stdio/http auth 风险。</td>
+              </tr>
+              <tr>
+                <td>skills</td>
+                <td>skill_paths、数量、shadowing、token estimate、parse errors。</td>
+                <td>未信任 skill 不自动执行脚本。</td>
+              </tr>
+              <tr>
+                <td>guardrails/permissions</td>
+                <td>已配置规则、默认写工具确认策略。</td>
+                <td>清楚说明 deny/block 顺序。</td>
+              </tr>
+              <tr>
+                <td>trace</td>
+                <td>trace dir、namespace、最近 run、写权限。</td>
+                <td>默认显示 digest，不显示 raw payload。</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>1.2 <code>arcana trace inspect</code></h3>
+          <ul>
+            <li><code>arcana trace list</code>：列出 run_id、时间、status、tokens、cost。</li>
+            <li><code>arcana trace inspect RUN_ID</code>：timeline：turn、tool、context、permission、guardrail。</li>
+            <li><code>arcana trace why-tool RUN_ID TOOL</code>：工具为何可见、为何被阻止、是否被降权。</li>
+            <li><code>arcana trace export RUN_ID --html</code>：脱敏 HTML report。</li>
+          </ul>
+
+          <h3>1.3 示例补齐</h3>
+          <ul>
+            <li><code>examples/tool_guardrails.py</code>：block/redact/approval。</li>
+            <li><code>examples/mcp_safe_import.py</code>：dynamic discovery + admission trace。</li>
+            <li><code>examples/skills_lifecycle.py</code>：progressive disclosure + provenance。</li>
+            <li><code>examples/trace_debugging.py</code>：TraceReader + prompt replay。</li>
+            <li><code>examples/hitl_interrupts.py</code>：ask_user + approval callback。</li>
+          </ul>
+
+          <h3>退出标准</h3>
+          <ul>
+            <li>新用户能在 10 分钟内跑通 tool + guardrail + trace。</li>
+            <li>doctor/trace 命令都有 CLI tests。</li>
+            <li>输出不泄漏 API key、raw sensitive tool args。</li>
+          </ul>
+        </section>
+
+        <section id="phase-2" class="phase">
+          <div class="phase-head">
+            <h2>Phase 2：Dynamic Capability Layer</h2>
+            <span class="window">建议周期：2-4 周</span>
+          </div>
+          <p>
+            这一层是对 MCP/A2A/AP2/AG-UI/AgentCore registry 等外部趋势的 Arcana 化吸收。它不是策略层，而是能力目录与准入层。
+          </p>
+
+          <h3>2.1 包结构</h3>
+<pre><code>src/arcana/capabilities/
+  __init__.py
+  bridge.py           # ProtocolBridge protocol
+  registry.py         # CapabilityRegistry
+  admission.py        # AdmissionController
+  exposure.py         # ExposureSelector
+  diagnostics.py      # why visible / why downgraded / why refused
+
+src/arcana/contracts/
+  capability.py       # CapabilityRecord, CapabilitySource, AdmissionDecision
+  protocol.py         # ProtocolAdapterInfo, ProtocolDiscoveryEvidence
+
+tests/
+  test_capability_registry.py
+  test_capability_admission.py
+  test_capability_exposure.py
+  test_protocol_bridge.py</code></pre>
+
+          <h3>2.2 Capability lifecycle</h3>
+          <ol>
+            <li><strong>Discovered</strong>：adapter 发现能力。</li>
+            <li><strong>Normalized</strong>：转为 Arcana candidate。</li>
+            <li><strong>Admitted</strong>：allow/downgrade/refuse/quarantine。</li>
+            <li><strong>Registered</strong>：注册到 ToolRegistry / Channel registry / SkillRegistry。</li>
+            <li><strong>Exposed</strong>：按 run/session scope 暴露。</li>
+            <li><strong>Executed</strong>：仍经过 ToolGateway/ExecutionChannel。</li>
+            <li><strong>Retired</strong>：动态撤销，记录 trace。</li>
+          </ol>
+
+          <h3>2.3 外部协议映射</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>外部对象</th>
+                <th>Arcana 内部形态</th>
+                <th>准入重点</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>MCP tool/resource/prompt</td>
+                <td><code>CapabilityRecord(kind="tool/resource/prompt")</code></td>
+                <td>server identity、side effect、auth、untrusted annotations。</td>
+              </tr>
+              <tr>
+                <td>A2A Agent Card</td>
+                <td><code>CapabilityRecord(kind="agent")</code></td>
+                <td>auth scheme、task scope、artifact types、trust scope。</td>
+              </tr>
+              <tr>
+                <td>AG-UI frontend action</td>
+                <td><code>CapabilityRecord(kind="frontend_action")</code></td>
+                <td>UI action binding、human approval、no hidden destructive action。</td>
+              </tr>
+              <tr>
+                <td>Skill package</td>
+                <td><code>SkillSpec</code> + lifecycle metadata</td>
+                <td>trusted source、scripts、network access、token budget。</td>
+              </tr>
+              <tr>
+                <td>Payment / purchase mandate</td>
+                <td><code>AuthorizationArtifact</code></td>
+                <td>intent binding、expiration、single-use semantics、trace。</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>2.4 MCP 迁移策略</h3>
+          <ul>
+            <li>先不重写 MCP，只把现有 dynamic discovery/admission 的结果同步到 <code>CapabilityRegistry</code>。</li>
+            <li>保留 <code>Runtime(mcp_servers=[...])</code> API 不变。</li>
+            <li>新增 fake protocol adapter 测试，证明 registry 不绑定 MCP。</li>
+            <li>在 trace 里新增 <code>CAPABILITY_SNAPSHOT</code> 和 <code>CAPABILITY_EXPOSURE</code>。</li>
+          </ul>
+        </section>
+
+        <section id="phase-3" class="phase">
+          <div class="phase-head">
+            <h2>Phase 3：Agent-User / Agent-Agent 交互协议准备</h2>
+            <span class="window">建议周期：2-3 周</span>
+          </div>
+          <p>
+            不需要现在实现 AG-UI 或 A2A server，但 Arcana 的 stream/trace/session bundle 要为这些协议留出结构。
+          </p>
+
+          <h3>3.1 Stream event 对齐</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Arcana event</th>
+                <th>未来 UI/协议映射</th>
+                <th>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>run_started</code></td>
+                <td>AG-UI run event / A2A task created</td>
+                <td>需要 run_id、session_id、trace refs。</td>
+              </tr>
+              <tr>
+                <td><code>turn_started</code></td>
+                <td>UI step event</td>
+                <td>不要暴露 raw hidden prompt。</td>
+              </tr>
+              <tr>
+                <td><code>tool_call_requested</code></td>
+                <td>frontend approval card</td>
+                <td>包含 side-effect 和 arguments digest。</td>
+              </tr>
+              <tr>
+                <td><code>guardrail_decision</code></td>
+                <td>approval/block/warn UI</td>
+                <td>已具备 trace record，可扩到 stream。</td>
+              </tr>
+              <tr>
+                <td><code>ask_user</code></td>
+                <td>interrupt / elicitation</td>
+                <td>Arcana 仍保持 graceful fallback。</td>
+              </tr>
+              <tr>
+                <td><code>artifact_created</code></td>
+                <td>A2A artifact / session bundle artifact</td>
+                <td>适合文件、报告、subagent output。</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>3.2 Agent Card 草案</h3>
+          <p>
+            Arcana 可以为 <code>Runtime</code> 或 <code>SubagentService</code> 生成非默认暴露的 <code>ArcanaAgentCard</code>，但只作为显式 export 或 adapter 使用。
+          </p>
+<pre><code>class ArcanaAgentCard(BaseModel):
+    name: str
+    description: str
+    version: str
+    supported_input_modes: list[str]
+    supported_output_modes: list[str]
+    capabilities: list[str]
+    auth_schemes: list[str]
+    task_limits: dict[str, Any]
+    trace_policy: str
+    permission_scope: str</code></pre>
+        </section>
+
+        <section id="phase-4" class="phase">
+          <div class="phase-head">
+            <h2>Phase 4：Typed Hooks 与 Middleware</h2>
+            <span class="window">建议周期：2-3 周</span>
+          </div>
+          <p>
+            外界正在把 middleware、policy、guardrails、interrupts 变成生产 agent 必备能力。Arcana 应以类型化 hooks 方式吸收，而不是让用户 monkey patch runtime。
+          </p>
+
+          <h3>Hook 分类</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>语义</th>
+                <th>失败策略</th>
+                <th>可否阻断</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Observer</td>
+                <td>metrics、logging、debug。</td>
+                <td>fail-open + trace warning。</td>
+                <td>否</td>
+              </tr>
+              <tr>
+                <td>Boundary</td>
+                <td>input/output/tool/remote/write/computer-use。</td>
+                <td>structured decision。</td>
+                <td>是</td>
+              </tr>
+              <tr>
+                <td>Transform</td>
+                <td>redact、schema normalize、metadata attach。</td>
+                <td>失败转 structured error。</td>
+                <td>间接</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>禁止事项</h3>
+          <ul>
+            <li>Hook 不能返回 <code>next_tool</code>。</li>
+            <li>Hook 不能替换 user goal。</li>
+            <li>Hook 不能自动插入 reviewer workflow。</li>
+            <li>Observer hook 不能改变 runtime state。</li>
+            <li>Boundary hook 不能比 permission policy 更宽松。</li>
+          </ul>
+        </section>
+
+        <section id="phase-5" class="phase">
+          <div class="phase-head">
+            <h2>Phase 5：可审计自进化</h2>
+            <span class="window">建议周期：3-6 周</span>
+          </div>
+          <p>
+            借鉴 AlphaEvolve、DGM、MUSE-Autoskill、SkillFoundry，但按 Arcana 宪法重写：自进化不是运行时自改，而是 evidence-backed proposal loop。
+          </p>
+
+          <h3>5.1 Evolution loop</h3>
+          <ol>
+            <li><strong>Collect evidence</strong>：trace、eval failures、doctor reports、user feedback。</li>
+            <li><strong>Cluster</strong>：按 failure category 聚类。</li>
+            <li><strong>Diagnose</strong>：生成 root-cause hypotheses。</li>
+            <li><strong>Propose</strong>：生成 <code>EvolutionProposal</code>。</li>
+            <li><strong>Patch in sandbox</strong>：只在隔离 worktree 或 proposal patch 中改。</li>
+            <li><strong>Verify</strong>：targeted tests、全量 tests、ruff、mypy、eval gates。</li>
+            <li><strong>Review</strong>：人工批准高风险改动。</li>
+            <li><strong>Merge</strong>：合并后记录 decision。</li>
+            <li><strong>Monitor</strong>：后续 traces 验证是否改善。</li>
+          </ol>
+
+          <h3>5.2 Proposal 类型</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>可自动生成</th>
+                <th>可自动应用</th>
+                <th>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>doc_update</code></td>
+                <td>是</td>
+                <td>可选，默认仍需 review</td>
+                <td>最低风险。</td>
+              </tr>
+              <tr>
+                <td><code>eval_addition</code></td>
+                <td>是</td>
+                <td>可在 sandbox 应用</td>
+                <td>应优先生成 eval，再生成修复。</td>
+              </tr>
+              <tr>
+                <td><code>skill_refinement</code></td>
+                <td>是</td>
+                <td>需 trusted skill scope</td>
+                <td>需要 skill provenance。</td>
+              </tr>
+              <tr>
+                <td><code>tool_schema_patch</code></td>
+                <td>是</td>
+                <td>需 tests</td>
+                <td>防止破坏 public API。</td>
+              </tr>
+              <tr>
+                <td><code>guardrail_patch</code></td>
+                <td>是</td>
+                <td>否</td>
+                <td>必须人工批准。</td>
+              </tr>
+              <tr>
+                <td><code>permission_patch</code></td>
+                <td>是</td>
+                <td>否</td>
+                <td>高风险，默认不能自动 apply。</td>
+              </tr>
+              <tr>
+                <td><code>runtime_patch</code></td>
+                <td>是</td>
+                <td>否</td>
+                <td>必须完整 CI + review。</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>5.3 Skill lifecycle</h3>
+          <p>
+            Arcana 已有 Skills v1，下一步应将“自进化”优先限制在 skill 层，因为 skill 比 runtime 更适合作为可审计、可回滚、可评测的演化单元。
+          </p>
+<pre><code>draft -> evaluated -> trusted -> active -> deprecated -> revoked</code></pre>
+          <ul>
+            <li><code>draft</code>：由 agent 或人创建，不能自动加载。</li>
+            <li><code>evaluated</code>：有 tests/eval evidence。</li>
+            <li><code>trusted</code>：人工批准来源和脚本。</li>
+            <li><code>active</code>：可被 WorkingSetBuilder 选择。</li>
+            <li><code>deprecated</code>：保留但不再优先选。</li>
+            <li><code>revoked</code>：不可加载，trace 中保留原因。</li>
+          </ul>
+        </section>
+
+        <section id="phase-6" class="phase">
+          <div class="phase-head">
+            <h2>Phase 6：Subagents 与 Session Bundle</h2>
+            <span class="window">建议周期：2-4 周</span>
+          </div>
+          <p>
+            借鉴 A2A 的 Agent Card / Task / Artifact，借鉴 LangGraph 的 checkpoint，借鉴 AG-UI 的 long-running event stream，但 Arcana 仍保持 user-controlled orchestration。
+          </p>
+
+          <h3>Subagent API</h3>
+<pre><code>subs = runtime.subagents(
+    budget=arcana.Budget(max_cost_usd=1.0),
+    inherit_permissions=True,
+)
+
+subs.add(
+    name="researcher",
+    system="Collect evidence and return trace references.",
+    tools=[search_docs],
+)
+
+result = await subs.ask("researcher", "Inspect this session bundle.")
+delegate = subs.as_tool("researcher")</code></pre>
+
+          <h3>Session bundle</h3>
+<pre><code>SessionBundle
+  bundle_id
+  root_run_id
+  run_ids
+  capability_snapshot_refs
+  admission_decision_refs
+  guardrail_decision_refs
+  permission_decision_refs
+  artifact_refs
+  child_run_refs
+  total_tokens
+  total_cost_usd
+  redaction_policy</code></pre>
+
+          <h3>退出标准</h3>
+          <ul>
+            <li>Subagent 默认不能递归 spawn。</li>
+            <li>Child run 权限只能继承或收窄。</li>
+            <li>Parent trace 能看到 delegated_by_run_id / delegated_by_step_id。</li>
+            <li>Session bundle HTML 默认脱敏。</li>
+          </ul>
+        </section>
+
+        <section id="constitution-amendment">
+          <h2>宪法修订候选</h2>
+          <p>
+            建议新增一个候选修订案，而不是立即改主宪法：<strong>Amendment 6 Candidate: Self-Evolution and Runtime Mutation Boundaries</strong>。
+          </p>
+
+          <h3>修订触发条件</h3>
+          <ul>
+            <li>Arcana 开始支持 agent 生成代码或配置改动 proposal。</li>
+            <li>Arcana 开始支持自动生成或修改 skills。</li>
+            <li>Arcana 开始从 traces/evals 自动提出 runtime behavior 改动。</li>
+          </ul>
+
+          <h3>候选原则</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>原则</th>
+                <th>内容</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Proposal before mutation</td>
+                <td>任何自进化改动先成为 <code>EvolutionProposal</code>。</td>
+              </tr>
+              <tr>
+                <td>Evidence before acceptance</td>
+                <td>Proposal 必须引用 trace/eval/test evidence。</td>
+              </tr>
+              <tr>
+                <td>Human approval for authority</td>
+                <td>权限、guardrail、provider、remote protocol、execution backend 改动必须人工批准。</td>
+              </tr>
+              <tr>
+                <td>Sandbox before merge</td>
+                <td>候选补丁只在 sandbox/worktree 中验证。</td>
+              </tr>
+              <tr>
+                <td>Rollback evidence</td>
+                <td>合并后必须保留 rollback 指针和失败监控。</td>
+              </tr>
+              <tr>
+                <td>No self-preservation behavior</td>
+                <td>自进化系统不能阻止 shutdown、绕过 review、扩大自身权限。</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>是否现在正式修宪</h3>
+          <div class="callout">
+            <p><strong>建议：</strong>现在先不正式修宪，只在 spec 中加入候选修订案。等 <code>EvolutionProposal</code>、skill lifecycle、eval gates 的第一版落地并经过测试后，再把候选修订案并入 Constitution v3.7。</p>
+          </div>
+        </section>
+
+        <section id="contracts">
+          <h2>合同草案</h2>
+          <h3>Capability</h3>
+<pre><code>class CapabilitySource(BaseModel):
+    origin: Literal["local", "mcp", "a2a", "ag_ui", "connector", "skill", "browser", "computer", "payment"]
+    adapter_name: str
+    adapter_version: str | None = None
+    server_name: str | None = None
+    transport: str | None = None
+    auth_context_digest: str | None = None
+
+class CapabilityRecord(BaseModel):
+    capability_id: str
+    name: str
+    kind: Literal["tool", "agent", "resource", "prompt", "skill", "frontend_action", "authorization"]
+    description: str
+    input_schema_digest: str | None = None
+    output_schema_digest: str | None = None
+    side_effect: SideEffect
+    capabilities: list[str] = []
+    source: CapabilitySource
+    requires_confirmation: bool = False
+    status: Literal["candidate", "admitted", "downgraded", "refused", "quarantined", "retired"]</code></pre>
+
+          <h3>Admission</h3>
+<pre><code>class AdmissionDecision(BaseModel):
+    capability_id: str
+    action: Literal["allow", "downgrade", "refuse", "quarantine", "retire"]
+    reason: str
+    side_effect_override: SideEffect | None = None
+    requires_confirmation_override: bool | None = None
+    details: dict[str, Any] = Field(default_factory=dict)</code></pre>
+
+          <h3>Evolution</h3>
+<pre><code>class EvidenceBundle(BaseModel):
+    bundle_id: str
+    trace_refs: list[str]
+    eval_refs: list[str] = []
+    failure_categories: list[str]
+    examples_digest: str
+    summary: str
+
+class EvolutionProposal(BaseModel):
+    proposal_id: str
+    proposal_type: Literal[
+        "doc_update",
+        "eval_addition",
+        "skill_refinement",
+        "tool_schema_patch",
+        "guardrail_patch",
+        "permission_patch",
+        "runtime_patch",
+    ]
+    title: str
+    rationale: str
+    evidence: EvidenceBundle
+    affected_files: list[str]
+    risk_level: Literal["low", "medium", "high"]
+    approval_required: bool
+    required_checks: list[str]</code></pre>
+        </section>
+
+        <section id="testing">
+          <h2>测试与 Eval</h2>
+          <h3>Invariant tests</h3>
+          <ul>
+            <li>Protocol discovery never implies authorization。</li>
+            <li>Remote capability missing side-effect metadata is downgraded or refused before exposure。</li>
+            <li>Capability exposure is scoped per run/session and traceable。</li>
+            <li>Permission deny cannot be overridden by guardrail allow。</li>
+            <li>Guardrail block prevents execution even when permission allows。</li>
+            <li>Observer hook failure is traced and fail-open。</li>
+            <li>Boundary hook cannot return next_tool or replacement_goal。</li>
+            <li>EvolutionProposal cannot apply high-risk patches without approval。</li>
+            <li>Skill draft cannot auto-load until evaluated/trusted。</li>
+            <li>Session bundle does not leak raw sensitive arguments by default。</li>
+          </ul>
+
+          <h3>Eval suites</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Suite</th>
+                <th>风险</th>
+                <th>通过标准</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Remote capability prompt injection</td>
+                <td>工具描述或 output 指示模型泄漏数据。</td>
+                <td>不升级为 instruction，不绕过 permission。</td>
+              </tr>
+              <tr>
+                <td>Dynamic discovery replacement</td>
+                <td>同名工具被恶意 server 替换。</td>
+                <td>shadowing/admission trace 明确，默认不静默替换 trusted local。</td>
+              </tr>
+              <tr>
+                <td>Payment / purchase approval</td>
+                <td>agent 误解用户 intent 执行购买。</td>
+                <td>需要 explicit authorization artifact 和 single-use binding。</td>
+              </tr>
+              <tr>
+                <td>Skill poisoning</td>
+                <td>skill 指示模型忽略系统或连外网。</td>
+                <td>draft/quarantine，不自动 active。</td>
+              </tr>
+              <tr>
+                <td>Self-evolution authority escalation</td>
+                <td>proposal 放宽 permission 或删除 guardrail。</td>
+                <td>标记 high risk，必须人工批准，不能自动 apply。</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="roadmap">
+          <h2>里程碑</h2>
+          <h3>30 天</h3>
+          <ul>
+            <li>完成 <code>arcana doctor</code> 最小版本。</li>
+            <li>完成 <code>arcana trace inspect</code> 文本版本。</li>
+            <li>补 guardrail、permission、skills、MCP recipes。</li>
+            <li>新增 <code>CapabilityRecord</code> / <code>AdmissionDecision</code> contracts 草案。</li>
+            <li>写 <code>constitution-amendment-6-self-evolution-boundaries.md</code> 候选草案，但不合并进主宪法。</li>
+          </ul>
+
+          <h3>60 天</h3>
+          <ul>
+            <li>完成 <code>CapabilityRegistry</code> 和 deterministic snapshot digest。</li>
+            <li>把现有 MCP admission 结果桥接到 capability registry。</li>
+            <li>新增 fake protocol adapter 测试。</li>
+            <li>完成 observer hooks + boundary hook contracts。</li>
+            <li>Trace inspect 支持 why visible / why downgraded / why refused。</li>
+          </ul>
+
+          <h3>90 天</h3>
+          <ul>
+            <li>MCP 内部迁移到 ProtocolBridge adapter，public API 不变。</li>
+            <li>完成 session bundle manifest 初版。</li>
+            <li>完成 skill lifecycle 草案和 draft/evaluated/trusted 状态。</li>
+            <li>完成 <code>EvolutionProposal</code> contracts 和 render-to-HTML。</li>
+            <li>新增 self-evolution safety eval suite。</li>
+          </ul>
+
+          <h3>6 个月</h3>
+          <ul>
+            <li>支持 MCP + A2A experimental adapter + AG-UI event projection proof of concept。</li>
+            <li>Subagents facade 支持预算、权限继承/收窄、trace correlation。</li>
+            <li>Self-evolution loop 可以从 traces/evals 生成 proposal，但高风险改动仍必须人工批准。</li>
+            <li>如候选 Amendment 6 经实践验证，合并进 Constitution v3.7。</li>
+          </ul>
+        </section>
+
+        <section id="sources">
+          <h2>资料来源</h2>
+          <p>
+            本规划参考了以下官方资料和论文。外部资料只作为设计信号，不覆盖 Arcana Constitution。
+          </p>
+          <ul class="source-list">
+            <li><a href="https://openai.com/index/new-tools-for-building-agents/">OpenAI: New tools for building agents</a> - Responses API、built-in tools、Agents SDK、guardrails、tracing。</li>
+            <li><a href="https://openai.github.io/openai-agents-python/">OpenAI Agents SDK docs</a> - agents、sandbox agents、guardrails、human-in-the-loop、sessions、MCP、tracing。</li>
+            <li><a href="https://modelcontextprotocol.io/specification/2025-06-18">Model Context Protocol specification 2025-06-18</a> - host/client/server、resources、prompts、tools、sampling、roots、elicitation、安全原则。</li>
+            <li><a href="https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization">MCP Authorization</a> - OAuth 2.1、resource indicators、token audience validation。</li>
+            <li><a href="https://developers.googleblog.com/en/a2a-a-new-era-of-agent-interoperability/">Google: Announcing the Agent2Agent Protocol</a> - Agent Card、task lifecycle、artifact、long-running tasks、modality。</li>
+            <li><a href="https://a2a-protocol.org/latest/specification/">A2A latest specification</a> - task/message/error/security protocol details。</li>
+            <li><a href="https://docs.ag-ui.com/introduction">AG-UI overview</a> - event-based agent-user protocol、interrupts、shared state、frontend actions。</li>
+            <li><a href="https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills">Anthropic: Agent Skills</a> - progressive disclosure、SKILL.md、skill security、自主 skill 方向。</li>
+            <li><a href="https://docs.langchain.com/oss/python/langgraph/overview">LangGraph overview</a> - durable execution、human-in-the-loop、persistence、observability。</li>
+            <li><a href="https://docs.langchain.com/oss/python/langgraph/interrupts">LangGraph interrupts</a> - checkpoint-backed human-in-the-loop interrupt/resume。</li>
+            <li><a href="https://learn.microsoft.com/en-us/agent-framework/overview/">Microsoft Agent Framework overview</a> - agents vs workflows、middleware、telemetry、type-safe workflows。</li>
+            <li><a href="https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html">Amazon Bedrock AgentCore overview</a> - runtime、gateway、identity、observability、policy、registry、evaluations。</li>
+            <li><a href="https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/">Google DeepMind AlphaEvolve</a> - candidate generation + automated evaluators + evolutionary database。</li>
+            <li><a href="https://arxiv.org/abs/2505.22954">Darwin Godel Machine</a> - open-ended archive of self-improving coding agents with empirical validation。</li>
+            <li><a href="https://arxiv.org/abs/2605.27366">MUSE-Autoskill</a> - skill creation、memory、management、evaluation、refinement。</li>
+            <li><a href="https://arxiv.org/abs/2604.03964">SkillFoundry</a> - self-evolving skill libraries with provenance and tests。</li>
+          </ul>
+        </section>
+
+        <div class="footer">
+          Planning artifact. It intentionally proposes no immediate public API change and does not modify Arcana Constitution by itself.
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
