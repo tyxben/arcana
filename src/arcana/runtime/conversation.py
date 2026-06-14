@@ -1540,15 +1540,16 @@ class ConversationAgent:
             "turn": decision.turn,
             # New structure (v0.6.0)
             "context_decision": decision.model_dump(),
-            # Old fields (backward compat for trace show --context)
+            # Old fields (backward compat for trace show --context). These
+            # scalars live on ContextDecision, not ContextReport -- read them
+            # from the authoritative decision.
             "explanation": decision.explanation,
+            "compressed_count": decision.compressed_count,
+            "messages_in": decision.messages_in,
+            "messages_out": decision.messages_out,
         }
         if report is not None:
             metadata["context_report"] = report.model_dump()
-            # Old fields (backward compat for trace show --context)
-            metadata["compressed_count"] = report.compressed_count
-            metadata["messages_in"] = report.messages_in
-            metadata["messages_out"] = report.messages_out
 
         self.trace_writer.write(TraceEvent(
             run_id=state.run_id,
