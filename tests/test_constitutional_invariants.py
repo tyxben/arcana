@@ -733,3 +733,60 @@ class TestProtocolDiscoveryIsTraceableButNotTrust:
         assert len(admission_metadata["capability_digest"]) == 16
 
         await client.disconnect_all()
+
+
+# ---------------------------------------------------------------------------
+# Amendment 3 + Phase 3 — subagents impose no default topology, no recursion
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentServiceImposesNoTopology:
+    """The experimental subagent service is a user-directed facade.
+
+    Amendment 3 (v3.4) rejected any default main-agent/subagent hierarchy,
+    scheduler, or supervisor. The Phase 3 facade must therefore spawn nothing
+    on its own — the caller explicitly registers and asks — and must forbid a
+    subagent from recursively spawning another (v1 non-goal).
+    """
+
+    def test_fresh_service_spawns_no_agents(self) -> None:
+        from arcana.experimental import subagents
+        from arcana.runtime_core import Runtime, RuntimeConfig
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+        svc = subagents(rt)
+
+        # No main agent, no pre-registered worker, no scheduler attribute.
+        assert svc.names == []
+        assert not hasattr(svc, "scheduler")
+        assert not hasattr(svc, "supervisor")
+
+    @pytest.mark.asyncio
+    async def test_subagent_cannot_spawn_subagent(self) -> None:
+        from arcana.experimental import SubagentRecursionError, subagents
+        from arcana.experimental.subagents import _DELEGATION_ACTIVE
+        from arcana.runtime_core import Runtime, RuntimeConfig
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+        svc = subagents(rt)
+        svc.add("worker")
+
+        # Simulate being inside an active delegation (as if a subagent's run
+        # tried to delegate again). Both ask() and a delegation tool must
+        # refuse rather than building a recursive hierarchy.
+        token = _DELEGATION_ACTIVE.set(True)
+        try:
+            with pytest.raises(SubagentRecursionError):
+                await svc.ask("worker", "spawn another")
+
+            delegate = svc.as_tool("worker")
+            refusal = await delegate._fn("spawn another")
+            assert "refused" in refusal.lower()
+        finally:
+            _DELEGATION_ACTIVE.reset(token)

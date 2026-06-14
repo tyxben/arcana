@@ -1228,11 +1228,14 @@ class Runtime:
         max_history: int | None = None,
         budget_tracker: Any = None,
         cognitive_primitives: list[str] | None = None,
+        extra_trace_metadata: dict[str, Any] | None = None,
     ) -> ChatSession:
-        """Create a ChatSession for use in an AgentPool.
+        """Create a ChatSession for use in an AgentPool or subagent service.
 
-        Internal helper -- shares the pool's BudgetTracker and supports
+        Internal helper -- shares the caller's BudgetTracker and supports
         per-agent provider/model/tools/cognitive_primitives overrides.
+        ``extra_trace_metadata`` stamps additional correlation keys
+        (bundle_id / delegated_by_run_id) onto every emitted trace event.
         """
         return ChatSession(
             runtime=self,
@@ -1244,6 +1247,7 @@ class Runtime:
             _tools=tools,
             _cognitive_primitives=cognitive_primitives,
             _pool_agent_name=name,
+            _extra_trace_metadata=extra_trace_metadata,
         )
 
     # ------------------------------------------------------------------
@@ -1857,24 +1861,32 @@ class ChatResponse(BaseModel):
 
 
 class _PoolTaggedTraceWriter:
-    """Trace-writer wrapper that stamps ``metadata["source_agent"]`` on every
-    event emitted by a pool-member :class:`ChatSession`.
+    """Trace-writer wrapper that stamps ``metadata["source_agent"]`` (and any
+    additional correlation keys) on every event emitted by a pool-member or
+    subagent :class:`ChatSession`.
 
-    Does not introduce a new ``TraceEvent`` field — the pool name lives
-    inside the existing ``metadata`` dict so v0.6.0/v0.7.0 trace readers
-    continue to work unchanged. Pre-existing ``metadata`` keys are never
-    overwritten (if an upstream call already set ``source_agent``, we keep
-    it; otherwise we write our own).
+    Does not introduce a new ``TraceEvent`` field — the pool name and any
+    extra correlation keys (e.g. ``bundle_id`` / ``delegated_by_run_id`` for
+    the experimental subagent service) live inside the existing ``metadata``
+    dict so v0.6.0/v0.7.0 trace readers continue to work unchanged.
+    Pre-existing ``metadata`` keys are never overwritten (if an upstream call
+    already set a key, we keep it; otherwise we write our own).
 
     Only :meth:`write` is customised; every other attribute is proxied to
     the wrapped ``TraceWriter``.
     """
 
-    __slots__ = ("_inner", "_source_agent")
+    __slots__ = ("_inner", "_source_agent", "_extra_metadata")
 
-    def __init__(self, inner: Any, source_agent: str) -> None:
+    def __init__(
+        self,
+        inner: Any,
+        source_agent: str,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> None:
         object.__setattr__(self, "_inner", inner)
         object.__setattr__(self, "_source_agent", source_agent)
+        object.__setattr__(self, "_extra_metadata", dict(extra_metadata or {}))
 
     def write(self, event: Any) -> None:
         # Mutate metadata in place (TraceEvent is a regular pydantic model,
@@ -1883,6 +1895,9 @@ class _PoolTaggedTraceWriter:
             meta = event.metadata
             if "source_agent" not in meta:
                 meta["source_agent"] = self._source_agent
+            for key, value in self._extra_metadata.items():
+                if key not in meta:
+                    meta[key] = value
         except AttributeError:
             # Not a TraceEvent-shaped object; nothing to tag.
             pass
@@ -1918,6 +1933,7 @@ class ChatSession:
         _tools: list[Any] | None = None,  # Per-session tools (for pool agents)
         _cognitive_primitives: list[str] | None = None,  # Per-session cognitive primitives override
         _pool_agent_name: str | None = None,  # Pool agent name for trace source_agent metadata
+        _extra_trace_metadata: dict[str, Any] | None = None,  # Extra correlation keys stamped on trace events
     ) -> None:
         self._runtime = runtime
         self._system_prompt = system_prompt or "You are a helpful assistant."
@@ -1935,6 +1951,12 @@ class ChatSession:
         self._cognitive_primitives_override = _cognitive_primitives
         # Pool membership (None for non-pool sessions)
         self._pool_agent_name = _pool_agent_name
+        # Extra trace correlation metadata (empty for plain sessions; the
+        # experimental subagent service stamps bundle_id / delegated_by_run_id)
+        self._extra_trace_metadata = dict(_extra_trace_metadata or {})
+        # run_id of the most recent send()/stream(); internal only -- read by
+        # the experimental subagent service for delegation/trace correlation.
+        self._last_run_id = ""
 
         # Persistent state across send() calls
         from arcana.contracts.llm import Message, MessageRole
@@ -2025,6 +2047,7 @@ class ChatSession:
         turn_tokens = state.tokens_used if state else 0
         turn_cost = state.cost_usd if state else 0.0
         answer = state.working_memory.get("answer", "") if state else ""
+        self._last_run_id = state.run_id if state else ""
 
         # 5. Update persistent state from agent's final messages
         self._messages = agent.final_messages
@@ -2087,6 +2110,7 @@ class ChatSession:
         state = agent._state
         turn_tokens = state.tokens_used if state else 0
         turn_cost = state.cost_usd if state else 0.0
+        self._last_run_id = state.run_id if state else ""
 
         self._messages = agent.final_messages
 
@@ -2166,14 +2190,20 @@ class ChatSession:
             max_skills=self._runtime._config.max_skills,
         )
 
-        # For pool sessions, wrap the shared TraceWriter so every emitted
-        # event gets stamped with metadata["source_agent"] = <pool_name>.
-        # The wrapper is duck-typed to TraceWriter; widen the annotation so
-        # mypy accepts both the bare writer and the wrapped variant.
+        # For pool / subagent sessions, wrap the shared TraceWriter so every
+        # emitted event gets stamped with metadata["source_agent"] =
+        # <pool_name> plus any extra correlation keys (bundle_id /
+        # delegated_by_run_id for the experimental subagent service). The
+        # wrapper is duck-typed to TraceWriter; widen the annotation so mypy
+        # accepts both the bare writer and the wrapped variant.
         trace_writer: Any = self._runtime._trace_writer
-        if self._pool_agent_name and trace_writer is not None:
+        if (
+            self._pool_agent_name or self._extra_trace_metadata
+        ) and trace_writer is not None:
             trace_writer = _PoolTaggedTraceWriter(
-                trace_writer, self._pool_agent_name
+                trace_writer,
+                self._pool_agent_name or "",
+                extra_metadata=self._extra_trace_metadata,
             )
 
         agent_kwargs: dict[str, Any] = {
