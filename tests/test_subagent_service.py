@@ -12,7 +12,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from arcana.contracts.llm import LLMResponse, TokenUsage
+import arcana
+from arcana.contracts.llm import LLMResponse, TokenUsage, ToolCallRequest
+from arcana.contracts.permission import (
+    PermissionAction,
+    PermissionMatch,
+    PermissionPolicy,
+    PermissionRule,
+)
+from arcana.contracts.tool import SideEffect
 from arcana.experimental import (
     SubagentRecursionError,
     SubagentResult,
@@ -36,6 +44,54 @@ def _text_response(text: str, pt: int = 10, ct: int = 20) -> LLMResponse:
         ),
         model="test-model",
         finish_reason="stop",
+    )
+
+
+def _tool_call_response(
+    name: str, arguments: str, call_id: str = "tc-1"
+) -> LLMResponse:
+    return LLMResponse(
+        content=None,
+        tool_calls=[ToolCallRequest(id=call_id, name=name, arguments=arguments)],
+        usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+        model="test-model",
+        finish_reason="tool_calls",
+    )
+
+
+def _make_writer_tool():
+    """A write-side-effect tool that records whether it actually executed."""
+    state = {"ran": False}
+
+    @arcana.tool(side_effect="write")
+    async def writer(x: str) -> str:
+        state["ran"] = True
+        return "wrote"
+
+    return writer, state
+
+
+def _deny_writes() -> PermissionPolicy:
+    return PermissionPolicy(
+        rules=[
+            PermissionRule(
+                action=PermissionAction.DENY,
+                reason="subagent may not write",
+                match=PermissionMatch(side_effects=[SideEffect.WRITE]),
+            )
+        ]
+    )
+
+
+def _ask_writes() -> PermissionPolicy:
+    return PermissionPolicy(
+        rules=[
+            PermissionRule(
+                action=PermissionAction.ASK,
+                reason="writes need approval",
+                match=PermissionMatch(side_effects=[SideEffect.WRITE]),
+            )
+        ]
     )
 
 
@@ -385,3 +441,138 @@ class TestLifecycle:
             assert svc.names == ["a"]
         # close() drops registrations.
         assert svc.names == []
+
+
+# ---------------------------------------------------------------------------
+# Permission narrowing + approval
+# ---------------------------------------------------------------------------
+
+
+class TestPermissionGoverning:
+    @pytest.mark.asyncio
+    async def test_deny_policy_blocks_subagent_tool(self):
+        """A DENY rule stops the subagent's tool before it can execute."""
+        rt = _make_runtime()
+        _mock_generate(
+            rt,
+            _tool_call_response("writer", '{"x": "data"}'),
+            _text_response("done"),
+        )
+        writer, state = _make_writer_tool()
+
+        async def approve(call, spec):  # would approve, but DENY precedes it
+            return True
+
+        svc = subagents(rt, approval_handler=approve)
+        svc.add("w", system="x", tools=[writer], permission_policy=_deny_writes())
+
+        await svc.ask("w", "write the file")
+        assert state["ran"] is False
+
+    @pytest.mark.asyncio
+    async def test_approved_write_runs_and_calls_handler(self):
+        rt = _make_runtime()
+        _mock_generate(
+            rt,
+            _tool_call_response("writer", '{"x": "data"}'),
+            _text_response("done"),
+        )
+        writer, state = _make_writer_tool()
+        seen = []
+
+        async def approve(call, spec):
+            seen.append(spec.name)
+            return True
+
+        svc = subagents(rt, approval_handler=approve)
+        svc.add("w", system="x", tools=[writer])
+
+        await svc.ask("w", "write the file")
+        assert state["ran"] is True
+        assert "writer" in seen
+
+    @pytest.mark.asyncio
+    async def test_rejected_write_is_blocked(self):
+        rt = _make_runtime()
+        _mock_generate(
+            rt,
+            _tool_call_response("writer", '{"x": "data"}'),
+            _text_response("ok, skipped"),
+        )
+        writer, state = _make_writer_tool()
+        seen = []
+
+        async def reject(call, spec):
+            seen.append(spec.name)
+            return False
+
+        svc = subagents(rt, approval_handler=reject)
+        svc.add("w", system="x", tools=[writer], permission_policy=_ask_writes())
+
+        await svc.ask("w", "write the file")
+        assert state["ran"] is False
+        assert "writer" in seen
+
+    @pytest.mark.asyncio
+    async def test_write_without_handler_is_not_bypassable(self):
+        """No approval handler -> a write tool surfaces confirmation-required
+        and never executes silently."""
+        rt = _make_runtime()
+        _mock_generate(
+            rt,
+            _tool_call_response("writer", '{"x": "data"}'),
+            _text_response("could not write"),
+        )
+        writer, state = _make_writer_tool()
+
+        svc = subagents(rt)  # no approval_handler
+        svc.add("w", system="x", tools=[writer])
+
+        await svc.ask("w", "write the file")
+        assert state["ran"] is False
+
+    @pytest.mark.asyncio
+    async def test_per_subagent_policy_overrides_service(self):
+        """Per-subagent policy replaces (not merges) the service default: a
+        subagent's explicit ALLOW overrides a service-level DENY."""
+        rt = _make_runtime()
+        _mock_generate(
+            rt,
+            _tool_call_response("writer", '{"x": "data"}'),
+            _text_response("done"),
+        )
+        writer, state = _make_writer_tool()
+
+        async def approve(call, spec):
+            return True
+
+        # Service denies writes; the subagent explicitly allows (default ALLOW
+        # policy with no deny rules). Override -> the write runs.
+        svc = subagents(
+            rt,
+            permission_policy=_deny_writes(),
+            approval_handler=approve,
+        )
+        svc.add(
+            "w",
+            system="x",
+            tools=[writer],
+            permission_policy=PermissionPolicy(),  # explicit allow-all
+        )
+
+        await svc.ask("w", "write the file")
+        assert state["ran"] is True
+
+
+class TestApprovalBeforeDelegation:
+    def test_requires_approval_marks_spec_confirmation(self):
+        svc = subagents(_make_runtime())
+        svc.add("worker")
+        t = svc.as_tool("worker", requires_approval=True)
+        assert t._spec.requires_confirmation is True
+
+    def test_default_delegation_does_not_require_confirmation(self):
+        svc = subagents(_make_runtime())
+        svc.add("worker")
+        t = svc.as_tool("worker")
+        assert t._spec.requires_confirmation is False

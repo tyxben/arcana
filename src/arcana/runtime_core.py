@@ -1229,6 +1229,8 @@ class Runtime:
         budget_tracker: Any = None,
         cognitive_primitives: list[str] | None = None,
         extra_trace_metadata: dict[str, Any] | None = None,
+        permission_policy: Any = None,
+        confirmation_callback: Callable | None = None,  # type: ignore[type-arg]
     ) -> ChatSession:
         """Create a ChatSession for use in an AgentPool or subagent service.
 
@@ -1236,6 +1238,8 @@ class Runtime:
         per-agent provider/model/tools/cognitive_primitives overrides.
         ``extra_trace_metadata`` stamps additional correlation keys
         (bundle_id / delegated_by_run_id) onto every emitted trace event.
+        ``permission_policy`` / ``confirmation_callback`` govern the per-agent
+        tool gateway (subagent authority narrowing + approval).
         """
         return ChatSession(
             runtime=self,
@@ -1248,6 +1252,8 @@ class Runtime:
             _cognitive_primitives=cognitive_primitives,
             _pool_agent_name=name,
             _extra_trace_metadata=extra_trace_metadata,
+            _permission_policy=permission_policy,
+            _confirmation_callback=confirmation_callback,
         )
 
     # ------------------------------------------------------------------
@@ -1934,6 +1940,8 @@ class ChatSession:
         _cognitive_primitives: list[str] | None = None,  # Per-session cognitive primitives override
         _pool_agent_name: str | None = None,  # Pool agent name for trace source_agent metadata
         _extra_trace_metadata: dict[str, Any] | None = None,  # Extra correlation keys stamped on trace events
+        _permission_policy: Any = None,  # PermissionPolicy | None -- governs per-session tools
+        _confirmation_callback: Callable | None = None,  # type: ignore[type-arg]  # Approval handler for ASK/write tools
     ) -> None:
         self._runtime = runtime
         self._system_prompt = system_prompt or "You are a helpful assistant."
@@ -1957,6 +1965,12 @@ class ChatSession:
         # run_id of the most recent send()/stream(); internal only -- read by
         # the experimental subagent service for delegation/trace correlation.
         self._last_run_id = ""
+        # Optional per-session permission policy + approval handler, applied to
+        # the per-session tool gateway (used by the experimental subagent
+        # service to narrow a subagent's authority and gate high-authority
+        # tools behind approval). None = no policy / legacy behavior.
+        self._permission_policy = _permission_policy
+        self._confirmation_callback = _confirmation_callback
 
         # Persistent state across send() calls
         from arcana.contracts.llm import Message, MessageRole
@@ -2245,7 +2259,10 @@ class ChatSession:
         """Resolve the tool gateway for this session.
 
         Per-session tools (from pool.add) take priority; if none, falls
-        back to the runtime's shared tool gateway.
+        back to the runtime's shared tool gateway. When a per-session
+        permission policy or confirmation handler is set (subagent service),
+        they are applied to the per-session gateway so the session's tool
+        calls are governed and high-authority tools gate behind approval.
         """
         if self._per_session_tools is not None:
             from arcana.sdk import _FunctionToolProvider
@@ -2264,6 +2281,8 @@ class ChatSession:
                 registry=registry,
                 trace_writer=self._runtime._trace_writer,
                 guardrails=list(self._runtime._tool_guardrails),
+                permission_policy=self._permission_policy,
+                confirmation_callback=self._confirmation_callback,
             )
         return self._runtime._tool_gateway
 

@@ -165,16 +165,17 @@ Exit criteria:
 Goal: provide Kimi-like subtask isolation without making main/subagent topology a
 framework default.
 
-**Status: core + correlation slice done** (`arcana.experimental.subagents`).
-Work items 1 (explicit subagent API), 2 (isolated context + `SubagentResult`),
-the budget half of item 3, and the trace-correlation half of item 4 are
-implemented and tested. The facade lives under `arcana.experimental` (not on the
-stable `Runtime` surface) while its semantics incubate — open question #3 is
-resolved by reusing `ChatSession` per ask rather than a purpose-built frame.
-**Deferred to the next slice**: item 3's narrowed/inherited `PermissionPolicy`
-and approval-before-high-authority-delegation, and item 4's `bundle_id` survives
-but `delegated_by_run_id` is currently caller-threaded (auto-capture across
-arbitrary parent agents deferred).
+**Status: core + correlation + permission/approval done**
+(`arcana.experimental.subagents`). Work items 1 (explicit subagent API), 2
+(isolated context + `SubagentResult`), 3 (full — per-subtask budget caps,
+narrowed/inherited `PermissionPolicy`, and approval before high-authority
+delegation), and the trace-correlation half of item 4 are implemented and
+tested. The facade lives under `arcana.experimental` (not on the stable
+`Runtime` surface) while its semantics incubate — open question #3 is resolved
+by reusing `ChatSession` per ask rather than a purpose-built frame.
+**Still deferred**: item 4's `bundle_id` is stamped but `delegated_by_run_id`
+is caller-threaded (auto-capture across arbitrary parent agents deferred), and
+graduation from `arcana.experimental` to the stable surface.
 
 Work items:
 
@@ -321,7 +322,7 @@ behavior is not mistaken for more than it is:
 | P1 | ~~**Provenance exposure gate**: refuse or conservatively downgrade imported capabilities missing required metadata before exposing them to the LLM (Phase 1 item 2).~~ **done** (admission gate in `register_mcp_tools`). Scoped honestly to what the contracts can express: **side-effect** — a tool with no authoritative `readOnlyHint` is exposed as WRITE + confirmation (the old name-keyword heuristic, a silent v3.5 downgrade, was deleted); **provenance** — a spec claiming a remote origin without a `server_name` is refused; both decisions emit a `CAPABILITY_ADMISSION` trace event. **approval policy** deliberately NOT gated — it is not modeled per-tool (only global `PermissionPolicy` + `requires_confirmation`), so requiring it would be premature structuring; deferred to ProtocolBridge. | `mcp/setup.py`, `mcp/protocol.py`, `contracts/mcp.py`, `contracts/trace.py` | `tests/test_constitutional_invariants.py` (`TestImportedCapabilityExposureGate`), `tests/test_mcp.py` |
 | P2 | ~~Add Skills v1: `SKILL.md` discovery, digest, explicit/lazy loading, context provenance.~~ **done** for runtime/context surface (`SkillSpec`, `SkillRegistry`, `RuntimeConfig.skill_paths`, `Runtime.run(skills=...)`, `arcana.run(skill_paths=..., skills=...)`, auto/explicit/slash selection, `ContextDecision.skill_selections`, labeled non-authoritative skill context). CLI helpers remain a later tooling slice. | `contracts/skill.py`, `context/builder.py`, `runtime_core.py`, `sdk.py` | `tests/test_skills.py` |
 | P2 | Add lifecycle hooks v1 as typed Python hooks; block only at explicit boundaries. **Tool-call guardrail boundary is done** (`Runtime(guardrails=...)`, `ToolGuardrailRequest`, `GuardrailDecision`, block/warn/redact/require-approval in `ToolGateway`). Broader lifecycle hooks remain pending. | `contracts/guardrail.py`, `runtime/hooks/*`, `tool_gateway/gateway.py` | `tests/test_tool_gateway.py`, future `tests/test_hooks_safety.py` |
-| P3 | **Optional subagent facade + delegation tools** — **done (core + correlation slice)**, incubated under `arcana.experimental.subagents` (`subagents()` factory / `SubagentService` / `SubagentResult`) rather than on the stable `Runtime` surface while semantics harden (open question #3). Landed: isolated single-shot `ask()` (fresh session per call — no shared history), no-recursion enforcement via a `contextvars` delegation flag, opt-in `as_tool()` delegation (conservative `write` side-effect; refuses recursively), per-subtask `Budget` caps (fresh per-ask) vs. service-level shared budget, and trace correlation (`source_agent` / `bundle_id` / optional `delegated_by_run_id` stamped via the generalized `_PoolTaggedTraceWriter`). **Deferred to next slice**: inherited/narrowed `PermissionPolicy` per subagent and an approval request before high-authority delegation. | `experimental/subagents.py`, `runtime_core.py` | `tests/test_subagent_service.py`, `tests/test_trace_pool.py` |
+| P3 | **Optional subagent facade + delegation tools** — **done (core + correlation + permission/approval)**, incubated under `arcana.experimental.subagents` (`subagents()` factory / `SubagentService` / `SubagentResult`) rather than on the stable `Runtime` surface while semantics harden (open question #3). Landed: isolated single-shot `ask()` (fresh session per call — no shared history), no-recursion enforcement via a `contextvars` delegation flag, opt-in `as_tool()` delegation (conservative `write` side-effect; refuses recursively; `requires_approval` marks the spec confirmation-required so the parent gateway gates before the subagent runs), per-subtask `Budget` caps (fresh per-ask) vs. service-level shared budget, trace correlation (`source_agent` / `bundle_id` / optional `delegated_by_run_id` via the generalized `_PoolTaggedTraceWriter`), and **per-subagent `PermissionPolicy`** (service-level default, overridden — not merged — per subagent) + **service-level `approval_handler`** wired into the subagent session gateway (DENY non-bypassable, ASK/write gate behind approval, no handler ⇒ `CONFIRMATION_REQUIRED`). Constitutional invariant `TestSubagentServiceImposesNoTopology` pins no-topology, no-recursion, and authority confinement. **Deferred**: auto-capture of `delegated_by_run_id` across arbitrary parent agents (caller-threaded); graduation from `arcana.experimental` to the stable surface. | `experimental/subagents.py`, `runtime_core.py` | `tests/test_subagent_service.py`, `tests/test_constitutional_invariants.py`, `tests/test_trace_pool.py` |
 | P3 | Add session bundle and normalized wire trace CLI. | `cli/main.py`, `trace/*`, `gateway/*` | `tests/test_trace_replay.py`, `tests/test_trace_debug.py` |
 
 ## Test Matrix

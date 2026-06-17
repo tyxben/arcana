@@ -23,11 +23,17 @@ Design law (mirrors the constitution and the roadmap non-goals):
   enforced; trace events are stamped with ``source_agent`` / ``bundle_id`` so
   a parent run can be correlated to its delegated children.
 
-Deferred to the next slice (tracked in the roadmap P3 row): inherited /
-narrowed ``PermissionPolicy`` per subagent and an approval request before
-high-authority delegation. Until then, a delegation tool is exposed with a
-conservative ``write`` side-effect so callers do not mistake it for a pure
-read, but it is not gated behind per-tool approval.
+Authority is governed: a subagent's granted tools run under an optional
+``PermissionPolicy`` (service-level default, overridable per subagent to
+narrow), and ASK / write / confirmation-required tools gate behind a
+service-level ``approval_handler`` (without one they surface
+CONFIRMATION_REQUIRED rather than executing silently). A delegation tool can
+be marked ``requires_approval`` so the *parent* gateway confirms before the
+subagent runs.
+
+Still deferred: auto-capture of ``delegated_by_run_id`` across arbitrary
+parent agents (currently caller-threaded), and graduation of this surface
+from ``arcana.experimental`` to the stable ``Runtime`` API.
 """
 
 from __future__ import annotations
@@ -39,8 +45,14 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from arcana.contracts.permission import PermissionPolicy
+    from arcana.contracts.tool import ToolCall, ToolSpec
     from arcana.runtime_core import Budget, ChatSession, Runtime
     from arcana.sdk import Tool
+
+    ApprovalHandler = Callable[[ToolCall, ToolSpec], Awaitable[bool]]
 
 # True while a delegation (ask) is executing in the current async context.
 # A delegation tool that fires while this is set is a recursive spawn attempt
@@ -99,6 +111,7 @@ class _SubagentConfig(BaseModel):
     provider: str | None = None
     model: str | None = None
     budget: Any = None  # Budget | None -- per-subtask cap
+    permission_policy: Any = None  # PermissionPolicy | None -- per-subagent override
 
 
 class SubagentService:
@@ -127,12 +140,22 @@ class SubagentService:
         *,
         budget: Budget | None = None,
         bundle_id: str | None = None,
+        permission_policy: PermissionPolicy | None = None,
+        approval_handler: ApprovalHandler | None = None,
     ) -> None:
         self._runtime = runtime
         self._configs: dict[str, _SubagentConfig] = {}
         # Stable correlation id shared by every ask routed through this
         # service, stamped into trace metadata as ``bundle_id``.
         self._bundle_id = bundle_id or f"bundle-{uuid4().hex[:16]}"
+        # Service-level default permission policy inherited by every subagent
+        # that does not supply its own (override, not merge). Governs each
+        # subagent's granted tools at its session gateway.
+        self._permission_policy = permission_policy
+        # Human-in-the-loop approval callback for ASK-action / write /
+        # confirmation-required tools inside a subagent run. When None, such
+        # tools surface CONFIRMATION_REQUIRED rather than silently executing.
+        self._approval_handler = approval_handler
         # Optional service-level shared budget. Subagents without their own
         # ``budget`` accumulate against this tracker across asks; subagents
         # *with* a budget get a fresh per-ask cap instead.
@@ -158,13 +181,20 @@ class SubagentService:
         provider: str | None = None,
         model: str | None = None,
         budget: Budget | None = None,
+        permission_policy: PermissionPolicy | None = None,
     ) -> None:
         """Register a named subagent capability.
 
         Registration only records a profile (system prompt, granted tools,
-        provider/model, optional per-subtask budget cap). No run happens
-        until :meth:`ask` (or a delegation tool from :meth:`as_tool`) is
-        called. Raises ``ValueError`` on a duplicate name.
+        provider/model, optional per-subtask budget cap, optional per-subagent
+        permission policy). No run happens until :meth:`ask` (or a delegation
+        tool from :meth:`as_tool`) is called. Raises ``ValueError`` on a
+        duplicate name.
+
+        ``permission_policy`` narrows this subagent's authority over its
+        granted tools. It **overrides** (does not merge with) the
+        service-level policy -- supply a stricter policy to narrow, omit to
+        inherit the service default.
         """
         if name in self._configs:
             raise ValueError(f"Subagent '{name}' already registered")
@@ -175,6 +205,7 @@ class SubagentService:
             provider=provider,
             model=model,
             budget=budget,
+            permission_policy=permission_policy,
         )
 
     @property
@@ -259,6 +290,7 @@ class SubagentService:
         tool_name: str | None = None,
         description: str | None = None,
         side_effect: str = "write",
+        requires_approval: bool = False,
     ) -> Tool:
         """Expose delegation to the named subagent as a callable tool.
 
@@ -269,8 +301,14 @@ class SubagentService:
 
         The tool defaults to a ``write`` side-effect because a delegated run
         consumes budget and may itself invoke write tools -- callers should
-        not mistake it for a pure read. Per-tool approval gating is deferred
-        to the next roadmap slice.
+        not mistake it for a pure read.
+
+        ``requires_approval=True`` marks the delegation as high-authority:
+        the tool spec carries ``requires_confirmation`` so the *parent*
+        gateway gates the delegation behind its confirmation handler before
+        the subagent ever runs. (The service cannot force the parent gateway
+        to have a handler; without one, the parent surfaces
+        CONFIRMATION_REQUIRED rather than delegating silently.)
         """
         if name not in self._configs:
             raise KeyError(f"Unknown subagent '{name}'")
@@ -295,6 +333,7 @@ class SubagentService:
                 f"and return its answer. Pass the full task as 'task'."
             ),
             side_effect=side_effect,
+            requires_confirmation=requires_approval,
         )
 
     # ------------------------------------------------------------------
@@ -309,6 +348,13 @@ class SubagentService:
         extra_metadata: dict[str, Any] = {"bundle_id": self._bundle_id}
         if delegated_by_run_id:
             extra_metadata["delegated_by_run_id"] = delegated_by_run_id
+        # Per-subagent policy overrides the service-level default (narrowing);
+        # absent both, the subagent's granted tools are ungoverned.
+        policy = (
+            cfg.permission_policy
+            if cfg.permission_policy is not None
+            else self._permission_policy
+        )
         return self._runtime._create_pool_session(
             name=cfg.name,
             system=cfg.system,
@@ -317,6 +363,8 @@ class SubagentService:
             model=cfg.model,
             budget_tracker=tracker,
             extra_trace_metadata=extra_metadata,
+            permission_policy=policy,
+            confirmation_callback=self._approval_handler,
         )
 
     def _tracker_for(self, cfg: _SubagentConfig) -> Any:
@@ -370,6 +418,8 @@ def subagents(
     *,
     budget: Budget | None = None,
     bundle_id: str | None = None,
+    permission_policy: PermissionPolicy | None = None,
+    approval_handler: ApprovalHandler | None = None,
 ) -> SubagentService:
     """Create an experimental :class:`SubagentService` over ``runtime``.
 
@@ -377,5 +427,16 @@ def subagents(
     ergonomics, but it lives under :mod:`arcana.experimental` rather than on
     the stable ``Runtime`` surface while its semantics incubate. Enter the
     returned service with ``async with`` for automatic cleanup.
+
+    ``permission_policy`` is the service-level default governing every
+    subagent's granted tools (override per subagent via :meth:`add`).
+    ``approval_handler`` is the human-in-the-loop callback for ASK / write /
+    confirmation-required tools inside subagent runs.
     """
-    return SubagentService(runtime, budget=budget, bundle_id=bundle_id)
+    return SubagentService(
+        runtime,
+        budget=budget,
+        bundle_id=bundle_id,
+        permission_policy=permission_policy,
+        approval_handler=approval_handler,
+    )

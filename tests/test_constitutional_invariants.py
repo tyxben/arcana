@@ -746,7 +746,9 @@ class TestSubagentServiceImposesNoTopology:
     Amendment 3 (v3.4) rejected any default main-agent/subagent hierarchy,
     scheduler, or supervisor. The Phase 3 facade must therefore spawn nothing
     on its own — the caller explicitly registers and asks — and must forbid a
-    subagent from recursively spawning another (v1 non-goal).
+    subagent from recursively spawning another (v1 non-goal). It must also
+    confine a subagent to its granted authority: a DENY permission policy is
+    non-bypassable (Principle 3 — the runtime owns the boundary).
     """
 
     def test_fresh_service_spawns_no_agents(self) -> None:
@@ -790,3 +792,81 @@ class TestSubagentServiceImposesNoTopology:
             assert "refused" in refusal.lower()
         finally:
             _DELEGATION_ACTIVE.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_subagent_cannot_exceed_granted_policy(self) -> None:
+        """A subagent's DENY policy is non-bypassable.
+
+        The runtime, not the LLM, owns the authorization boundary (Principle
+        3). A subagent told to call a denied tool must not execute it, even
+        when an approval handler would otherwise confirm it.
+        """
+        from unittest.mock import MagicMock
+
+        import arcana
+        from arcana.contracts.llm import (
+            LLMResponse,
+            TokenUsage,
+            ToolCallRequest,
+        )
+        from arcana.experimental import subagents
+        from arcana.runtime_core import Runtime, RuntimeConfig
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+        rt._gateway.generate = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    content=None,
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="tc-1", name="writer", arguments='{"x": "data"}'
+                        )
+                    ],
+                    usage=TokenUsage(
+                        prompt_tokens=10, completion_tokens=5, total_tokens=15
+                    ),
+                    model="test-model",
+                    finish_reason="tool_calls",
+                ),
+                LLMResponse(
+                    content="blocked",
+                    tool_calls=None,
+                    usage=TokenUsage(
+                        prompt_tokens=10, completion_tokens=5, total_tokens=15
+                    ),
+                    model="test-model",
+                    finish_reason="stop",
+                ),
+            ]
+        )
+        rt._gateway.stream = MagicMock(side_effect=NotImplementedError)
+
+        ran = {"writer": False}
+
+        @arcana.tool(side_effect="write")
+        async def writer(x: str) -> str:
+            ran["writer"] = True
+            return "wrote"
+
+        async def approve(call, spec):  # would say yes; DENY precedes it
+            return True
+
+        deny = PermissionPolicy(
+            rules=[
+                PermissionRule(
+                    action=PermissionAction.DENY,
+                    reason="subagent may not write",
+                    match=PermissionMatch(side_effects=[SideEffect.WRITE]),
+                )
+            ]
+        )
+        svc = subagents(rt, approval_handler=approve)
+        svc.add("w", system="x", tools=[writer], permission_policy=deny)
+
+        await svc.ask("w", "write the file")
+
+        # Non-bypassable: the denied tool never executed.
+        assert ran["writer"] is False
