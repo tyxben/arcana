@@ -107,11 +107,25 @@ class _EventBus:
         if callback in listeners:
             listeners.remove(callback)
 
-    async def emit(self, event: str, **kwargs: Any) -> None:
-        for cb in self._listeners.get(event, []):
-            result = cb(**kwargs)
-            if asyncio.iscoroutine(result):
-                await result
+    async def emit(self, event_name: str, **kwargs: Any) -> None:
+        # ``event_name`` (not ``event``) so callers can pass a typed payload as
+        # an ``event=`` keyword without colliding with the positional name.
+        # Observer hooks fail open: a raising listener is logged and ignored,
+        # never allowed to crash the run or alter control flow. This is what
+        # keeps lifecycle hooks observers rather than hidden planners
+        # (Constitution v3.6).
+        for cb in self._listeners.get(event_name, []):
+            try:
+                result = cb(**kwargs)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                logger.warning(
+                    "Runtime event hook for %r raised; ignoring "
+                    "(observer hooks fail open).",
+                    event_name,
+                    exc_info=True,
+                )
 
 
 class Budget(BaseModel):
@@ -639,6 +653,7 @@ class Runtime:
             "pin_budget_fraction": self._config.pin_budget_fraction,
             "tool_calling_hint": self._config.tool_calling_hint,
             "tool_calling_hints": dict(self._config.tool_calling_hints),
+            "event_emitter": self._events,
         }
         if memory_context:
             agent_kwargs["memory_context"] = memory_context
@@ -1696,6 +1711,7 @@ class Session:
                 "pin_budget_fraction": self._runtime._config.pin_budget_fraction,
                 "tool_calling_hint": self._runtime._config.tool_calling_hint,
                 "tool_calling_hints": dict(self._runtime._config.tool_calling_hints),
+                "event_emitter": self._runtime._events,
             }
             # Resolve system prompt: run(system=) > RuntimeConfig > default
             resolved_system = self._system or self._runtime._config.system_prompt
@@ -2047,57 +2063,70 @@ class ChatSession:
             self._messages.append(Message(role=MessageRole.USER, content=message))
         self._turn_count += 1
 
-        # 2. Build ConversationAgent for this send()
-        agent = self._build_agent(message)
+        # Run-level observer hooks for the chat path. Keyed by session_id
+        # (the stable conversation handle); per-turn run_ids ride on the
+        # turn_start/turn_end events. Emission is fail-open via _EventBus.
+        events = self._runtime._events
+        await events.emit("run_start", run_id=self._session_id, goal=message)
 
-        # 3. Run agent (consume all stream events)
-        tool_calls_made = 0
-        async for event in agent.astream(message):
-            if event.event_type == StreamEventType.TOOL_END:
-                tool_calls_made += 1
+        try:
+            # 2. Build ConversationAgent for this send()
+            agent = self._build_agent(message)
 
-        # 4. Extract results from agent state
-        state = agent._state
-        turn_tokens = state.tokens_used if state else 0
-        turn_cost = state.cost_usd if state else 0.0
-        answer = state.working_memory.get("answer", "") if state else ""
-        self._last_run_id = state.run_id if state else ""
+            # 3. Run agent (consume all stream events)
+            tool_calls_made = 0
+            async for event in agent.astream(message):
+                if event.event_type == StreamEventType.TOOL_END:
+                    tool_calls_made += 1
 
-        # 5. Update persistent state from agent's final messages
-        self._messages = agent.final_messages
+            # 4. Extract results from agent state
+            state = agent._state
+            turn_tokens = state.tokens_used if state else 0
+            turn_cost = state.cost_usd if state else 0.0
+            answer = state.working_memory.get("answer", "") if state else ""
+            self._last_run_id = state.run_id if state else ""
 
-        # ConversationAgent does not append the final answer to messages
-        # when the turn is assessed as "completed" (it stores it in
-        # working_memory instead). For multi-turn chat we need the
-        # assistant reply in the history so the next send() sees it.
-        if answer:
-            from arcana.contracts.llm import Message, MessageRole
+            # 5. Update persistent state from agent's final messages
+            self._messages = agent.final_messages
 
-            last_is_assistant = (
-                self._messages
-                and self._messages[-1].role == MessageRole.ASSISTANT
-            )
-            if not last_is_assistant:
-                self._messages.append(
-                    Message(role=MessageRole.ASSISTANT, content=answer)
+            # ConversationAgent does not append the final answer to messages
+            # when the turn is assessed as "completed" (it stores it in
+            # working_memory instead). For multi-turn chat we need the
+            # assistant reply in the history so the next send() sees it.
+            if answer:
+                from arcana.contracts.llm import Message, MessageRole
+
+                last_is_assistant = (
+                    self._messages
+                    and self._messages[-1].role == MessageRole.ASSISTANT
                 )
+                if not last_is_assistant:
+                    self._messages.append(
+                        Message(role=MessageRole.ASSISTANT, content=answer)
+                    )
 
-        self._total_tokens += turn_tokens
-        self._total_cost_usd += turn_cost
+            self._total_tokens += turn_tokens
+            self._total_cost_usd += turn_cost
 
-        # 6. Trim history
-        self._trim_history()
+            # 6. Trim history
+            self._trim_history()
 
-        # 7. Build response
-        context_report = state.last_context_report if state else None
+            # 7. Build response
+            context_report = state.last_context_report if state else None
 
-        return ChatResponse(
-            content=answer,
-            tool_calls_made=tool_calls_made,
-            tokens_used=turn_tokens,
-            cost_usd=turn_cost,
-            context_report=context_report,
-        )
+            response = ChatResponse(
+                content=answer,
+                tool_calls_made=tool_calls_made,
+                tokens_used=turn_tokens,
+                cost_usd=turn_cost,
+                context_report=context_report,
+            )
+        except Exception as exc:
+            await events.emit("error", run_id=self._session_id, error=exc)
+            raise
+
+        await events.emit("run_end", run_id=self._session_id, result=response)
+        return response
 
     async def stream(self, message: str) -> AsyncGenerator[StreamEvent, None]:
         """Stream version of send(). Yields events including the response.
@@ -2235,6 +2264,7 @@ class ChatSession:
             "pin_budget_fraction": self._runtime._config.pin_budget_fraction,
             "tool_calling_hint": self._runtime._config.tool_calling_hint,
             "tool_calling_hints": dict(self._runtime._config.tool_calling_hints),
+            "event_emitter": self._runtime._events,
         }
 
         # Tool gateway: per-session tools override > runtime tools

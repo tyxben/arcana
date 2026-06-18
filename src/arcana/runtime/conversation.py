@@ -110,6 +110,7 @@ class ConversationAgent:
         pin_budget_fraction: float = 0.5,
         tool_calling_hint: str | None = None,
         tool_calling_hints: dict[str, str] | None = None,
+        event_emitter: Any = None,
     ) -> None:
         self.gateway = gateway
         self.model_config = model_config
@@ -202,9 +203,28 @@ class ConversationAgent:
         if hasattr(self._context_builder, "set_pin_state"):
             self._context_builder.set_pin_state(self._cognitive_handler.pin_state)
 
+        # Optional observer event emitter (the Runtime's _EventBus). Lifecycle
+        # hooks are notified at turn/tool boundaries; they cannot block or
+        # rewrite the run, and a raising hook is swallowed (fail open).
+        self._event_emitter = event_emitter
+
         # Populated during a run; accessed by run() after astream() finishes.
         self._state: AgentState | None = None
         self._current_turn: int = 0
+
+    async def _emit_lifecycle(self, event: str, payload: Any) -> None:
+        """Notify observer lifecycle hooks. Fail-open; never blocks the run.
+
+        The emitter (Runtime ``_EventBus``) already swallows listener
+        exceptions; this extra guard covers emitter-level failures so a hook
+        can never interrupt the conversation loop.
+        """
+        if self._event_emitter is None:
+            return
+        try:
+            await self._event_emitter.emit(event, event=payload)
+        except Exception:  # pragma: no cover - defensive belt-and-suspenders
+            logger.debug("lifecycle emit failed for %s", event, exc_info=True)
 
     # ------------------------------------------------------------------
     # Properties
@@ -311,12 +331,25 @@ class ConversationAgent:
         # ------------------------------------------------------------------
         # Phase 3: Conversation loop
         # ------------------------------------------------------------------
+        from arcana.contracts.lifecycle import (
+            ToolEndEvent,
+            ToolStartEvent,
+            TurnEndEvent,
+            TurnStartEvent,
+        )
+
         prev_turn_step_id: str | None = None
         for _turn in range(self.max_turns):
             # ── Steps 1-6: happen EVERY turn ──
 
             # Track 1-indexed turn for cognitive primitives
             self._current_turn = _turn + 1
+
+            # Observer lifecycle hook: turn start (fail-open, non-blocking).
+            await self._emit_lifecycle(
+                "turn_start",
+                TurnStartEvent(run_id=run_id, turn=self._current_turn),
+            )
 
             # Pre-generate the step_id for this turn's TURN event so sibling
             # events (CONTEXT_DECISION, PROMPT_SNAPSHOT) and downstream
@@ -526,6 +559,15 @@ class ConversationAgent:
                         tool_name=tc.name,
                         tool_args=tc_args_parsed,
                     )
+                    await self._emit_lifecycle(
+                        "tool_start",
+                        ToolStartEvent(
+                            run_id=run_id,
+                            turn=self._current_turn,
+                            tool_name=tc.name,
+                            tool_call_id=tc.id,
+                        ),
+                    )
 
                 results, ask_user_events = await self._execute_tools(
                     facts.tool_calls, run_id=run_id,
@@ -550,6 +592,17 @@ class ConversationAgent:
                         tool_name=result.name,
                         tool_result=result.output_str,
                         tool_duration_ms=duration_ms,
+                    )
+                    await self._emit_lifecycle(
+                        "tool_end",
+                        ToolEndEvent(
+                            run_id=run_id,
+                            turn=self._current_turn,
+                            tool_name=result.name,
+                            tool_call_id=result.tool_call_id or "",
+                            success=result.success,
+                            error=result.error.message if result.error else None,
+                        ),
                     )
 
                 for result in results:
@@ -623,6 +676,18 @@ class ConversationAgent:
                 step_id=str(state.current_step),
                 turn_tokens=facts.usage.total_tokens if facts.usage else 0,
                 turn_cost_usd=facts.usage.cost_estimate if facts.usage else 0.0,
+            )
+            await self._emit_lifecycle(
+                "turn_end",
+                TurnEndEvent(
+                    run_id=run_id,
+                    turn=self._current_turn,
+                    turn_tokens=facts.usage.total_tokens if facts.usage else 0,
+                    turn_cost_usd=facts.usage.cost_estimate if facts.usage else 0.0,
+                    tool_calls_made=len(facts.tool_calls) if facts.tool_calls else 0,
+                    completed=assessment.completed,
+                    failed=assessment.failed,
+                ),
             )
 
             # Record messages added this turn so `recall` can serve them.
@@ -1623,9 +1688,15 @@ class ConversationAgent:
 
     async def _direct_answer(self, goal: str) -> AsyncGenerator[StreamEvent, None]:
         """Fast path: single LLM call, no tools, no loop."""
+        from arcana.contracts.lifecycle import TurnEndEvent, TurnStartEvent
         from arcana.routing.executor import DirectExecutor
 
         run_id = str(uuid4())
+        # The direct-answer fast path is one logical completed turn with no
+        # tools — surface it to observers so they do not miss these runs.
+        await self._emit_lifecycle(
+            "turn_start", TurnStartEvent(run_id=run_id, turn=1)
+        )
         config = self._resolve_model_config()
         executor = DirectExecutor()
         response = await executor.direct_answer(
@@ -1678,6 +1749,19 @@ class ConversationAgent:
             cost_usd=cost_usd,
         )
         self._state = state
+
+        await self._emit_lifecycle(
+            "turn_end",
+            TurnEndEvent(
+                run_id=run_id,
+                turn=1,
+                turn_tokens=tokens_used,
+                turn_cost_usd=cost_usd,
+                tool_calls_made=0,
+                completed=True,
+                failed=False,
+            ),
+        )
 
         yield StreamEvent(
             event_type=StreamEventType.STEP_COMPLETE,

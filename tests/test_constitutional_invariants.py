@@ -870,3 +870,86 @@ class TestSubagentServiceImposesNoTopology:
 
         # Non-bypassable: the denied tool never executed.
         assert ran["writer"] is False
+
+
+# ---------------------------------------------------------------------------
+# Constitution v3.6 — lifecycle hooks are observers, not hidden planners
+# ---------------------------------------------------------------------------
+
+
+class TestLifecycleHooksAreObservers:
+    """V2 lifecycle hooks observe; they never block or redirect the run.
+
+    Constitution v3.6: guardrails are boundaries, not hidden workflows;
+    blocking happens only at explicit boundaries (the tool-call guardrail).
+    Lifecycle hooks therefore have no return channel and fail open — a
+    raising or "blocking" observer changes nothing about execution.
+    """
+
+    @pytest.mark.asyncio
+    async def test_observer_cannot_block_or_crash_a_tool(self) -> None:
+        from unittest.mock import MagicMock
+
+        import arcana
+        from arcana.contracts.llm import (
+            LLMResponse,
+            TokenUsage,
+            ToolCallRequest,
+        )
+        from arcana.runtime_core import Runtime, RuntimeConfig
+
+        ran = {"look": False}
+
+        @arcana.tool(side_effect="read")
+        async def look(x: str) -> str:
+            ran["look"] = True
+            return "data"
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            tools=[look],
+            config=RuntimeConfig(default_provider="ollama"),
+        )
+        rt._gateway.generate = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    content=None,
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="tc-1", name="look", arguments='{"x": "a"}'
+                        )
+                    ],
+                    usage=TokenUsage(
+                        prompt_tokens=10, completion_tokens=5, total_tokens=15
+                    ),
+                    model="m",
+                    finish_reason="tool_calls",
+                ),
+                LLMResponse(
+                    content="done",
+                    tool_calls=None,
+                    usage=TokenUsage(
+                        prompt_tokens=10, completion_tokens=20, total_tokens=30
+                    ),
+                    model="m",
+                    finish_reason="stop",
+                ),
+            ]
+        )
+        rt._gateway.stream = MagicMock(side_effect=NotImplementedError)
+
+        # Observers that try to block (return False) AND crash (raise). Neither
+        # has any effect: the tool still runs and the conversation completes.
+        rt.on("tool_start", lambda **k: False)
+
+        def crash(**k):
+            raise RuntimeError("observer blew up")
+
+        rt.on("turn_start", crash)
+        rt.on("tool_end", crash)
+
+        async with rt.chat() as c:
+            result = await c.send("use the tool")
+
+        assert ran["look"] is True
+        assert result.content == "done"
