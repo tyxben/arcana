@@ -35,6 +35,39 @@ class PromptReplay(BaseModel):
     budget_snapshot: BudgetSnapshot | None = None
 
 
+class BundleRunInfo(BaseModel):
+    """One run's correlation + usage summary within a session bundle.
+
+    Correlation fields are read from event ``metadata`` (stamped by the
+    experimental subagent service): ``bundle_id`` groups runs, ``source_agent``
+    names the subagent that produced the run, and ``delegated_by_run_id`` links
+    a delegated run back to its parent.
+    """
+
+    run_id: str
+    source_agent: str | None = None
+    delegated_by_run_id: str | None = None
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    total_events: int = 0
+    start_time: str | None = None
+    end_time: str | None = None
+
+
+class BundleSummary(BaseModel):
+    """A session bundle: the set of runs sharing one ``bundle_id``."""
+
+    bundle_id: str
+    runs: list[BundleRunInfo] = []
+    agents: list[str] = []
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+
+    @property
+    def run_count(self) -> int:
+        return len(self.runs)
+
+
 class TraceReader:
     """
     Reads and queries trace events from JSONL files.
@@ -261,6 +294,92 @@ class TraceReader:
             "total_tokens": total_tokens,
             "total_cost_usd": total_cost,
         }
+
+    # ------------------------------------------------------------------
+    # Session bundles -- correlate multiple runs by ``bundle_id`` metadata
+    # ------------------------------------------------------------------
+
+    def _run_bundle_info(self, run_id: str) -> tuple[str | None, BundleRunInfo]:
+        """Read a run's bundle correlation metadata + usage summary.
+
+        Returns ``(bundle_id, BundleRunInfo)``. ``bundle_id`` is ``None`` when
+        the run carries no bundle correlation (a plain, non-bundled run).
+        """
+        bundle_id: str | None = None
+        source_agent: str | None = None
+        delegated_by: str | None = None
+        for event in self.iter_events(run_id):
+            meta = event.metadata or {}
+            if bundle_id is None and meta.get("bundle_id"):
+                bundle_id = meta["bundle_id"]
+            if source_agent is None and meta.get("source_agent"):
+                source_agent = meta["source_agent"]
+            if delegated_by is None and meta.get("delegated_by_run_id"):
+                delegated_by = meta["delegated_by_run_id"]
+            if bundle_id and source_agent and delegated_by:
+                break
+
+        summary = self.get_summary(run_id)
+        info = BundleRunInfo(
+            run_id=run_id,
+            source_agent=source_agent,
+            delegated_by_run_id=delegated_by,
+            total_tokens=summary.get("total_tokens", 0),
+            total_cost_usd=summary.get("total_cost_usd", 0.0),
+            total_events=summary.get("total_events", 0),
+            start_time=summary.get("start_time"),
+            end_time=summary.get("end_time"),
+        )
+        return bundle_id, info
+
+    def _summarize_bundle(
+        self, bundle_id: str, runs: list[BundleRunInfo]
+    ) -> BundleSummary:
+        ordered = sorted(runs, key=lambda r: r.start_time or "")
+        agents = sorted({r.source_agent for r in ordered if r.source_agent})
+        return BundleSummary(
+            bundle_id=bundle_id,
+            runs=ordered,
+            agents=agents,
+            total_tokens=sum(r.total_tokens for r in ordered),
+            total_cost_usd=sum(r.total_cost_usd for r in ordered),
+        )
+
+    def list_bundles(self) -> list[BundleSummary]:
+        """Group every bundled run under ``trace_dir`` by its ``bundle_id``.
+
+        Runs with no ``bundle_id`` metadata (plain single runs) are skipped.
+        Bundles are returned most-recent-first by their earliest run.
+        """
+        if not self.trace_dir.exists():
+            return []
+        groups: dict[str, list[BundleRunInfo]] = {}
+        for trace_file in self.trace_dir.glob("*.jsonl"):
+            bundle_id, info = self._run_bundle_info(trace_file.stem)
+            if bundle_id is None:
+                continue
+            groups.setdefault(bundle_id, []).append(info)
+        summaries = [
+            self._summarize_bundle(bid, runs) for bid, runs in groups.items()
+        ]
+        summaries.sort(
+            key=lambda b: (b.runs[0].start_time or "") if b.runs else "",
+            reverse=True,
+        )
+        return summaries
+
+    def read_bundle(self, bundle_id: str) -> BundleSummary | None:
+        """Return the bundle with ``bundle_id``, or ``None`` if not found."""
+        if not self.trace_dir.exists():
+            return None
+        runs: list[BundleRunInfo] = []
+        for trace_file in self.trace_dir.glob("*.jsonl"):
+            found_id, info = self._run_bundle_info(trace_file.stem)
+            if found_id == bundle_id:
+                runs.append(info)
+        if not runs:
+            return None
+        return self._summarize_bundle(bundle_id, runs)
 
     def list_turns(self, run_id: str) -> list[int]:
         """Return the turn numbers that have replay evidence in this run.

@@ -461,12 +461,19 @@ def trace(
             as_json=as_json,
         )
 
+    elif action == "bundles":
+        _trace_bundles(trace_path=trace_path, as_json=as_json)
+
+    elif action == "bundle" and run_id:
+        _trace_bundle_show(trace_path=trace_path, bundle_id=run_id, as_json=as_json)
+
     else:
         console.print(
             "[red]Usage: arcana trace list | show <run_id> [--agent NAME] [--errors --explain] | "
             "summary | serve | replay <run_id> --turn N [--agent NAME] | "
             "pool-replay <run_id> [--agent NAME --turn N] | "
-            "explain <run_id> --turn N | flow <run_id>[/red]"
+            "explain <run_id> --turn N | flow <run_id> | "
+            "bundles | bundle <bundle_id>[/red]"
         )
 
 
@@ -1185,6 +1192,100 @@ def _trace_flow(
             console.print("    │")
     if stop_reason:
         console.print(f"  [dim]→ stop: {stop_reason}[/dim]")
+
+
+def _trace_bundles(trace_path: Path, as_json: bool = False) -> None:
+    """List session bundles -- runs correlated by ``bundle_id`` metadata."""
+    import json as _json
+
+    from arcana.trace.reader import TraceReader
+
+    reader = TraceReader(trace_dir=trace_path)
+    bundles = reader.list_bundles()
+
+    if as_json:
+        console.print(
+            _json.dumps([b.model_dump() for b in bundles], indent=2)
+        )
+        return
+
+    if not bundles:
+        console.print(
+            "[dim]No session bundles found "
+            "(no runs carry bundle_id metadata).[/dim]"
+        )
+        return
+
+    table = Table(title="Session Bundles")
+    table.add_column("Bundle ID")
+    table.add_column("Runs", justify="right")
+    table.add_column("Agents")
+    table.add_column("Tokens", justify="right")
+    table.add_column("Cost (USD)", justify="right")
+    for b in bundles:
+        table.add_row(
+            b.bundle_id,
+            str(b.run_count),
+            ", ".join(b.agents) or "[dim]-[/dim]",
+            f"{b.total_tokens:,}",
+            f"{b.total_cost_usd:.4f}",
+        )
+    console.print(table)
+    console.print(
+        "[dim]Inspect one with: arcana trace bundle <bundle_id>[/dim]"
+    )
+
+
+def _trace_bundle_show(
+    trace_path: Path, bundle_id: str, as_json: bool = False
+) -> None:
+    """Show the runs in one session bundle and their parent/child links."""
+    import json as _json
+
+    from arcana.trace.reader import TraceReader
+
+    reader = TraceReader(trace_dir=trace_path)
+    bundle = reader.read_bundle(bundle_id)
+
+    if bundle is None:
+        if as_json:
+            console.print("null")
+        else:
+            console.print(f"[red]Bundle not found: {bundle_id}[/red]")
+        raise typer.Exit(1)
+
+    if as_json:
+        console.print(_json.dumps(bundle.model_dump(), indent=2))
+        return
+
+    console.print(f"[bold]Bundle:[/bold] {bundle.bundle_id}")
+    console.print(
+        f"[dim]{bundle.run_count} runs · agents: "
+        f"{', '.join(bundle.agents) or '-'} · "
+        f"{bundle.total_tokens:,} tokens · "
+        f"${bundle.total_cost_usd:.4f}[/dim]"
+    )
+
+    table = Table(title="Runs")
+    table.add_column("Run ID")
+    table.add_column("Agent")
+    table.add_column("Delegated by")
+    table.add_column("Events", justify="right")
+    table.add_column("Tokens", justify="right")
+    table.add_column("Started")
+    for r in bundle.runs:
+        table.add_row(
+            r.run_id,
+            r.source_agent or "[dim]-[/dim]",
+            (r.delegated_by_run_id or "[dim]-[/dim]"),
+            str(r.total_events),
+            f"{r.total_tokens:,}",
+            (r.start_time or "")[:19],
+        )
+    console.print(table)
+    console.print(
+        "[dim]Replay a run with: arcana trace show <run_id>[/dim]"
+    )
 
 
 def _trace_summary(trace_path: Path, last: int) -> None:
