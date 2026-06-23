@@ -31,7 +31,7 @@ guardrails, provider credentials, or execution backends.
 | F3 | Med-High | `WorkingSetBuilder._compress_with_llm` calls `gateway.generate` for summarization, but that usage was discarded — not counted against budget and not traced. Long conversations systematically under-count cost. | **DONE** |
 | F2 | High | Prompt-based tool fallback (`_generate_with_text_tools`) is a pseudo-capability: it asks the model to emit a JSON tool call in **text**, but the provider builds `LLMResponse.tool_calls` only from native `message.tool_calls`, and `_parse_turn` only reads `response.tool_calls`. A degraded provider shows tools but never executes them (No Controllability Theater). | **DONE** |
 | F4 | Low-Med | `_execute_tools` buckets ask_user → cognitive → gateway and appends results in that order, so a turn mixing built-in and gateway tools returns `results` (and TOOL_END events) out of input order. The LLM conversation is `tool_call_id`-matched (answers are correct); the returned-order contract is the wart. `call_many` itself is already order-preserving. | **DONE** |
-| F5 | Med | Eval gates on pass-rate / cost / tokens; `EvalResult` carries status/steps/tokens/cost. Self-evolution needs trace-derived signals (context loss, tool-error category, permission denial, provider degradation, prompt-snapshot replay diff) and golden-trace replay. | pending |
+| F5 | Med | Eval gates on pass-rate / cost / tokens; `EvalResult` carries status/steps/tokens/cost. Self-evolution needs trace-derived signals (context loss, tool-error category, permission denial, provider degradation, prompt-snapshot replay diff) and golden-trace replay. | **DONE** |
 | F6 | Med | (Surfaced during F2.) `sdk._signature_to_json_schema` maps a parameter's annotation through a `{type: json_type}` dict, but under `from __future__ import annotations` (the modern default) annotations are **strings** (`"int"`), so every typed param schemas as `"string"`. Tools defined in such a module reject correctly-typed int/float/bool/list/dict args at validation. Fix: resolve string annotations (`typing.get_type_hints`) before mapping. | pending |
 
 ## Remediation order (by weight)
@@ -63,8 +63,48 @@ guardrails, provider credentials, or execution backends.
 3. **F4 — reassemble `results` in input order (DONE).** `_execute_tools`
    re-keys results by `tool_call_id` and re-emits in input order before
    returning. Tests: `tests/test_tool_result_ordering.py`.
-4. **F5 — trace-derived eval metrics + golden trace replay.** Add the
-   trace-level signals above to the eval outcome + gate.
+4. **F5 — trace-derived eval metrics + golden trace replay (DONE).** A
+   tamper-evident, orthogonal fitness vector (`TraceSignals`) extracted
+   post-hoc from a run's trace (`eval/signals.py`), recorded on `EvalResult`
+   and merged onto `EvalReport`; the `RegressionGate` gains opt-in hard-fail
+   signal gates (default warn — evidence, not governance) and a grep invariant
+   pins that it has no call site under `runtime/`. Two producer fixes close
+   real blind spots: `ToolCallRecord.error_category` (new tool-error category
+   is now detectable) and a provider-degradation trace marker on `LLM_CALL`
+   (a silent downgrade was theater-adjacent — now a counted, gateable signal
+   with its own constitutional invariant). Golden-trace replay
+   (`eval/golden.py`) records a redacted, committed skeleton + signal vector
+   and diffs asymmetrically — improvements never count as regressions, only
+   unsafe-direction moves do; goldens are recorded only by an explicit op
+   (never auto), so relaxing one is a reviewable git diff. Forward-composes
+   into Amendment 6: `TraceSignals` is the EvidenceBundle atom and
+   `RegressionGate.compare(candidate, baseline, goldens)` with boundary
+   ceilings=0 + `golden_replay="strict"` IS the future acceptance gate — that
+   config is expressible now, not wired. Decisions: eval contracts kept as
+   reshapeable implementation surface (not stability §1.4); library default
+   all-warn + a stricter "house" config for Arcana's own CI; goldens committed
+   digest-only (zero PII). **Follow-up**: `arcana eval --record-golden` CLI
+   (the current `arcana eval` command uses the separate `baseline.EvalGate`;
+   exposing `EvalRunner` golden flags is a thin CLI refactor); prompt-snapshot
+   digests for prompt-rewrite detection (opt-in, deferred). Adversarially
+   reviewed (cloud workflow); fixed the real findings — authorization-failure
+   denials are now counted (not laundered into `unexpected`), boundary refusals
+   are excluded from `tool_error_categories`/`write_tool_calls` (orthogonality),
+   the golden skeleton is canonical-sorted (determinism), `GoldenStore.load`
+   enforces the digest tamper-check, the direct gate gained write/imported/
+   downgrade/fidelity ceilings, and `require_trace` is per-case. **Deferred
+   (lower-priority review items)**: surface-expansion signals
+   (`capabilities_admitted` / protocol-source discovery — CAPABILITY_ADMISSION
+   is MCP-setup-time, rarely in a single eval run's trace); same-category
+   tool-error *count* explosions in golden (the new-category check is
+   set-based); `tool_calls` denominator counting RAG-retrieval events.
+   - Files: `contracts/eval.py`, `contracts/trace.py`, `eval/signals.py`,
+     `eval/golden.py`, `eval/gate.py`, `eval/runner.py`,
+     `gateway/providers/openai_compatible.py`, `tool_gateway/gateway.py`.
+   - Tests: `tests/eval/test_trace_signals.py`, `tests/eval/test_signal_gate.py`,
+     `tests/eval/test_golden_replay.py`, `tests/test_evidence_chain.py`;
+     invariants `TestDegradedToolCallsAreReal` (degradation marker),
+     `TestEvalIsGateNotGovernance` (no gate in runtime/).
 5. **F6 — resolve string annotations in `_signature_to_json_schema`** so
    future-annotations modules get correctly-typed tool schemas.
 6. **Self-evolution contracts** — `EvidenceBundle` / `EvolutionProposal` /

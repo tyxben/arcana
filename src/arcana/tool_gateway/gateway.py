@@ -756,6 +756,9 @@ class ToolGateway:
             idempotency_key=tool_call.idempotency_key,
             result_digest=canonical_hash(result_data) if result_data is not None else None,
             error=result.error.message if result.error else None,
+            # F5: keep the ToolErrorCategory so "a new error category appeared"
+            # is a detectable signal, not just a free-text message.
+            error_category=result.error.category.value if result.error else None,
             duration_ms=result.duration_ms,
             side_effect=spec.side_effect.value,
         )
@@ -785,6 +788,11 @@ class ToolGateway:
             name=tool_call.name,
             args_digest=canonical_hash(tool_call.arguments),
             error=f"UNAUTHORIZED: missing capabilities {missing}",
+            # A missing-capability rejection is a permission denial, the most
+            # fundamental authority boundary. Emit the same evidence shape as
+            # the policy-deny path so it is counted as a denial (F5) and not
+            # mislabeled as a generic execution error.
+            error_category=ToolErrorCategory.PERMISSION.value,
         )
 
         event = TraceEvent(
@@ -794,5 +802,11 @@ class ToolGateway:
             parent_step_id=tool_call.parent_step_id,
             event_type=EventType.TOOL_CALL,
             tool_call=record,
+            metadata={
+                "permission_decision": {
+                    "action": "deny",
+                    "reason": f"missing capabilities {missing}",
+                }
+            },
         )
         self.trace_writer.write(event)

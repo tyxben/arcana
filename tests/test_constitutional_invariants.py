@@ -1104,3 +1104,96 @@ class TestDegradedToolCallsAreReal:
         assert resp.tool_calls, "degraded provider must surface the tool call"
         assert resp.tool_calls[0].name == "search"
         assert resp.tool_calls[0].arguments == '{"q": "x"}'
+
+    @pytest.mark.asyncio
+    async def test_capability_downgrade_leaves_a_trace_marker(self, tmp_path) -> None:
+        """A silent capability downgrade is the theater the constitution forbids.
+
+        When a provider degrades to the prompt-based tool fallback, that
+        downgrade must be visible evidence in the trace (a counted, gateable
+        signal), not only a log line.
+        """
+        from types import SimpleNamespace
+
+        from arcana.contracts.llm import (
+            LLMRequest,
+            Message,
+            MessageRole,
+            ModelConfig,
+        )
+        from arcana.contracts.trace import TraceContext
+        from arcana.gateway.providers.openai_compatible import (
+            OpenAICompatibleProvider,
+            ProviderProfile,
+        )
+        from arcana.trace.reader import TraceReader
+        from arcana.trace.writer import TraceWriter
+
+        provider = OpenAICompatibleProvider(
+            provider_name="test",
+            api_key="sk-test",
+            base_url="http://localhost",
+            profile=ProviderProfile(tool_calls=False),
+            trace_writer=TraceWriter(trace_dir=str(tmp_path)),
+        )
+        completion = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content="answer", tool_calls=None),
+                    finish_reason="stop",
+                )
+            ],
+            usage=SimpleNamespace(
+                prompt_tokens=1, completion_tokens=1, total_tokens=2,
+                prompt_tokens_details=None,
+            ),
+            model="m",
+        )
+        provider.client.chat.completions.create = AsyncMock(
+            return_value=completion
+        )
+        request = LLMRequest(
+            messages=[Message(role=MessageRole.USER, content="x")],
+            tools=[{"type": "function", "function": {"name": "t"}}],
+        )
+        await provider.generate(
+            request,
+            ModelConfig(provider="test", model_id="m"),
+            TraceContext(run_id="run-deg"),
+        )
+
+        events = TraceReader(trace_dir=tmp_path).read_events("run-deg")
+        llm_events = [e for e in events if e.event_type.value == "llm_call"]
+        assert llm_events
+        assert any(
+            e.metadata.get("degraded_capabilities") for e in llm_events
+        ), "capability downgrade must leave a trace marker"
+
+
+# ---------------------------------------------------------------------------
+# Principle 7 Corollary — eval is evidence/gate, never runtime governance
+# ---------------------------------------------------------------------------
+
+
+class TestEvalIsGateNotGovernance:
+    """The regression gate must never run inside the agent runtime.
+
+    Principle 7 Corollary: a failing eval blocks a release or returns
+    structured risk evidence; it does not become a hidden supervisor that
+    rewrites the running LLM's strategy. So ``RegressionGate`` (and the F5
+    signal/golden gating) must have NO call site under ``src/arcana/runtime/``.
+    """
+
+    def test_regression_gate_not_invoked_in_runtime(self) -> None:
+        import pathlib
+
+        runtime_dir = pathlib.Path("src/arcana/runtime")
+        offenders = []
+        for py in runtime_dir.rglob("*.py"):
+            text = py.read_text()
+            if "RegressionGate" in text:
+                offenders.append(str(py))
+        assert not offenders, (
+            f"RegressionGate referenced inside runtime/: {offenders} — eval is "
+            f"gate-not-governance (Principle 7 Corollary)."
+        )

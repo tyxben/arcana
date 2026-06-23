@@ -209,6 +209,7 @@ class ToolCallRecord(BaseModel):
     idempotency_key: str | None = None
     result_digest: str | None = None
     error: str | None = None
+    error_category: str | None = None  # ToolErrorCategory value (F5 signal)
     duration_ms: int | None = None
     side_effect: str | None = None  # "read" or "write"
 

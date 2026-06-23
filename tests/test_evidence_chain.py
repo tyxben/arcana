@@ -159,6 +159,180 @@ class TestToolCallAuditOnLivePath:
 
 
 # ---------------------------------------------------------------------------
+# F5 producer fixes — error category + provider degradation leave trace markers
+# ---------------------------------------------------------------------------
+
+
+class TestF5TraceProducers:
+    @pytest.mark.asyncio
+    async def test_tool_error_category_recorded(self, tmp_path):
+        """A failing tool's ToolErrorCategory survives into the TOOL_CALL event
+        (so 'a new error category appeared' is a detectable signal)."""
+        from arcana.eval.signals import extract_signals
+
+        @arcana.tool(side_effect="read")
+        async def boom(x: str) -> str:
+            raise RuntimeError("kaboom")
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            tools=[boom],
+            trace=True,
+            config=RuntimeConfig(default_provider="ollama", trace_dir=str(tmp_path)),
+        )
+        rt._gateway.generate = AsyncMock(
+            side_effect=[_call("boom", '{"x": "a"}'), _text("handled")]
+        )
+        rt._gateway.stream = MagicMock(side_effect=NotImplementedError)
+
+        async with rt.chat() as c:
+            await c.send("go")
+
+        reader = TraceReader(trace_dir=tmp_path)
+        all_events = [
+            e for f in Path(tmp_path).glob("*.jsonl")
+            for e in reader.read_events(f.stem)
+        ]
+        failed = [
+            e for e in all_events
+            if e.event_type.value == "tool_call" and e.tool_call and e.tool_call.error
+        ]
+        assert failed
+        # Slice 3: the ToolErrorCategory is RECORDED on the event (it used to be
+        # dropped), and the extractor buckets under that recorded value — not
+        # the legacy hardcoded "unexpected" fallback.
+        recorded_category = failed[0].tool_call.error_category
+        assert recorded_category is not None
+        signals = extract_signals(all_events)
+        assert signals.tool_error_categories.get(recorded_category) == 1
+
+    @pytest.mark.asyncio
+    async def test_provider_degradation_leaves_trace_marker(self, tmp_path):
+        """A degraded (text-tools) provider stamps the LLM_CALL event so the
+        downgrade is counted evidence, not just a log line."""
+        from types import SimpleNamespace
+
+        from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
+        from arcana.contracts.trace import TraceContext
+        from arcana.eval.signals import extract_signals
+        from arcana.gateway.providers.openai_compatible import (
+            OpenAICompatibleProvider,
+            ProviderProfile,
+        )
+        from arcana.trace.writer import TraceWriter
+
+        provider = OpenAICompatibleProvider(
+            provider_name="test",
+            api_key="sk-test",
+            base_url="http://localhost",
+            profile=ProviderProfile(tool_calls=False),  # forces text fallback
+            trace_writer=TraceWriter(trace_dir=str(tmp_path)),
+        )
+        completion = SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content="plain answer", tool_calls=None),
+                finish_reason="stop")],
+            usage=SimpleNamespace(
+                prompt_tokens=1, completion_tokens=1, total_tokens=2,
+                prompt_tokens_details=None),
+            model="m",
+        )
+        provider.client.chat.completions.create = AsyncMock(return_value=completion)
+        request = LLMRequest(
+            messages=[Message(role=MessageRole.USER, content="x")],
+            tools=[{"type": "function", "function": {"name": "t"}}],
+        )
+        await provider.generate(
+            request, ModelConfig(provider="test", model_id="m"),
+            TraceContext(run_id="run-deg"),
+        )
+
+        events = TraceReader(trace_dir=tmp_path).read_events("run-deg")
+        signals = extract_signals(events)
+        assert signals.provider_degraded is True
+        assert "tool_calls" in signals.degraded_capabilities
+
+    @pytest.mark.asyncio
+    async def test_non_degraded_call_has_no_marker(self, tmp_path):
+        """A native (non-fallback) LLM_CALL must NOT carry the degraded marker."""
+        from types import SimpleNamespace
+
+        from arcana.contracts.llm import LLMRequest, Message, MessageRole, ModelConfig
+        from arcana.contracts.trace import TraceContext
+        from arcana.eval.signals import extract_signals
+        from arcana.gateway.providers.openai_compatible import (
+            OpenAICompatibleProvider,
+            ProviderProfile,
+        )
+        from arcana.trace.writer import TraceWriter
+
+        provider = OpenAICompatibleProvider(
+            provider_name="test", api_key="sk-test", base_url="http://localhost",
+            profile=ProviderProfile(tool_calls=True),  # native tools supported
+            trace_writer=TraceWriter(trace_dir=str(tmp_path)),
+        )
+        completion = SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content="answer", tool_calls=None),
+                finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1,
+                                  total_tokens=2, prompt_tokens_details=None),
+            model="m")
+        provider.client.chat.completions.create = AsyncMock(return_value=completion)
+        await provider.generate(
+            LLMRequest(messages=[Message(role=MessageRole.USER, content="x")],
+                       tools=[{"type": "function", "function": {"name": "t"}}]),
+            ModelConfig(provider="test", model_id="m"),
+            TraceContext(run_id="run-native"),
+        )
+        events = TraceReader(trace_dir=tmp_path).read_events("run-native")
+        llm = [e for e in events if e.event_type.value == "llm_call"]
+        assert len(llm) == 1
+        assert "degraded_capabilities" not in llm[0].metadata
+        assert extract_signals(events).provider_degraded is False
+
+    @pytest.mark.asyncio
+    async def test_authorization_denial_counted_as_permission_denial(self, tmp_path):
+        """A missing-capability rejection is counted as a permission denial,
+        not laundered into the generic 'unexpected' error bucket."""
+        from arcana.contracts.tool import (
+            SideEffect,
+            ToolCall,
+            ToolSpec,
+        )
+        from arcana.contracts.trace import TraceContext
+        from arcana.eval.signals import extract_signals
+        from arcana.sdk import _FunctionToolProvider
+        from arcana.tool_gateway.gateway import ToolGateway
+        from arcana.tool_gateway.registry import ToolRegistry
+        from arcana.trace.writer import TraceWriter
+
+        async def admin_tool(x: str) -> str:
+            return "done"
+
+        spec = ToolSpec(
+            name="admin_tool", description="needs admin",
+            input_schema={"type": "object", "properties": {"x": {"type": "string"}}},
+            side_effect=SideEffect.WRITE, capabilities=["admin"],
+        )
+        registry = ToolRegistry()
+        registry.register(_FunctionToolProvider(spec=spec, func=admin_tool))
+        gateway = ToolGateway(
+            registry=registry,
+            granted_capabilities=set(),  # agent lacks "admin"
+            trace_writer=TraceWriter(trace_dir=str(tmp_path)),
+        )
+        await gateway.call(
+            ToolCall(id="t1", name="admin_tool", arguments={"x": "a"}),
+            trace_ctx=TraceContext(run_id="run-authfail"),
+        )
+        events = TraceReader(trace_dir=tmp_path).read_events("run-authfail")
+        signals = extract_signals(events)
+        assert signals.permission_denials == 1
+        assert "unexpected" not in signals.tool_error_categories
+
+
+# ---------------------------------------------------------------------------
 # F3 — LLM compression is budgeted + traced
 # ---------------------------------------------------------------------------
 

@@ -699,6 +699,15 @@ class OpenAICompatibleProvider(ModelGateway):
                 "usage": usage.model_dump(),
             })
 
+            metadata: dict[str, Any] = {"provider": self.provider_name}
+            # F5: a silent capability downgrade is exactly the kind of theater
+            # the constitution forbids — leave an evidence marker when the
+            # prompt-based tool fallback was used, so degradation is a counted,
+            # gateable signal rather than only a log line.
+            if use_text_tools:
+                metadata["used_text_tools"] = True
+                metadata["degraded_capabilities"] = ["tool_calls"]
+
             event = TraceEvent(
                 run_id=trace_ctx.run_id,
                 task_id=trace_ctx.task_id,
@@ -708,7 +717,7 @@ class OpenAICompatibleProvider(ModelGateway):
                 llm_request_digest=request_digest,
                 llm_response_digest=response_digest,
                 model=response.model,
-                metadata={"provider": self.provider_name},
+                metadata=metadata,
             )
             self.trace_writer.write(event)
 

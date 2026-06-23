@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from arcana.contracts.eval import (
     EvalReport,
@@ -32,12 +32,49 @@ class EvalRunner:
         agent_factory: Callable[[], Agent],
     ) -> None:
         self._agent_factory = agent_factory
+        # Accumulates "case_id: regression" strings during a suite run.
+        self._golden_regressions: list[str] = []
+
+    def _handle_golden(
+        self,
+        case: EvalCase,
+        events: list[TraceEvent],
+        suite_name: str,
+        golden_store: Any,
+        record_golden: bool,
+    ) -> str:
+        """Record or replay this case's golden. Returns the golden_status.
+
+        Pure post-hoc evidence — appends any regression strings to
+        ``self._golden_regressions`` for the gate to read; it never fails the
+        run itself.
+        """
+        if golden_store is None:
+            return "skip"
+        from arcana.eval.golden import build_golden, replay_diff
+
+        if record_golden:
+            golden = build_golden(case, events, suite_name=suite_name)
+            golden_store.record(golden, force=True)
+            return "recorded"
+
+        golden = golden_store.load(suite_name, case.id)
+        if golden is None:
+            return "new"
+        diff = replay_diff(golden, events, case=case)
+        if diff.is_regression:
+            self._golden_regressions.extend(
+                f"{case.id}: {r}" for r in diff.signal_regressions
+            )
+        return diff.golden_status
 
     async def run_suite(
         self,
         cases: list[EvalCase],
         *,
         suite_name: str = "default",
+        golden_dir: str | None = None,
+        record_golden: bool = False,
     ) -> EvalReport:
         """
         Run all cases and aggregate into an EvalReport.
@@ -45,17 +82,36 @@ class EvalRunner:
         Args:
             cases: List of evaluation cases to run.
             suite_name: Name for the evaluation suite.
+            golden_dir: Optional golden-trace directory. When set, each case is
+                diffed against its golden (or, with ``record_golden``, recorded).
+            record_golden: When True, (re)record goldens instead of diffing.
 
         Returns:
             EvalReport with aggregated results.
         """
+        from arcana.eval.golden import GoldenStore
+
+        store = GoldenStore(golden_dir) if golden_dir else None
+        self._golden_regressions = []
+
         results: list[EvalResult] = []
         for case in cases:
-            result = await self.run_case(case)
+            result = await self.run_case(
+                case,
+                suite_name=suite_name,
+                golden_store=store,
+                record_golden=record_golden,
+            )
             results.append(result)
 
         passed = sum(1 for r in results if r.passed)
         total = len(results)
+
+        # F5: merge per-case signal vectors into a suite-level vector.
+        from arcana.eval.signals import merge_signals
+
+        case_signals = [r.signals for r in results if r.signals is not None]
+        aggregate_signals = merge_signals(case_signals) if case_signals else None
 
         return EvalReport(
             suite_name=suite_name,
@@ -67,14 +123,26 @@ class EvalRunner:
             aggregate_tokens=sum(r.tokens_used for r in results),
             aggregate_cost_usd=sum(r.cost_usd for r in results),
             aggregate_duration_ms=sum(r.duration_ms for r in results),
+            aggregate_signals=aggregate_signals,
+            golden_regressions=list(self._golden_regressions),
         )
 
-    async def run_case(self, case: EvalCase) -> EvalResult:
+    async def run_case(
+        self,
+        case: EvalCase,
+        *,
+        suite_name: str = "default",
+        golden_store: Any = None,
+        record_golden: bool = False,
+    ) -> EvalResult:
         """
         Run a single evaluation case.
 
         Args:
             case: The evaluation case to run.
+            suite_name: Suite name (for golden lookup).
+            golden_store: Optional GoldenStore for record/replay.
+            record_golden: Record the golden instead of diffing against it.
 
         Returns:
             EvalResult with pass/fail and metrics.
@@ -96,8 +164,19 @@ class EvalRunner:
             # Extract metrics from events
             summary = MetricsCollector.summarize_run(events)
 
+            # F5: trace-derived signal vector (post-hoc, pure).
+            from arcana.eval.signals import extract_signals
+
+            signals = extract_signals(events)
+
             # Check outcome
             passed = self._check_outcome(case, state, events)
+
+            # F5: golden-trace record or replay (post-hoc, never gates here —
+            # the gate reads report.golden_regressions and decides).
+            golden_status = self._handle_golden(
+                case, events, suite_name, golden_store, record_golden
+            )
 
             duration_ms = _now_ms() - start_ms
 
@@ -110,6 +189,8 @@ class EvalRunner:
                 tokens_used=state.tokens_used or summary.tokens_used,
                 cost_usd=state.cost_usd or summary.cost_usd,
                 duration_ms=duration_ms,
+                signals=signals,
+                golden_status=golden_status,
             )
 
         except Exception as e:
