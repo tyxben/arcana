@@ -377,6 +377,18 @@ class Runtime:
         # Setup providers (long-lived)
         self._gateway = self._setup_providers(providers or {})
 
+        # Setup trace (long-lived) -- BEFORE tools so the shared tool gateway
+        # is constructed with the trace writer and its TOOL_CALL audit events
+        # (and permission / guardrail decision metadata) are actually written.
+        self._trace_writer = None
+        if trace:
+            from arcana.trace.writer import TraceWriter
+
+            self._trace_writer = TraceWriter(
+                trace_dir=self._config.trace_dir,
+                namespace=self._namespace,
+            )
+
         # Setup tools (long-lived)
         self._tool_registry = None
         self._tool_gateway = None
@@ -394,16 +406,6 @@ class Runtime:
         self._totals_lock = asyncio.Lock()
         self._total_tokens_used: int = 0
         self._total_cost_usd: float = 0.0
-
-        # Setup trace (long-lived)
-        self._trace_writer = None
-        if trace:
-            from arcana.trace.writer import TraceWriter
-
-            self._trace_writer = TraceWriter(
-                trace_dir=self._config.trace_dir,
-                namespace=self._namespace,
-            )
 
         # Memory (cross-run context)
         self._memory_store: Any = None
@@ -711,6 +713,7 @@ class Runtime:
             self._tool_gateway = ToolGateway(
                 registry=self._tool_registry,
                 guardrails=list(self._tool_guardrails),
+                trace_writer=self._trace_writer,
             )
 
         self._mcp_client = await setup_mcp_tools(
@@ -1476,6 +1479,7 @@ class Runtime:
         gateway = ToolGateway(
             registry=registry,
             guardrails=list(self._tool_guardrails),
+            trace_writer=self._trace_writer,
         )
         return registry, gateway
 

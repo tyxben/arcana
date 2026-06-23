@@ -360,6 +360,13 @@ class ConversationAgent:
             self._current_turn_step_id = turn_step_id
             self._prev_turn_step_id = prev_turn_step_id
 
+            # Per-turn trace context: carries run_id + this turn's step as the
+            # causal parent so provider LLM_CALL and gateway TOOL_CALL audit
+            # events fire (they are gated on trace_ctx) and link to the turn.
+            from arcana.contracts.trace import TraceContext
+
+            trace_ctx = TraceContext(run_id=run_id, parent_step_id=turn_step_id)
+
             # Snapshot message count at turn start so recall can record
             # exactly what was added this turn.
             _turn_start_idx = len(messages)
@@ -378,7 +385,20 @@ class ConversationAgent:
                 memory_context=self._memory_context if _turn == 0 else None,
                 tool_token_estimate=tool_token_cost,
                 turn=_turn,
+                trace_ctx=trace_ctx,
             )
+            # Fold any LLM-compression usage into budget + reported cost so a
+            # long conversation does not systematically under-count cost.
+            comp_usage = self._context_builder.consume_compression_usage()
+            if comp_usage is not None:
+                state = state.model_copy(
+                    update={
+                        "tokens_used": state.tokens_used + comp_usage.total_tokens,
+                        "cost_usd": state.cost_usd + comp_usage.cost_estimate,
+                    }
+                )
+                if self.budget_tracker:
+                    self.budget_tracker.add_usage(comp_usage)
             # Write back so memory injection persists in messages for future turns
             if _turn == 0 and self._memory_context:
                 messages = curated[:]
@@ -430,7 +450,7 @@ class ConversationAgent:
                 # Structured output: use non-streaming for reliable usage
                 # tracking and because we need complete JSON anyway
                 response = await self.gateway.generate(
-                    request=request, config=config,
+                    request=request, config=config, trace_ctx=trace_ctx,
                 )
                 # Still emit a chunk event for the complete text
                 if response.content:
@@ -448,7 +468,7 @@ class ConversationAgent:
                     acc = StreamAccumulator(model=config.model_id)
 
                     async for chunk in self.gateway.stream(
-                        request=request, config=config,
+                        request=request, config=config, trace_ctx=trace_ctx,
                     ):
                         acc.feed(chunk)
                         if chunk.type == "text_delta" and chunk.text:
@@ -470,7 +490,7 @@ class ConversationAgent:
                 except (AttributeError, TypeError, NotImplementedError):
                     # Gateway doesn't support streaming — fall back to generate
                     response = await self.gateway.generate(
-                        request=request, config=config,
+                        request=request, config=config, trace_ctx=trace_ctx,
                     )
 
             # Warn and estimate tokens if provider reported 0 usage
@@ -570,7 +590,7 @@ class ConversationAgent:
                     )
 
                 results, ask_user_events = await self._execute_tools(
-                    facts.tool_calls, run_id=run_id,
+                    facts.tool_calls, run_id=run_id, trace_ctx=trace_ctx,
                 )
 
                 # Yield INPUT_NEEDED events from ask_user calls
@@ -884,11 +904,15 @@ class ConversationAgent:
         self,
         tool_calls: list[ToolCallRequest],
         run_id: str = "",
+        trace_ctx: Any = None,
     ) -> tuple[list[ToolResult], list[StreamEvent]]:
         """Execute tool calls via ToolGateway, intercepting ask_user.
 
         Returns a tuple of (results, extra_events) where extra_events
         contains any INPUT_NEEDED events that should be yielded.
+
+        ``trace_ctx`` is forwarded to the gateway so TOOL_CALL audit events
+        (and the permission / guardrail decision metadata) are written.
         """
         results: list[ToolResult] = []
         extra_events: list[StreamEvent] = []
@@ -984,7 +1008,9 @@ class ConversationAgent:
                     # Guarded by the `not self._channel and not self.tool_gateway`
                     # check above: if we reach this branch, tool_gateway is not None.
                     assert self.tool_gateway is not None
-                    gw_results = await self.tool_gateway.call_many(gw_calls)
+                    gw_results = await self.tool_gateway.call_many(
+                        gw_calls, trace_ctx=trace_ctx
+                    )
                 results.extend(gw_results)
 
         # Log tool results
@@ -1511,7 +1537,12 @@ class ConversationAgent:
             # by the main loop prior to suspension, if applicable)
             self._emit_prompt_snapshot_event(state, request, config)
 
-            response = await self.gateway.generate(request, config)
+            from arcana.contracts.trace import TraceContext
+
+            resume_trace_ctx = TraceContext(run_id=state.run_id)
+            response = await self.gateway.generate(
+                request, config, trace_ctx=resume_trace_ctx
+            )
             facts = self._parse_turn(response)
             assessment = self._assess_turn(facts, state)
 
@@ -1520,7 +1551,10 @@ class ConversationAgent:
 
             # Handle tool calls
             if facts.tool_calls:
-                results, _resume_events = await self._execute_tools(facts.tool_calls)
+                results, _resume_events = await self._execute_tools(
+                    facts.tool_calls, run_id=state.run_id,
+                    trace_ctx=resume_trace_ctx,
+                )
                 for tc_req in facts.tool_calls:
                     messages.append(Message(
                         role=MessageRole.ASSISTANT,
@@ -1699,8 +1733,11 @@ class ConversationAgent:
         )
         config = self._resolve_model_config()
         executor = DirectExecutor()
+        from arcana.contracts.trace import TraceContext
+
         response = await executor.direct_answer(
             goal, self.gateway, config, system_prompt=self.system_prompt,
+            trace_ctx=TraceContext(run_id=run_id),
         )
 
         # Warn and estimate tokens if provider reported 0 usage

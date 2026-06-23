@@ -194,7 +194,7 @@ class TestChatSessionSend:
         rt = _make_runtime()
         captured_requests = []
 
-        async def mock_generate(*, request, config):
+        async def mock_generate(request=None, config=None, trace_ctx=None, **kwargs):
             captured_requests.append(request)
             return _make_text_response("Response")
 
@@ -336,7 +336,7 @@ class TestChatSessionSend:
 
         call_count = 0
 
-        async def mock_generate(*, request, config):
+        async def mock_generate(request=None, config=None, trace_ctx=None, **kwargs):
             nonlocal call_count
             call_count += 1
             # The context builder should have been called -- we just verify
@@ -394,7 +394,7 @@ class TestChatSessionStream:
         rt = _make_runtime()
 
         # Mock streaming
-        async def mock_stream(*, request, config):
+        async def mock_stream(request=None, config=None, trace_ctx=None, **kwargs):
             from arcana.contracts.llm import StreamChunk, TokenUsage
 
             yield StreamChunk(type="text_delta", text="Hello")

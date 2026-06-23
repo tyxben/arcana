@@ -14,6 +14,7 @@ from arcana.contracts.llm import (
     ModelConfig,
 )
 from arcana.contracts.tool import ToolCall
+from arcana.contracts.trace import TraceContext
 from arcana.gateway.registry import ModelGatewayRegistry
 from arcana.tool_gateway.gateway import ToolGateway
 
@@ -32,6 +33,7 @@ class DirectExecutor:
         config: ModelConfig,
         *,
         system_prompt: str | None = None,
+        trace_ctx: TraceContext | None = None,
     ) -> LLMResponse:
         """Answer with a single LLM call, no tools.
 
@@ -40,6 +42,7 @@ class DirectExecutor:
             gateway: Model gateway for LLM access.
             config: Model configuration to use.
             system_prompt: Optional system prompt (includes memory context).
+            trace_ctx: Optional trace context so the LLM call is audited.
 
         Returns:
             The full LLMResponse (content + usage).
@@ -50,7 +53,9 @@ class DirectExecutor:
                 Message(role=MessageRole.USER, content=goal),
             ]
         )
-        return await gateway.generate(request=request, config=config)
+        return await gateway.generate(
+            request=request, config=config, trace_ctx=trace_ctx
+        )
 
     async def single_tool_call(
         self,

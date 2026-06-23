@@ -98,6 +98,11 @@ class WorkingSetBuilder:
         self._max_skills = max(0, max_skills)
         self._last_skill_selections: list[SkillSelectionRecord] = []
 
+        # Usage from the most recent LLM compression call, pending accounting
+        # by the agent (folded into reported cost + budget). None when the
+        # last build did no LLM compression.
+        self._last_compression_usage: Any = None
+
         # Track whether memory has been injected into system prompt
         self._memory_injected: bool = False
 
@@ -125,6 +130,18 @@ class WorkingSetBuilder:
     @property
     def budget(self) -> TokenBudget:
         return self._budget
+
+    def consume_compression_usage(self) -> Any:
+        """Return and clear usage from the last LLM compression call.
+
+        ``abuild_conversation_context`` records the token usage of any LLM
+        summarization it performs. The agent calls this once per turn and
+        folds the usage into reported cost + budget, so compression is not a
+        silent, un-counted cost. Returns ``None`` when no LLM compression ran.
+        """
+        usage = self._last_compression_usage
+        self._last_compression_usage = None
+        return usage
 
     def set_goal(self, goal: str) -> None:
         """Update goal keywords for relevance scoring."""
@@ -1043,13 +1060,20 @@ class WorkingSetBuilder:
         memory_context: str | None = None,
         tool_token_estimate: int = 0,
         turn: int = 0,
+        trace_ctx: Any = None,
     ) -> list[Message]:
         """Async version of build_conversation_context.
 
         When a gateway is configured and the middle section is large enough,
         uses LLM-based semantic compression instead of keyword truncation.
         Falls back to sync compression if no gateway is set or on failure.
+
+        ``trace_ctx`` is forwarded to the compression LLM call so it is
+        audited; its usage is recorded for the caller to account via
+        :meth:`consume_compression_usage`.
         """
+        # Reset compression usage; set only if an LLM summarization runs.
+        self._last_compression_usage = None
         # v0.7.0 — reserve budget for active pins (async path).
         pin_messages = self._pin_messages(turn=turn)
         pin_tokens = self._pin_token_total(pin_messages)
@@ -1161,6 +1185,7 @@ class WorkingSetBuilder:
                 effective_tool_tokens=effective_tool_tokens,
                 memory_injected=memory_injected,
                 p0_info=p0_info,
+                trace_ctx=trace_ctx,
             )
             # If aggressive was requested and LLM compression is still over budget,
             # fall back to aggressive truncation
@@ -1304,6 +1329,7 @@ class WorkingSetBuilder:
         effective_tool_tokens: int,
         memory_injected: bool,
         p0_info: dict[int, int] | None = None,
+        trace_ctx: Any = None,
     ) -> list[Message]:
         """Async compression: uses LLM when available, falls back to keyword-based."""
         p0_info = p0_info or {}
@@ -1329,7 +1355,9 @@ class WorkingSetBuilder:
             and summary_budget > 0
         ):
             try:
-                summary_text = await self._compress_with_llm(middle, summary_budget)
+                summary_text = await self._compress_with_llm(
+                    middle, summary_budget, trace_ctx=trace_ctx
+                )
                 summary_msg = Message(role=MessageRole.USER, content=summary_text)
                 result = head + [summary_msg] + tail
 
@@ -1400,12 +1428,20 @@ class WorkingSetBuilder:
             p0_info=p0_info,
         )
 
-    async def _compress_with_llm(self, messages: list[Message], budget_tokens: int) -> str:
+    async def _compress_with_llm(
+        self,
+        messages: list[Message],
+        budget_tokens: int,
+        *,
+        trace_ctx: Any = None,
+    ) -> str:
         """Use a cheap LLM to summarize middle messages semantically.
 
         Args:
             messages: The middle messages to compress.
             budget_tokens: Maximum token count for the resulting summary.
+            trace_ctx: Optional trace context so the summarization LLM call is
+                audited like any other (Trace Everything).
 
         Returns:
             A summary string that fits within budget_tokens.
@@ -1471,7 +1507,10 @@ class WorkingSetBuilder:
                 if isinstance(dm, str) and dm:
                     config = config.model_copy(update={"model_id": dm})
 
-        response = await self._gateway.generate(request, config)
+        response = await self._gateway.generate(request, config, trace_ctx=trace_ctx)
+        # Record usage so the agent can fold compression cost into the
+        # reported total + budget (otherwise long conversations under-count).
+        self._last_compression_usage = response.usage
         summary = response.content or ""
 
         # Truncate if it somehow exceeds budget

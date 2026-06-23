@@ -53,7 +53,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -953,3 +953,83 @@ class TestLifecycleHooksAreObservers:
 
         assert ran["look"] is True
         assert result.content == "done"
+
+
+# ---------------------------------------------------------------------------
+# Design pattern 4 (Trace Everything) — audited on the LIVE V2 path
+# ---------------------------------------------------------------------------
+
+
+class TestTraceEverythingOnLivePath:
+    """A real ConversationAgent run must audit its tool calls.
+
+    The provider LLM_CALL and gateway TOOL_CALL audit events are gated on a
+    trace context. The V2 agent must thread one through so the evidence chain
+    is real on the live path — not only in tests that drive the gateway
+    directly. (Otherwise the Phase 1/3 permission/guardrail audit metadata
+    never reaches the trace in production.)
+    """
+
+    @pytest.mark.asyncio
+    async def test_live_tool_run_writes_tool_call_audit(self, tmp_path) -> None:
+        from collections import Counter
+
+        import arcana
+        from arcana.contracts.llm import (
+            LLMResponse,
+            TokenUsage,
+            ToolCallRequest,
+        )
+        from arcana.runtime_core import Runtime, RuntimeConfig
+        from arcana.trace.reader import TraceReader
+
+        @arcana.tool(side_effect="read")
+        async def look(x: str) -> str:
+            return "data"
+
+        rt = Runtime(
+            providers={"ollama": ""},
+            tools=[look],
+            trace=True,
+            config=RuntimeConfig(
+                default_provider="ollama", trace_dir=str(tmp_path)
+            ),
+        )
+        rt._gateway.generate = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    content=None,
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="tc-1", name="look", arguments='{"x": "a"}'
+                        )
+                    ],
+                    usage=TokenUsage(
+                        prompt_tokens=10, completion_tokens=5, total_tokens=15
+                    ),
+                    model="m",
+                    finish_reason="tool_calls",
+                ),
+                LLMResponse(
+                    content="done",
+                    tool_calls=None,
+                    usage=TokenUsage(
+                        prompt_tokens=10, completion_tokens=20, total_tokens=30
+                    ),
+                    model="m",
+                    finish_reason="stop",
+                ),
+            ]
+        )
+        rt._gateway.stream = MagicMock(side_effect=NotImplementedError)
+
+        async with rt.chat() as c:
+            await c.send("use the tool")
+
+        reader = TraceReader(trace_dir=tmp_path)
+        types: Counter = Counter()
+        for f in tmp_path.glob("*.jsonl"):
+            types += Counter(
+                e.event_type.value for e in reader.read_events(f.stem)
+            )
+        assert types["tool_call"] >= 1
