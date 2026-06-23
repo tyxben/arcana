@@ -107,8 +107,31 @@ guardrails, provider credentials, or execution backends.
      `TestEvalIsGateNotGovernance` (no gate in runtime/).
 5. **F6 — resolve string annotations in `_signature_to_json_schema`** so
    future-annotations modules get correctly-typed tool schemas.
-6. **Self-evolution contracts** — `EvidenceBundle` / `EvolutionProposal` /
-   `PromotionRecord` (Amendment 6). First auto-evolvable targets are
-   low-authority only: skills, tool-affordance copy, context-strategy
-   thresholds, eval cases, docs. Permissions and guardrails are never
-   auto-applied.
+6. **Self-evolution contracts (DONE — contracts only, no running loop).** The
+   three Amendment-6 ratification prerequisites now exist + are tested:
+   (a) `EvidenceBundle` / `EvolutionProposal` / `PromotionRecord` +
+   `classify_authority` in `contracts/evolution.py`; (b) a skill trust lifecycle
+   (`SkillLifecycleState` DRAFT/EVALUATED/TRUSTED/QUARANTINED on `SkillSpec`,
+   body-identity digest, `verify_skill_integrity`); (c) a safety eval suite
+   (authority-escalation / skill-poisoning / self-preservation probes +
+   `SAFETY_GATE_CONFIG`). `TraceSignals` is the EvidenceBundle atom; the future
+   acceptance gate is `RegressionGate(SAFETY_GATE_CONFIG).compare(...)` —
+   expressible, not wired. Adversarially reviewed; fixed the critical holes —
+   authority classification is derived from the proposal's OWN target (not an
+   attacker-supplied bundle); the structural authority floor is re-derived at
+   the promotion gate (a self-labelled-LOW authority surface cannot dodge it);
+   an invalid APPROVED `PromotionRecord` is **unconstructible** (a model
+   validator raises — self-approval / auto-approval / missing attestation /
+   suppressed monitoring / removed rollback all fail at construction); the
+   behavioral authority trigger covers the soft signals (asks/warns/degraded/
+   permission-error buckets); evidence must be digest-anchored. The no-loop
+   line is pinned by `TestEvolutionContractsNotInRuntime`. **Constitution NOT
+   amended** — Amendment 6 ratifies into v3.7 only after this implementation
+   proves out (its Ratification Condition). Deferred: cryptographic attestation
+   verification (presence is checked); binding a skill's `evidence_digest` to a
+   live bundle (the trust chain runs through `PromotionRecord`); the running
+   loop itself (deliberately out of scope).
+   - Files: `contracts/evolution.py`, `contracts/skill.py`, `contracts/__init__.py`.
+   - Tests: `tests/test_evolution_contracts.py`, `tests/test_skill_lifecycle.py`,
+     `tests/eval/test_self_evolution_safety.py`; invariant
+     `TestEvolutionContractsNotInRuntime`.

@@ -1,6 +1,22 @@
 """Core contracts and data models for Arcana."""
 
 from arcana.contracts.channel import ExecutionChannel
+from arcana.contracts.evolution import (
+    AcceptanceDecision,
+    ApproverKind,
+    AuthorityClass,
+    EvidenceBundle,
+    EvolutionProposal,
+    EvolutionTarget,
+    EvolutionTargetKind,
+    MonitoringAnchor,
+    PatchRef,
+    PromotionRecord,
+    ProposalStatus,
+    RollbackPointer,
+    SandboxVerificationRef,
+    classify_authority,
+)
 from arcana.contracts.guardrail import (
     GuardrailAction,
     GuardrailDecision,
@@ -29,7 +45,12 @@ from arcana.contracts.runtime import (
     StepResult,
     StepType,
 )
-from arcana.contracts.skill import SkillRegistry, SkillSelectionRecord, SkillSpec
+from arcana.contracts.skill import (
+    SkillLifecycleState,
+    SkillRegistry,
+    SkillSelectionRecord,
+    SkillSpec,
+)
 from arcana.contracts.state import AgentState, ExecutionStatus, StateSnapshot
 from arcana.contracts.strategy import AdaptiveState, StrategyDecision, StrategyType
 from arcana.contracts.tool import ToolCall, ToolProvenance, ToolResult, ToolSpec
@@ -87,6 +108,22 @@ __all__ = [
     "SkillSpec",
     "SkillSelectionRecord",
     "SkillRegistry",
+    "SkillLifecycleState",
+    # Self-evolution (Amendment 6 contracts — no running loop)
+    "EvolutionTargetKind",
+    "AuthorityClass",
+    "ProposalStatus",
+    "AcceptanceDecision",
+    "ApproverKind",
+    "EvidenceBundle",
+    "EvolutionProposal",
+    "EvolutionTarget",
+    "PatchRef",
+    "PromotionRecord",
+    "SandboxVerificationRef",
+    "RollbackPointer",
+    "MonitoringAnchor",
+    "classify_authority",
     # Trace
     "TraceEvent",
     "TraceContext",

@@ -1197,3 +1197,41 @@ class TestEvalIsGateNotGovernance:
             f"RegressionGate referenced inside runtime/: {offenders} — eval is "
             f"gate-not-governance (Principle 7 Corollary)."
         )
+
+
+# ---------------------------------------------------------------------------
+# Amendment 6 — a running agent must never mutate itself
+# ---------------------------------------------------------------------------
+
+
+class TestEvolutionContractsNotInRuntime:
+    """The self-evolution contracts must never be reached from the live runtime.
+
+    Amendment 6 §1: a self-evolution loop's output is a proposal, never an
+    in-place mutation of running Arcana state. Structurally, no module under
+    ``src/arcana/runtime/`` may reference the evolution contracts — so "a
+    running agent cannot mutate itself" is enforced by the import graph, not by
+    trust. (Mirrors TestEvalIsGateNotGovernance.)
+    """
+
+    def test_no_evolution_contract_referenced_in_runtime(self) -> None:
+        import pathlib
+
+        forbidden = (
+            "EvolutionProposal",
+            "EvidenceBundle",
+            "PromotionRecord",
+            "classify_authority",
+            "contracts.evolution",
+        )
+        runtime_dir = pathlib.Path("src/arcana/runtime")
+        offenders = []
+        for py in runtime_dir.rglob("*.py"):
+            text = py.read_text()
+            for name in forbidden:
+                if name in text:
+                    offenders.append(f"{py}: {name}")
+        assert not offenders, (
+            f"self-evolution contract referenced inside runtime/: {offenders} "
+            f"— a running agent must never mutate itself (Amendment 6 §1)."
+        )
