@@ -25,7 +25,8 @@ import inspect
 import mimetypes
 import os
 from collections.abc import Callable
-from typing import Any
+from types import UnionType
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel
 
@@ -67,7 +68,7 @@ def tool(
 
         # Infer input_schema from function signature
         sig = inspect.signature(func)
-        input_schema = _signature_to_json_schema(sig)
+        input_schema = _signature_to_json_schema(sig, func)
 
         spec = ToolSpec(
             name=tool_name,
@@ -122,7 +123,7 @@ class Tool:
         tool_desc = description or fn.__doc__ or f"Tool: {tool_name}"
 
         sig = inspect.signature(fn)
-        input_schema = _signature_to_json_schema(sig)
+        input_schema = _signature_to_json_schema(sig, fn)
 
         spec = ToolSpec(
             name=tool_name,
@@ -145,8 +146,19 @@ class Tool:
         return self._fn(*args, **kwargs)
 
 
-def _signature_to_json_schema(sig: inspect.Signature) -> dict[str, Any]:
-    """Convert function signature to JSON Schema. Pure function."""
+def _signature_to_json_schema(
+    sig: inspect.Signature,
+    func: Callable | None = None,  # type: ignore[type-arg]
+) -> dict[str, Any]:
+    """Convert function signature to JSON Schema. Pure function.
+
+    Under ``from __future__ import annotations`` (PEP 563), annotations on a
+    function are stored as strings (e.g. ``"int"`` rather than ``int``). When
+    ``func`` is provided, its annotations are resolved to real types via
+    :func:`typing.get_type_hints` so that string annotations map to the correct
+    JSON Schema type. If resolution fails (e.g. an unresolvable forward
+    reference), we fall back to the raw signature annotations without raising.
+    """
     properties: dict[str, Any] = {}
     required: list[str] = []
 
@@ -159,11 +171,22 @@ def _signature_to_json_schema(sig: inspect.Signature) -> dict[str, Any]:
         dict: "object",
     }
 
+    # Resolve PEP-563 string annotations to real types when we have the func.
+    resolved_hints: dict[str, Any] = {}
+    if func is not None:
+        try:
+            resolved_hints = get_type_hints(func)
+        except Exception:
+            # Unresolvable forward refs, missing names, etc. -- fall back to
+            # whatever the raw signature carries (string or real type).
+            resolved_hints = {}
+
     for param_name, param in sig.parameters.items():
         if param_name in ("self", "cls"):
             continue
 
-        annotation = param.annotation
+        annotation = resolved_hints.get(param_name, param.annotation)
+        annotation = _strip_optional(annotation)
         json_type = type_map.get(annotation, "string")
         properties[param_name] = {"type": json_type}
 
@@ -178,6 +201,22 @@ def _signature_to_json_schema(sig: inspect.Signature) -> dict[str, Any]:
         schema["required"] = required
 
     return schema
+
+
+def _strip_optional(annotation: Any) -> Any:
+    """Reduce ``Optional[T]`` / ``T | None`` to the underlying non-None type.
+
+    Handles both ``typing.Optional[int]``/``typing.Union[int, None]`` and the
+    PEP-604 ``int | None`` form. When the annotation is not an optional/union,
+    it is returned unchanged. A union with multiple non-None members has no
+    single JSON type, so it is left as-is (falls back to "string").
+    """
+    origin = get_origin(annotation)
+    if origin is Union or origin is UnionType:
+        non_none = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if len(non_none) == 1:
+            return non_none[0]
+    return annotation
 
 
 # --- Result Model ---
