@@ -29,9 +29,10 @@ guardrails, provider credentials, or execution backends.
 |---|----------|---------|--------|
 | F1 | High | V2 `ConversationAgent` did not pass a `trace_ctx` to `gateway.generate` / `tool_gateway.call_many`; provider `LLM_CALL` and gateway `TOOL_CALL` audit events are gated on `trace_ctx`, so they never fired on the live path. **Knock-on**: the Phase 1/3 per-call `permission_decision` / `GUARDRAIL_DECISION` metadata rode on the missing `TOOL_CALL` event, so that audit was real only in gateway-level unit tests. The shared `ToolGateway` (from `Runtime(tools=...)`) was also built without a `trace_writer`. | **DONE** |
 | F3 | Med-High | `WorkingSetBuilder._compress_with_llm` calls `gateway.generate` for summarization, but that usage was discarded — not counted against budget and not traced. Long conversations systematically under-count cost. | **DONE** |
-| F2 | High | Prompt-based tool fallback (`_generate_with_text_tools`) is a pseudo-capability: it asks the model to emit a JSON tool call in **text**, but the provider builds `LLMResponse.tool_calls` only from native `message.tool_calls`, and `_parse_turn` only reads `response.tool_calls`. A degraded provider shows tools but never executes them (No Controllability Theater). | pending |
-| F4 | Low-Med | `_execute_tools` buckets ask_user → cognitive → gateway and appends results in that order, so a turn mixing built-in and gateway tools returns `results` (and TOOL_END events) out of input order. The LLM conversation is `tool_call_id`-matched (answers are correct); the returned-order contract is the wart. `call_many` itself is already order-preserving. | pending |
+| F2 | High | Prompt-based tool fallback (`_generate_with_text_tools`) is a pseudo-capability: it asks the model to emit a JSON tool call in **text**, but the provider builds `LLMResponse.tool_calls` only from native `message.tool_calls`, and `_parse_turn` only reads `response.tool_calls`. A degraded provider shows tools but never executes them (No Controllability Theater). | **DONE** |
+| F4 | Low-Med | `_execute_tools` buckets ask_user → cognitive → gateway and appends results in that order, so a turn mixing built-in and gateway tools returns `results` (and TOOL_END events) out of input order. The LLM conversation is `tool_call_id`-matched (answers are correct); the returned-order contract is the wart. `call_many` itself is already order-preserving. | **DONE** |
 | F5 | Med | Eval gates on pass-rate / cost / tokens; `EvalResult` carries status/steps/tokens/cost. Self-evolution needs trace-derived signals (context loss, tool-error category, permission denial, provider degradation, prompt-snapshot replay diff) and golden-trace replay. | pending |
+| F6 | Med | (Surfaced during F2.) `sdk._signature_to_json_schema` maps a parameter's annotation through a `{type: json_type}` dict, but under `from __future__ import annotations` (the modern default) annotations are **strings** (`"int"`), so every typed param schemas as `"string"`. Tools defined in such a module reject correctly-typed int/float/bool/list/dict args at validation. Fix: resolve string annotations (`typing.get_type_hints`) before mapping. | pending |
 
 ## Remediation order (by weight)
 
@@ -48,14 +49,25 @@ guardrails, provider credentials, or execution backends.
      `runtime_core.py`.
    - Tests: `tests/test_evidence_chain.py`, invariant
      `TestTraceEverythingOnLivePath`.
-2. **F2 — fix or remove the prompt-based tool fallback.** Preferred: make it
-   real — parse the text JSON back into `LLMResponse.tool_calls` in the provider
-   so the agent executes it; cover with a test. If too fragile, remove it and
-   surface an honest "provider does not support tools" error. No pseudo-capability.
-3. **F4 — reassemble `results` in input order** at the end of `_execute_tools`.
+2. **F2 — make the prompt-based tool fallback real (DONE).** Module-level
+   `parse_text_tool_calls(content)` in `openai_compatible.py` recovers the text
+   JSON into `ToolCallRequest`s (fence-tolerant, string-aware balanced-brace
+   scan, validates `tool_call`+`name`, normalizes double-encoded `arguments`,
+   skips malformed). Wired into `generate()` (via a `use_text_tools` flag,
+   promoting `finish_reason` to `tool_calls`) AND `stream()` (delegates to
+   `generate()` for the degraded case so streaming has parity). `_parse_turn`
+   stays a pure mapping.
+   - Tests: `tests/test_text_tools_parser.py` (parser units + provider
+     end-to-end + streaming parity + full degraded-agent loop that executes a
+     real tool), invariant `TestDegradedToolCallsAreReal`.
+3. **F4 — reassemble `results` in input order (DONE).** `_execute_tools`
+   re-keys results by `tool_call_id` and re-emits in input order before
+   returning. Tests: `tests/test_tool_result_ordering.py`.
 4. **F5 — trace-derived eval metrics + golden trace replay.** Add the
    trace-level signals above to the eval outcome + gate.
-5. **Self-evolution contracts** — `EvidenceBundle` / `EvolutionProposal` /
+5. **F6 — resolve string annotations in `_signature_to_json_schema`** so
+   future-annotations modules get correctly-typed tool schemas.
+6. **Self-evolution contracts** — `EvidenceBundle` / `EvolutionProposal` /
    `PromotionRecord` (Amendment 6). First auto-evolvable targets are
    low-authority only: skills, tool-affordance copy, context-strategy
    thresholds, eval cases, docs. Permissions and guardrails are never

@@ -16,7 +16,10 @@ the OpenAI chat completions format. Most modern LLM providers support this:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -53,6 +56,121 @@ except ImportError:
     RateLimitError = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Prompt-based tool-call fallback parser
+# ---------------------------------------------------------------------------
+
+# Matches the start of the `{"tool_call": ...}` object the text-tools fallback
+# instructs the model to emit (``_generate_with_text_tools``). Whitespace
+# between the brace and the key is tolerated; fences and surrounding prose are
+# handled by the balanced-brace scan rather than a single regex.
+_TOOL_CALL_START_RE = re.compile(r'\{\s*"tool_call"')
+
+
+def _extract_balanced_objects(text: str) -> list[str]:
+    """Return ``{"tool_call": ...}`` JSON substrings via string-aware brace
+    balancing.
+
+    A naive ``\\{.*\\}`` regex breaks on nested braces in ``arguments`` and on
+    braces inside string values. This walks each candidate start tracking brace
+    depth while ignoring braces inside JSON strings (respecting backslash
+    escapes), so nested objects and braces-in-strings are handled correctly.
+    """
+    objects: list[str] = []
+    # Cursor of the furthest already-scanned position. Skipping matches that
+    # fall inside it keeps total work O(n): without it, K unbalanced
+    # ``{"tool_call"`` starts would each rescan to EOF (O(K*n) — a
+    # model-controllable event-loop stall). It also correctly ignores a
+    # nested ``{"tool_call"`` that lives inside another call's arguments.
+    pos = 0
+    for match in _TOOL_CALL_START_RE.finditer(text):
+        start = match.start()
+        if start < pos:
+            continue
+        depth = 0
+        in_string = False
+        escaped = False
+        i = start
+        for i in range(start, len(text)):
+            ch = text[i]
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    objects.append(text[start : i + 1])
+                    break
+        # Advance past everything scanned (whether or not it balanced) so the
+        # next match starts beyond this region.
+        pos = i + 1
+    return objects
+
+
+def parse_text_tool_calls(content: str | None) -> list[ToolCallRequest]:
+    """Recover tool calls a degraded provider emitted as text JSON.
+
+    When a provider lacks native tool-calling, ``_generate_with_text_tools``
+    asks the model to emit ``{"tool_call": {"name": ..., "arguments": {...}}}``
+    in the response *text*. This parses those back into ``ToolCallRequest``
+    objects so the runtime executes them, instead of returning the raw JSON as
+    a final answer (finding F2 — no pseudo-capabilities).
+
+    Robust by design: tolerates markdown fences, surrounding prose, multiple
+    blocks, nested braces, braces inside strings, and double-encoded
+    ``arguments``. Malformed or non-``tool_call`` JSON is skipped (never
+    raises) — an empty list is the correct outcome for a plain text answer.
+    Order and multiplicity are preserved.
+    """
+    if not content:
+        return []
+    calls: list[ToolCallRequest] = []
+    for obj_text in _extract_balanced_objects(content):
+        try:
+            obj = json.loads(obj_text)
+        # RecursionError (json nesting beyond the interpreter limit) is a
+        # RuntimeError, not a ValueError -- catch it so over-nested model
+        # output is skipped rather than raised (the docstring promises this).
+        except (json.JSONDecodeError, ValueError, RecursionError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        tc = obj.get("tool_call")
+        if not isinstance(tc, dict):
+            continue
+        name = tc.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        name = name.strip()
+        args = tc.get("arguments", {})
+        if isinstance(args, str):
+            # Some models double-encode arguments as a JSON string.
+            try:
+                args = json.loads(args)
+            except (json.JSONDecodeError, ValueError, RecursionError):
+                args = {}
+        if not isinstance(args, dict):
+            args = {}
+        calls.append(
+            ToolCallRequest(
+                id=f"call_{uuid.uuid4().hex[:8]}",
+                name=name,
+                arguments=json.dumps(args, ensure_ascii=False),
+            )
+        )
+    return calls
+
 
 # ---------------------------------------------------------------------------
 # Content block conversion helpers
@@ -459,6 +577,7 @@ class OpenAICompatibleProvider(ModelGateway):
                     "Provider '%s' rejected tool_calls (400); degraded to prompt-based tools",
                     self._provider_name,
                 )
+                use_text_tools = True
                 response = await self._generate_with_text_tools(
                     request, config, messages,
                 )
@@ -538,6 +657,17 @@ class OpenAICompatibleProvider(ModelGateway):
                 for tc in choice.message.tool_calls
             ]
 
+        # Prompt-based tool fallback (finding F2): a degraded provider has no
+        # native tool_calls and instead emitted the call as JSON in the text.
+        # Recover them here so the runtime actually executes the tool instead
+        # of returning the raw JSON as a final answer.
+        finish_reason = choice.finish_reason or "stop"
+        if use_text_tools and not tool_calls:
+            text_calls = parse_text_tool_calls(content)
+            if text_calls:
+                tool_calls = text_calls
+                finish_reason = "tool_calls"
+
         # Get usage -- including OpenAI cached prompt tokens when available
         cached_tokens: int | None = None
         if response.usage:
@@ -559,7 +689,7 @@ class OpenAICompatibleProvider(ModelGateway):
             tool_calls=tool_calls,
             usage=usage,
             model=response.model,
-            finish_reason=choice.finish_reason or "stop",
+            finish_reason=finish_reason,
         )
 
         # Log to trace
@@ -712,6 +842,32 @@ class OpenAICompatibleProvider(ModelGateway):
         token-level streaming. Tool call deltas are tracked across chunks
         so each yielded chunk includes the tool_call_id.
         """
+        # Prompt-based tool fallback parity (finding F2): when tools are
+        # requested but the provider has no native tool support, the streaming
+        # API would emit the tool call as plain text and drop it. Delegate to
+        # the non-streaming generate() (which runs the text-tools fallback +
+        # parser), then re-emit its result as chunks so tool calls survive.
+        if request.tools and not self.profile.tool_calls:
+            resp = await self.generate(request, config, trace_ctx)
+            if resp.content:
+                yield StreamChunk(type="text_delta", text=resp.content)
+            for tc in resp.tool_calls or []:
+                yield StreamChunk(
+                    type="tool_call_delta",
+                    tool_call_id=tc.id,
+                    tool_name=tc.name,
+                    arguments_delta=tc.arguments,
+                )
+            yield StreamChunk(
+                type="done",
+                usage=resp.usage,
+                metadata={
+                    "finish_reason": resp.finish_reason,
+                    "model": resp.model,
+                },
+            )
+            return
+
         messages = self._convert_messages(request.messages)
 
         params: dict[str, Any] = {

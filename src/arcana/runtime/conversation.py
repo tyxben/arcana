@@ -1028,6 +1028,29 @@ class ConversationAgent:
                     result.output_str[:200] if result.output_str else "",
                 )
 
+        # Restore input order (finding F4): results were assembled bucket by
+        # bucket (ask_user -> cognitive -> gateway), so a turn mixing built-in
+        # and gateway tools would otherwise return results — and emit TOOL_END
+        # events — out of the order the LLM requested them. Re-emit in input
+        # order. (The LLM conversation is already id-matched in
+        # _add_tool_messages; this fixes the returned list + stream-event
+        # ordering contract.)
+        #
+        # Consume each result at most once by id, preserving multiplicity, so
+        # colliding or empty tool_call_ids cannot merge or drop results (a
+        # plain by-id dict would last-wins-collapse duplicates). Any result
+        # that matches no remaining input slot is appended rather than lost.
+        remaining: dict[str, list[ToolResult]] = {}
+        for r in results:
+            remaining.setdefault(r.tool_call_id, []).append(r)
+        ordered: list[ToolResult] = []
+        for tc in tool_calls:
+            bucket = remaining.get(tc.id)
+            if bucket:
+                ordered.append(bucket.pop(0))
+        leftovers = [r for bucket in remaining.values() for r in bucket]
+        results = ordered + leftovers
+
         return results, extra_events
 
     def _handle_cognitive_tool_call(

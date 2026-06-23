@@ -1033,3 +1033,74 @@ class TestTraceEverythingOnLivePath:
                 e.event_type.value for e in reader.read_events(f.stem)
             )
         assert types["tool_call"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Second Prohibition (No Controllability Theater) — degraded providers
+# deliver real tool calls, not pseudo-capabilities
+# ---------------------------------------------------------------------------
+
+
+class TestDegradedToolCallsAreReal:
+    """A provider without native tool-calling must still execute tools.
+
+    The prompt-based fallback asks the model to emit the call as JSON text.
+    If that JSON is never parsed back into tool_calls, the framework shows a
+    tool surface it cannot honor (controllability theater). The provider must
+    recover the call so the runtime actually executes it (finding F2).
+    """
+
+    @pytest.mark.asyncio
+    async def test_text_fallback_tool_call_is_executable(self) -> None:
+        from types import SimpleNamespace
+
+        from arcana.contracts.llm import (
+            LLMRequest,
+            Message,
+            MessageRole,
+            ModelConfig,
+        )
+        from arcana.gateway.providers.openai_compatible import (
+            OpenAICompatibleProvider,
+            ProviderProfile,
+        )
+
+        provider = OpenAICompatibleProvider(
+            provider_name="test",
+            api_key="sk-test",
+            base_url="http://localhost",
+            profile=ProviderProfile(tool_calls=False),
+        )
+        msg = SimpleNamespace(
+            content=(
+                '```json\n{"tool_call": {"name": "search", '
+                '"arguments": {"q": "x"}}}\n```'
+            ),
+            tool_calls=None,
+        )
+        usage = SimpleNamespace(
+            prompt_tokens=10, completion_tokens=5, total_tokens=15,
+            prompt_tokens_details=None,
+        )
+        completion = SimpleNamespace(
+            choices=[SimpleNamespace(message=msg, finish_reason="stop")],
+            usage=usage,
+            model="m",
+        )
+        provider.client.chat.completions.create = AsyncMock(
+            return_value=completion
+        )
+
+        request = LLMRequest(
+            messages=[Message(role=MessageRole.USER, content="search x")],
+            tools=[{"type": "function", "function": {"name": "search"}}],
+        )
+        resp = await provider.generate(
+            request, ModelConfig(provider="test", model_id="m")
+        )
+
+        # The text JSON became a real, executable tool call — not a final
+        # answer of raw JSON.
+        assert resp.tool_calls, "degraded provider must surface the tool call"
+        assert resp.tool_calls[0].name == "search"
+        assert resp.tool_calls[0].arguments == '{"q": "x"}'
